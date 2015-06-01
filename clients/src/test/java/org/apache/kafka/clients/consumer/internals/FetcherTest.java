@@ -17,10 +17,12 @@
 package org.apache.kafka.clients.consumer.internals;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.MockClient;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -49,29 +51,25 @@ public class FetcherTest {
     private String topicName = "test";
     private String groupId = "test-group";
     private TopicPartition tp = new TopicPartition(topicName, 0);
-    private long retryBackoffMs = 0L;
     private int minBytes = 1;
     private int maxWaitMs = 0;
     private int fetchSize = 1000;
-    private String offsetReset = "EARLIEST";
     private MockTime time = new MockTime();
     private MockClient client = new MockClient(time);
     private Metadata metadata = new Metadata(0, Long.MAX_VALUE);
     private Cluster cluster = TestUtils.singletonCluster(topicName, 1);
     private Node node = cluster.nodes().get(0);
-    private SubscriptionState subscriptions = new SubscriptionState();
+    private SubscriptionState subscriptions = new SubscriptionState(KafkaConsumer.OffsetResetStrategy.EARLIEST);
     private Metrics metrics = new Metrics(time);
     private Map<String, String> metricTags = new LinkedHashMap<String, String>();
 
     private MemoryRecords records = MemoryRecords.emptyRecords(ByteBuffer.allocate(1024), CompressionType.NONE);
 
     private Fetcher<byte[], byte[]> fetcher = new Fetcher<byte[], byte[]>(client,
-        retryBackoffMs,
         minBytes,
         maxWaitMs,
         fetchSize,
         true, // check crc
-        offsetReset,
         new ByteArrayDeserializer(),
         new ByteArrayDeserializer(),
         metadata,
@@ -140,11 +138,11 @@ public class FetcherTest {
         subscriptions.fetched(tp, 5);
         fetcher.initFetches(cluster, time.milliseconds());
         client.respond(fetchResponse(this.records.buffer(), Errors.OFFSET_OUT_OF_RANGE.code(), 100L));
-        client.prepareResponse(listOffsetResponse(Collections.singletonList(0L), Errors.NONE.code()));
         client.poll(0, time.milliseconds());
+        assertTrue(subscriptions.offsetResetNeeded(tp));
         assertEquals(0, fetcher.fetchedRecords().size());
-        assertEquals(0L, (long) subscriptions.fetched(tp));
-        assertEquals(0L, (long) subscriptions.consumed(tp));
+        assertEquals(null, subscriptions.fetched(tp));
+        assertEquals(null, subscriptions.consumed(tp));
     }
 
     @Test
@@ -157,11 +155,11 @@ public class FetcherTest {
         // fetch with out of range
         fetcher.initFetches(cluster, time.milliseconds());
         client.respond(fetchResponse(this.records.buffer(), Errors.OFFSET_OUT_OF_RANGE.code(), 100L));
-        client.prepareResponse(listOffsetResponse(Collections.singletonList(0L), Errors.NONE.code()));
         client.poll(0, time.milliseconds());
+        assertTrue(subscriptions.offsetResetNeeded(tp));
         assertEquals(0, fetcher.fetchedRecords().size());
-        assertEquals(0L, (long) subscriptions.fetched(tp));
-        assertEquals(0L, (long) subscriptions.consumed(tp));
+        assertEquals(null, subscriptions.fetched(tp));
+        assertEquals(null, subscriptions.consumed(tp));
     }
 
     private Struct fetchResponse(ByteBuffer buffer, short error, long hw) {
@@ -169,9 +167,5 @@ public class FetcherTest {
         return response.toStruct();
     }
 
-    private Struct listOffsetResponse(List<Long> offsets, short error) {
-        ListOffsetResponse response = new ListOffsetResponse(Collections.singletonMap(tp, new ListOffsetResponse.PartitionData(error, offsets)));
-        return response.toStruct();
-    }
 
 }
