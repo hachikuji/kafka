@@ -14,5 +14,5 @@ package org.apache.kafka.clients.consumer;
 
 import org.apache.kafka.common.KafkaException;
 
-public class ConsumerWakeupException extends KafkaException{
+public class ConsumerWakeupException extends KafkaException {
 }

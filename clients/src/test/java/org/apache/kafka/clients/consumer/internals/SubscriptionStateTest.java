@@ -49,8 +49,8 @@ public class SubscriptionStateTest {
     public void partitionReset() {
         state.subscribe(tp0);
         state.seek(tp0, 5);
-        assertEquals(5l, (long) state.fetched(tp0));
-        assertEquals(5l, (long) state.consumed(tp0));
+        assertEquals(5L, (long) state.fetched(tp0));
+        assertEquals(5L, (long) state.consumed(tp0));
         state.needOffsetReset(tp0);
         assertTrue(state.offsetResetNeeded());
         assertTrue(state.offsetResetNeeded(tp0));

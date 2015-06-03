@@ -12,28 +12,16 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
-import org.apache.kafka.common.TopicPartition;
+public class CoordinatorResponse<T> extends BrokerResponse<T> {
 
-import java.util.Map;
-import java.util.Set;
+    private boolean needNewCoordinator = false;
 
-/**
- * Used to convey results from an offset fetch to the polling thread by way of a callback. In particular,
- * see the usage in {@link org.apache.kafka.clients.consumer.KafkaConsumer#fetchCommittedOffsets(Set, long)}.
- */
-public class OffsetFetchResult {
-    private Map<TopicPartition, Long> offsets;
-
-    public void setOffsets(Map<TopicPartition, Long> offsets) {
-        this.offsets = offsets;
+    public void needNewCoordinator() {
+        this.needNewCoordinator = true;
+        this.ready = true;
     }
 
-    public boolean isReady() {
-        return offsets != null;
+    public boolean newCoordinatorNeeded() {
+        return needNewCoordinator;
     }
-
-    public Map<TopicPartition, Long> offsets() {
-        return offsets;
-    }
-
 }

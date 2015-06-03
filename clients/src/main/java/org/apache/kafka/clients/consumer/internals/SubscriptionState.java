@@ -200,7 +200,7 @@ public class SubscriptionState {
     }
 
     public Map<TopicPartition, KafkaConsumer.OffsetResetStrategy> partitionsToReset() {
-        return this.resetPartitions;
+        return new HashMap<TopicPartition, KafkaConsumer.OffsetResetStrategy>(this.resetPartitions);
     }
 
     public boolean hasAllFetchPositions() {

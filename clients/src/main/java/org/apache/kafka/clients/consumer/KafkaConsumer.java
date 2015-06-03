@@ -16,8 +16,10 @@ import org.apache.kafka.clients.ClientUtils;
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.NetworkClient;
 import org.apache.kafka.clients.consumer.internals.Coordinator;
+import org.apache.kafka.clients.consumer.internals.CoordinatorResponse;
+import org.apache.kafka.clients.consumer.internals.DelayedResponse;
 import org.apache.kafka.clients.consumer.internals.Fetcher;
-import org.apache.kafka.clients.consumer.internals.OffsetFetchResult;
+import org.apache.kafka.clients.consumer.internals.BrokerResponse;
 import org.apache.kafka.clients.consumer.internals.SubscriptionState;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaException;
@@ -41,7 +43,6 @@ import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -371,6 +372,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     private boolean closed = false;
     private final AtomicBoolean wakeup = new AtomicBoolean(false);
 
+    private long requestTimeoutMs = 5000L; // TODO: Add this to client configuration?
 
     /**
      * A consumer is instantiated by providing a set of key-value pairs as configuration. Valid configuration strings
@@ -641,6 +643,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     public ConsumerRecords<K, V> poll(long timeout) {
         ensureNotClosed();
         long now = time.milliseconds();
+        log.debug("Entering consumer poll");
 
         if (subscriptions.partitionsAutoAssigned()) {
             if (subscriptions.partitionAssignmentNeeded()) {
@@ -655,7 +658,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         // fetch positions if we have partitions we're subscribed to that we
         // don't know the offset for
         if (!subscriptions.hasAllFetchPositions())
-            updateFetchPositions(this.subscriptions.missingFetchPositions(), now);
+            updateFetchPositions(this.subscriptions.missingFetchPositions());
 
         // Some partitions may need to be reset (if they had no previous offset
         // or if a seek to beginning/end has been done
@@ -666,20 +669,31 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         if (shouldAutoCommit(now))
             commit(CommitType.ASYNC);
 
-        /*
-         * initiate any needed fetches, then block for the timeout the user specified
-         */
+        // Poll for new data until the timeout expires
         Cluster cluster = this.metadata.fetch();
-        fetcher.initFetches(cluster, now);
-        poll(timeout, now);
+        long remaining = timeout;
+        while (remaining > 0) {
+            // TODO: Long polling could prevent heartbeats. Probably we should move maybeHeartbeat
+            //       into this loop and only call poll with a max timeout of the heartbeat interval
 
-        /*
-         * initiate a fetch request for any nodes that we just got a response from without blocking
-         */
-        fetcher.initFetches(cluster, now);
-        poll(0, now);
+            long start = time.milliseconds();
 
-        return new ConsumerRecords<K, V>(fetcher.fetchedRecords());
+            // Init any new fetches (won't resend pending fetches)
+            fetcher.initFetches(cluster, start);
+            poll(remaining, start);
+
+            Map<TopicPartition, List<ConsumerRecord<K, V>>> records =
+                    fetcher.fetchedRecords();
+
+            // If data is available, then return it immediately
+            if (!records.isEmpty()) {
+                return new ConsumerRecords<K, V>(records);
+            }
+
+            remaining -= time.milliseconds() - start;
+        }
+
+        return ConsumerRecords.empty();
     }
 
     /**
@@ -701,13 +715,12 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         ensureNotClosed();
         log.debug("Committing offsets ({}): {} ", commitType.toString().toLowerCase(), offsets);
 
-        long now = time.milliseconds();
-        this.lastCommitAttemptMs = now;
+        this.lastCommitAttemptMs = time.milliseconds();
 
         // commit the offsets with the coordinator
-        if (commitType == CommitType.ASYNC);
+        if (commitType == CommitType.ASYNC)
             this.subscriptions.needRefreshCommits();
-        commitOffsets(offsets, commitType, now);
+        commitOffsets(offsets, commitType);
     }
 
     /**
@@ -775,10 +788,10 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             throw new IllegalArgumentException("You can only check the position for partitions assigned to this consumer.");
         Long offset = this.subscriptions.consumed(partition);
         if (offset == null) {
-            updateFetchPositions(Collections.singleton(partition), time.milliseconds());
-            if (subscriptions.offsetResetNeeded(partition)) {
+            updateFetchPositions(Collections.singleton(partition));
+            if (subscriptions.offsetResetNeeded(partition))
                 resetOffset(partition, subscriptions.partitionsToReset().get(partition));
-            }
+
             return this.subscriptions.consumed(partition);
         } else {
             return offset;
@@ -809,7 +822,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         } else {
             partitionsToFetch = Collections.singleton(partition);
         }
-        refreshCommittedOffsets(partitionsToFetch, time.milliseconds());
+        refreshCommittedOffsets(partitionsToFetch);
         Long committed = this.subscriptions.committed(partition);
         if (committed == null)
             throw new NoOffsetForPartitionException("No offset has been committed for partition " + partition);
@@ -919,17 +932,16 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * or reset it using the offset reset policy the user has configured.
      *
      * @param partitions The partitions that needs updating fetch positions
-     * @param now The current time
      * @throws org.apache.kafka.clients.consumer.NoOffsetForPartitionException If no offset is stored for a given partition and no offset reset policy is
      *             defined
      */
-    private void updateFetchPositions(Set<TopicPartition> partitions, long now) {
+    private void updateFetchPositions(Set<TopicPartition> partitions) {
         // first refresh the committed positions in case they are not up-to-date
-        refreshCommittedOffsets(partitions, now);
+        refreshCommittedOffsets(partitions);
 
         // reset the fetch position to the committed position
         for (TopicPartition tp : partitions) {
-            if (subscriptions.fetched(tp) == null) {
+            if (!subscriptions.offsetResetNeeded(tp) && subscriptions.fetched(tp) == null) {
                 if (subscriptions.committed(tp) == null) {
                     // if the committed position is unknown reset the position
                     subscriptions.needOffsetReset(tp);
@@ -981,30 +993,26 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     private long offsetBefore(TopicPartition partition, long timestamp) {
         while (true) {
-            ensureNotClosed();
-            long now = time.milliseconds();
+            BrokerResponse<Long> response = fetcher.offsetBefore(partition, timestamp);
+            poll(response, requestTimeoutMs);
 
-            Map<TopicPartition, Long> offsets = new HashMap<TopicPartition, Long>();
-            fetcher.initOffsetFetch(partition, timestamp, offsets);
-            poll(this.retryBackoffMs, now);
-
-            if (offsets.containsKey(partition)) {
-                return offsets.get(partition);
+            if (response.isReady()) {
+                if (response.hasValue()) return response.value();
+                handleBrokerResponse(response);
             }
         }
     }
 
-
     /**
      * Refresh the committed offsets for given set of partitions and update the cache
      */
-    private void refreshCommittedOffsets(Set<TopicPartition> partitions, long now) {
+    private void refreshCommittedOffsets(Set<TopicPartition> partitions) {
         // we only need to fetch latest committed offset from coordinator if there
         // is some commit process in progress, otherwise our current
         // committed cache is up-to-date
         if (subscriptions.refreshCommitsNeeded()) {
             // contact coordinator to fetch committed offsets
-            Map<TopicPartition, Long> offsets = fetchCommittedOffsets(partitions, now);
+            Map<TopicPartition, Long> offsets = fetchCommittedOffsets(partitions);
 
             // update the position with the offsets
             for (Map.Entry<TopicPartition, Long> entry : offsets.entrySet()) {
@@ -1017,46 +1025,114 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     private void assignPartitions() {
         while (subscriptions.partitionAssignmentNeeded()) {
             ensureCoordinatorKnown();
-            long now = time.milliseconds();
-            coordinator.assignPartitions(now);
-            poll(retryBackoffMs, now);
+            CoordinatorResponse<Void> response = coordinator.assignPartitions(time.milliseconds());
+
+            // Block indefinitely for the join group request (which can take as long as
+            // a session timeout)
+            poll(response);
+
+            if (response.isReady()) {
+                handleCoordinatorResponse(response);
+            }
         }
     }
 
     private void ensureCoordinatorKnown() {
         while (coordinator.coordinatorUnknown()) {
-            coordinator.discoverConsumerCoordinator();
-            poll(retryBackoffMs, time.milliseconds());
-        }
-    }
-
-    private Map<TopicPartition, Long> fetchCommittedOffsets(Set<TopicPartition> partitions, long now) {
-        while (true) {
-            ensureCoordinatorKnown();
-            OffsetFetchResult result = new OffsetFetchResult();
-            coordinator.fetchOffsets(partitions, now, result);
-            poll(retryBackoffMs, now);
-
-            if (result.isReady())
-                return result.offsets();
-        }
-    }
-
-    private void commitOffsets(Map<TopicPartition, Long> offsets, CommitType commitType, long now) {
-        while (true) {
-            ensureCoordinatorKnown();
-            if (commitType == CommitType.SYNC) {
-                AtomicBoolean success = new AtomicBoolean(false);
-                coordinator.commitOffsets(offsets, now, success);
-                poll(retryBackoffMs, now);
-                if (success.get()) return;
-            } else {
-                coordinator.commitOffsets(offsets, now, null);
-                return;
+            BrokerResponse<Void> response = coordinator.discoverConsumerCoordinator();
+            poll(response, requestTimeoutMs);
+            if (response.isReady()) {
+                handleBrokerResponse(response);
             }
         }
     }
 
+    private Map<TopicPartition, Long> fetchCommittedOffsets(Set<TopicPartition> partitions) {
+        while (true) {
+            long now = time.milliseconds();
+            CoordinatorResponse<Map<TopicPartition, Long>> response = coordinator.fetchOffsets(partitions, now);
+            poll(response, requestTimeoutMs);
+
+            if (response.isReady()) {
+                if (response.hasValue()) return response.value();
+                handleCoordinatorResponse(response);
+            }  else {
+                log.debug("Fetch committed offsets failed");
+            }
+        }
+    }
+
+    private void commitOffsets(Map<TopicPartition, Long> offsets, CommitType commitType) {
+        while (true) {
+            long now = time.milliseconds();
+            CoordinatorResponse<Boolean> response = coordinator.commitOffsets(offsets, now);
+            if (commitType == CommitType.SYNC)
+                poll(response, requestTimeoutMs);
+            else
+                poll(requestTimeoutMs, now);
+
+            // Retry for both commit types if there are coordinator connection issues
+            if (response.isReady()) {
+                if (response.hasValue() && response.value()) return;
+                handleCoordinatorResponse(response);
+            } else if (commitType == CommitType.ASYNC) {
+                break;
+            }
+        }
+    }
+
+    private void handleCoordinatorResponse(CoordinatorResponse<?> response) {
+        if (response.newCoordinatorNeeded()) {
+            ensureCoordinatorKnown();
+        } else {
+            handleBrokerResponse(response);
+        }
+    }
+
+    private void handleBrokerResponse(BrokerResponse<?> response) {
+        if (response.throwExceptionNeeded()) {
+            throw response.exception();
+        } else if (response.metadataRefreshNeeded()) {
+            awaitMetadataUpdate();
+        } else if (response.retryNeeded()) {
+            Utils.sleep(retryBackoffMs);
+        }
+    }
+
+    /**
+     * Poll until a response is ready or timeout expires
+     * @param response The response to poll for
+     * @param timeout The time in milliseconds to wait for the response
+     * @param <T>
+     */
+    private <T> void poll(DelayedResponse<T> response, long timeout) {
+        long remaining = timeout;
+        do {
+            long start = time.milliseconds();
+            poll(remaining, start);
+            if (response.isReady()) return;
+            remaining -= time.milliseconds() - start;
+        } while (remaining > 0 && !response.isReady());
+    }
+
+    /**
+     * Poll indefinitely until the response is ready.
+     * @param response The response to poll for.
+     * @param <T>
+     */
+    private <T> void poll(DelayedResponse<T> response) {
+        do {
+            long now = time.milliseconds();
+            poll(-1, now);
+        } while (!response.isReady());
+    }
+
+    /**
+     * Poll for IO.
+     * @param timeout The maximum time to wait for IO to become available
+     * @param now The current time in milliseconds
+     * @throws ConsumerWakeupException if {@link #wakeup()} is invoked while the poll is active
+     */
     private void poll(long timeout, long now) {
         this.client.poll(timeout, now);
 

@@ -157,12 +157,15 @@ public class Fetcher<K, V> {
     }
 
     /**
-     * Initialize a list offset request for the provided partition. Results from this fetch are returned
-     * in the result parameter.
-     * @param topicPartition partition to get offsets for
-     * @param timestamp timestamp for fetching offsets
+     * Fetch a single offset before the given timestamp for the partition.
+     *
+     * @param topicPartition The partition that needs fetching offset.
+     * @param timestamp The timestamp for fetching offset.
+     * @return A response which can be polled to obtain the corresponding offset.
      */
-    public void initOffsetFetch(final TopicPartition topicPartition, long timestamp, final Map<TopicPartition, Long> result) {
+    public BrokerResponse<Long> offsetBefore(final TopicPartition topicPartition, long timestamp) {
+        final BrokerResponse<Long> response = new BrokerResponse<Long>();
+
         Map<TopicPartition, ListOffsetRequest.PartitionData> partitions = new HashMap<TopicPartition, ListOffsetRequest.PartitionData>(1);
         partitions.put(topicPartition, new ListOffsetRequest.PartitionData(timestamp, 1));
         long now = time.milliseconds();
@@ -170,10 +173,10 @@ public class Fetcher<K, V> {
         if (info == null) {
             metadata.add(topicPartition.topic());
             log.debug("Partition {} is unknown for fetching offset, wait for metadata refresh", topicPartition);
-            metadata.requestUpdate();
+            response.needMetadataRefresh();
         } else if (info.leader() == null) {
             log.debug("Leader for partition {} unavailable for fetching offset, wait for metadata refresh", topicPartition);
-            metadata.requestUpdate();
+            response.needMetadataRefresh();
         } else if (this.client.ready(info.leader(), now)) {
             Node node = info.leader();
             ListOffsetRequest request = new ListOffsetRequest(-1, partitions);
@@ -182,26 +185,31 @@ public class Fetcher<K, V> {
                     request.toStruct());
             RequestCompletionHandler completionHandler = new RequestCompletionHandler() {
                 @Override
-                public void onComplete(ClientResponse response) {
-                    handleOffsetFetchResponse(topicPartition, response, result);
+                public void onComplete(ClientResponse resp) {
+                    handleOffsetFetchResponse(topicPartition, resp, response);
                 }
             };
             ClientRequest clientRequest = new ClientRequest(now, true, send, completionHandler);
             this.client.send(clientRequest);
+        } else {
+            response.needRetry();
         }
 
+        return response;
     }
 
     /**
      * Callback for the response of the list offset call above.
      * @param topicPartition The partition that was fetched
-     * @param response The response from the server.
+     * @param clientResponse The response from the server.
      */
-    private void handleOffsetFetchResponse(TopicPartition topicPartition, ClientResponse response, Map<TopicPartition, Long> result) {
-        if (response.wasDisconnected()) {
-            metadata.requestUpdate();
+    private void handleOffsetFetchResponse(TopicPartition topicPartition,
+                                           ClientResponse clientResponse,
+                                           BrokerResponse<Long> response) {
+        if (clientResponse.wasDisconnected()) {
+            response.needMetadataRefresh();
         } else {
-            ListOffsetResponse lor = new ListOffsetResponse(response.responseBody());
+            ListOffsetResponse lor = new ListOffsetResponse(clientResponse.responseBody());
             short errorCode = lor.responseData().get(topicPartition).errorCode;
             if (errorCode == Errors.NONE.code()) {
                 List<Long> offsets = lor.responseData().get(topicPartition).offsets;
@@ -209,12 +217,13 @@ public class Fetcher<K, V> {
                     throw new IllegalStateException("This should not happen.");
                 long offset = offsets.get(0);
                 log.debug("Fetched offset {} for partition {}", offset, topicPartition);
-                result.put(topicPartition, offset);
+
+                response.respond(offset);
             } else if (errorCode == Errors.NOT_LEADER_FOR_PARTITION.code()
                     || errorCode == Errors.UNKNOWN_TOPIC_OR_PARTITION.code()) {
                 log.warn("Attempt to fetch offsets for partition {} failed due to obsolete leadership information, retrying.",
                         topicPartition);
-                metadata.requestUpdate();
+                response.needMetadataRefresh();
             } else {
                 log.error("Attempt to fetch offsets for partition {} failed due to: {}",
                         topicPartition, Errors.forCode(errorCode).exception().getMessage());
