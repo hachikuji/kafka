@@ -40,7 +40,7 @@ public class MockConsumer<K, V> implements Consumer<K, V> {
     private Map<TopicPartition, List<ConsumerRecord<K, V>>> records;
     private boolean closed;
 
-    public MockConsumer(KafkaConsumer.OffsetResetStrategy offsetResetStrategy) {
+    public MockConsumer(OffsetResetStrategy offsetResetStrategy) {
         this.subscriptions = new SubscriptionState(offsetResetStrategy);
         this.partitions = new HashMap<String, List<PartitionInfo>>();
         this.records = new HashMap<TopicPartition, List<ConsumerRecord<K, V>>>();

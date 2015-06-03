@@ -12,16 +12,28 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
-public class CoordinatorResponse<T> extends BrokerResponse<T> {
+public class BrokerResult<T> extends DelayedResult<T, BrokerResult.BrokerRemedy> {
+    public static final BrokerResult<Object> RETRY_NEEDED = new BrokerResult<Object>();
 
-    private boolean needNewCoordinator = false;
-
-    public void needNewCoordinator() {
-        this.needNewCoordinator = true;
-        this.ready = true;
+    static {
+        RETRY_NEEDED.fail(BrokerRemedy.RETRY);
     }
 
-    public boolean newCoordinatorNeeded() {
-        return needNewCoordinator;
+    public enum BrokerRemedy {
+        REFRESH_METADATA, RETRY
     }
+
+    public void needRetry() {
+        fail(BrokerRemedy.RETRY);
+    }
+
+    public void needMetadataRefresh() {
+        fail(BrokerRemedy.REFRESH_METADATA);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> BrokerResult<T> retryNeeded() {
+        return (BrokerResult<T>) RETRY_NEEDED;
+    }
+
 }

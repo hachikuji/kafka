@@ -19,7 +19,7 @@ package org.apache.kafka.clients.consumer.internals;
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.MockClient;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -57,7 +57,7 @@ public class FetcherTest {
     private Metadata metadata = new Metadata(0, Long.MAX_VALUE);
     private Cluster cluster = TestUtils.singletonCluster(topicName, 1);
     private Node node = cluster.nodes().get(0);
-    private SubscriptionState subscriptions = new SubscriptionState(KafkaConsumer.OffsetResetStrategy.EARLIEST);
+    private SubscriptionState subscriptions = new SubscriptionState(OffsetResetStrategy.EARLIEST);
     private Metrics metrics = new Metrics(time);
     private Map<String, String> metricTags = new LinkedHashMap<String, String>();
 
@@ -137,7 +137,7 @@ public class FetcherTest {
         fetcher.initFetches(cluster, time.milliseconds());
         client.respond(fetchResponse(this.records.buffer(), Errors.OFFSET_OUT_OF_RANGE.code(), 100L));
         client.poll(0, time.milliseconds());
-        assertTrue(subscriptions.offsetResetNeeded(tp));
+        assertTrue(subscriptions.isOffsetResetNeeded(tp));
         assertEquals(0, fetcher.fetchedRecords().size());
         assertEquals(null, subscriptions.fetched(tp));
         assertEquals(null, subscriptions.consumed(tp));
@@ -154,7 +154,7 @@ public class FetcherTest {
         fetcher.initFetches(cluster, time.milliseconds());
         client.respond(fetchResponse(this.records.buffer(), Errors.OFFSET_OUT_OF_RANGE.code(), 100L));
         client.poll(0, time.milliseconds());
-        assertTrue(subscriptions.offsetResetNeeded(tp));
+        assertTrue(subscriptions.isOffsetResetNeeded(tp));
         assertEquals(0, fetcher.fetchedRecords().size());
         assertEquals(null, subscriptions.fetched(tp));
         assertEquals(null, subscriptions.consumed(tp));

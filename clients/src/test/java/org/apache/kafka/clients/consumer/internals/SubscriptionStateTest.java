@@ -22,13 +22,13 @@ import static java.util.Arrays.asList;
 
 import java.util.Collections;
 
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.Test;
 
 public class SubscriptionStateTest {
     
-    private final SubscriptionState state = new SubscriptionState(KafkaConsumer.OffsetResetStrategy.EARLIEST);
+    private final SubscriptionState state = new SubscriptionState(OffsetResetStrategy.EARLIEST);
     private final TopicPartition tp0 = new TopicPartition("test", 0);
     private final TopicPartition tp1 = new TopicPartition("test", 1);
 
@@ -52,8 +52,8 @@ public class SubscriptionStateTest {
         assertEquals(5L, (long) state.fetched(tp0));
         assertEquals(5L, (long) state.consumed(tp0));
         state.needOffsetReset(tp0);
-        assertTrue(state.offsetResetNeeded());
-        assertTrue(state.offsetResetNeeded(tp0));
+        assertTrue(state.isOffsetResetNeeded());
+        assertTrue(state.isOffsetResetNeeded(tp0));
         assertEquals(null, state.fetched(tp0));
         assertEquals(null, state.consumed(tp0));
     }

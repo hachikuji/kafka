@@ -163,8 +163,8 @@ public class Fetcher<K, V> {
      * @param timestamp The timestamp for fetching offset.
      * @return A response which can be polled to obtain the corresponding offset.
      */
-    public BrokerResponse<Long> offsetBefore(final TopicPartition topicPartition, long timestamp) {
-        final BrokerResponse<Long> response = new BrokerResponse<Long>();
+    public BrokerResult<Long> offsetBefore(final TopicPartition topicPartition, long timestamp) {
+        final BrokerResult<Long> result = new BrokerResult<Long>();
 
         Map<TopicPartition, ListOffsetRequest.PartitionData> partitions = new HashMap<TopicPartition, ListOffsetRequest.PartitionData>(1);
         partitions.put(topicPartition, new ListOffsetRequest.PartitionData(timestamp, 1));
@@ -173,10 +173,10 @@ public class Fetcher<K, V> {
         if (info == null) {
             metadata.add(topicPartition.topic());
             log.debug("Partition {} is unknown for fetching offset, wait for metadata refresh", topicPartition);
-            response.needMetadataRefresh();
+            result.needMetadataRefresh();
         } else if (info.leader() == null) {
             log.debug("Leader for partition {} unavailable for fetching offset, wait for metadata refresh", topicPartition);
-            response.needMetadataRefresh();
+            result.needMetadataRefresh();
         } else if (this.client.ready(info.leader(), now)) {
             Node node = info.leader();
             ListOffsetRequest request = new ListOffsetRequest(-1, partitions);
@@ -186,16 +186,16 @@ public class Fetcher<K, V> {
             RequestCompletionHandler completionHandler = new RequestCompletionHandler() {
                 @Override
                 public void onComplete(ClientResponse resp) {
-                    handleOffsetFetchResponse(topicPartition, resp, response);
+                    handleOffsetFetchResponse(topicPartition, resp, result);
                 }
             };
             ClientRequest clientRequest = new ClientRequest(now, true, send, completionHandler);
             this.client.send(clientRequest);
         } else {
-            response.needRetry();
+            result.needRetry();
         }
 
-        return response;
+        return result;
     }
 
     /**
@@ -205,9 +205,9 @@ public class Fetcher<K, V> {
      */
     private void handleOffsetFetchResponse(TopicPartition topicPartition,
                                            ClientResponse clientResponse,
-                                           BrokerResponse<Long> response) {
+                                           BrokerResult<Long> result) {
         if (clientResponse.wasDisconnected()) {
-            response.needMetadataRefresh();
+            result.needMetadataRefresh();
         } else {
             ListOffsetResponse lor = new ListOffsetResponse(clientResponse.responseBody());
             short errorCode = lor.responseData().get(topicPartition).errorCode;
@@ -218,16 +218,16 @@ public class Fetcher<K, V> {
                 long offset = offsets.get(0);
                 log.debug("Fetched offset {} for partition {}", offset, topicPartition);
 
-                response.respond(offset);
+                result.complete(offset);
             } else if (errorCode == Errors.NOT_LEADER_FOR_PARTITION.code()
                     || errorCode == Errors.UNKNOWN_TOPIC_OR_PARTITION.code()) {
                 log.warn("Attempt to fetch offsets for partition {} failed due to obsolete leadership information, retrying.",
                         topicPartition);
-                response.needMetadataRefresh();
+                result.needMetadataRefresh();
             } else {
                 log.error("Attempt to fetch offsets for partition {} failed due to: {}",
                         topicPartition, Errors.forCode(errorCode).exception().getMessage());
-                metadata.requestUpdate();
+                result.needMetadataRefresh();
             }
         }
     }

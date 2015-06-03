@@ -12,7 +12,7 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.HashMap;
@@ -51,12 +51,12 @@ public class SubscriptionState {
     private boolean needsFetchCommittedOffsets;
 
     /* Partitions that need to be reset before fetching */
-    private Map<TopicPartition, KafkaConsumer.OffsetResetStrategy> resetPartitions;
+    private Map<TopicPartition, OffsetResetStrategy> resetPartitions;
 
     /* Default offset reset strategy */
-    private KafkaConsumer.OffsetResetStrategy offsetResetStrategy;
+    private OffsetResetStrategy offsetResetStrategy;
 
-    public SubscriptionState(KafkaConsumer.OffsetResetStrategy offsetResetStrategy) {
+    public SubscriptionState(OffsetResetStrategy offsetResetStrategy) {
         this.offsetResetStrategy = offsetResetStrategy;
         this.subscribedTopics = new HashSet<String>();
         this.subscribedPartitions = new HashSet<TopicPartition>();
@@ -66,7 +66,7 @@ public class SubscriptionState {
         this.committed = new HashMap<TopicPartition, Long>();
         this.needsPartitionAssignment = false;
         this.needsFetchCommittedOffsets = true; // initialize to true for the consumers to fetch offset upon starting up
-        this.resetPartitions = new HashMap<TopicPartition, KafkaConsumer.OffsetResetStrategy>();
+        this.resetPartitions = new HashMap<TopicPartition, OffsetResetStrategy>();
     }
 
     public void subscribe(String topic) {
@@ -181,7 +181,7 @@ public class SubscriptionState {
         return this.consumed;
     }
 
-    public void needOffsetReset(TopicPartition partition, KafkaConsumer.OffsetResetStrategy offsetResetStrategy) {
+    public void needOffsetReset(TopicPartition partition, OffsetResetStrategy offsetResetStrategy) {
         this.resetPartitions.put(partition, offsetResetStrategy);
         this.fetched.remove(partition);
         this.consumed.remove(partition);
@@ -191,16 +191,16 @@ public class SubscriptionState {
         needOffsetReset(partition, offsetResetStrategy);
     }
 
-    public boolean offsetResetNeeded(TopicPartition partition) {
+    public boolean isOffsetResetNeeded(TopicPartition partition) {
         return resetPartitions.containsKey(partition);
     }
 
-    public boolean offsetResetNeeded() {
+    public boolean isOffsetResetNeeded() {
         return !resetPartitions.isEmpty();
     }
 
-    public Map<TopicPartition, KafkaConsumer.OffsetResetStrategy> partitionsToReset() {
-        return new HashMap<TopicPartition, KafkaConsumer.OffsetResetStrategy>(this.resetPartitions);
+    public OffsetResetStrategy resetStrategy(TopicPartition partition) {
+        return resetPartitions.get(partition);
     }
 
     public boolean hasAllFetchPositions() {
