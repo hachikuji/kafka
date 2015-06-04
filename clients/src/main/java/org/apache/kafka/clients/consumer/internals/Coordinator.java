@@ -284,15 +284,14 @@ public final class Coordinator {
                         // just ignore this partition
                         log.debug("Unknown topic or partition for " + tp);
                     } else {
-                        result.raise(new IllegalStateException("Unexpected error code " + data.errorCode
-                                + " while fetching offset"));
+                        result.raise(new KafkaException("Unexpected error in fetch offset response: "
+                                + Errors.forCode(data.errorCode).exception().getMessage()));
                     }
                 } else if (data.offset >= 0) {
                     // record the position with the offset (-1 indicates no committed offset to fetch)
                     offsets.put(tp, data.offset);
                 } else {
-                    result.raise(new KafkaException("Unexpected error in fetch offset response: "
-                            + Errors.forCode(data.errorCode).exception().getMessage()));
+                    log.debug("No committed offset for partition " + tp);
                 }
             }
 

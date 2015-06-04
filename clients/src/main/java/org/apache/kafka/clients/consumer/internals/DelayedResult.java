@@ -137,7 +137,7 @@ public class DelayedResult<T, R> {
      * handle the exception or throw it.
      * @param e The exception that
      */
-    public void raise(RuntimeException e){
+    public void raise(RuntimeException e) {
         this.ready = true;
         this.succeeded = false;
         this.exception = e;
