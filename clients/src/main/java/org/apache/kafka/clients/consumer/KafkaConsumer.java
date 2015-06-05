@@ -633,8 +633,8 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * rebalance, to consume data from that offset sequentially on every poll. If not, it will use the last checkpointed
      * offset using {@link #commit(Map, CommitType) commit(offsets, sync)} for the subscribed list of partitions.
      * 
-     * @param timeout The time, in milliseconds, spent waiting in poll if data is not available. If 0, waits
-     *            indefinitely. Must not be negative
+     * @param timeout The time, in milliseconds, spent waiting in poll if data is not available. If 0, returns
+     *            immediately. Must not be negative
      * @return map of topic to records since the last fetch for the subscribed list of topics and partitions
      * 
      * @throws NoOffsetForPartitionException If there is no stored offset for a subscribed partition and no automatic
@@ -646,28 +646,15 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         if (timeout < 0)
             throw new IllegalArgumentException("Timeout must not be negative");
 
-        if (timeout == 0)
-            return pollForever();
-        else
-            return pollUntil(timeout);
-    }
-
-    /**
-     * Poll for a timeout until data is available.
-     * @param timeout Maximum timeout in milliseconds to wait for data.
-     * @return The fetched records
-     */
-    private ConsumerRecords<K, V> pollUntil(long timeout) {
         // Poll for new data until the timeout expires
         long remaining = timeout;
-        while (remaining > 0) {
+        while (remaining >= 0) {
             long now = time.milliseconds();
-
             long pollTimeout = min(remaining, timeToNextCommit(now), coordinator.timeToNextHeartbeat(now));
-            pollOnce(pollTimeout, now);
+
+            Map<TopicPartition, List<ConsumerRecord<K, V>>> records = pollOnce(pollTimeout, now);
 
             // If data is available, then return it immediately
-            Map<TopicPartition, List<ConsumerRecord<K, V>>> records = fetcher.fetchedRecords();
             if (!records.isEmpty())
                 return new ConsumerRecords<K, V>(records);
 
@@ -675,25 +662,6 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         }
 
         return ConsumerRecords.empty();
-    }
-
-    /**
-     * Poll indefinitely until data is available.
-     * @return The fetched records
-     */
-    private ConsumerRecords<K, V> pollForever() {
-        // Poll indefinitely for new data
-        while (true) {
-            long now = time.milliseconds();
-
-            long pollTimeout = min(timeToNextCommit(now), coordinator.timeToNextHeartbeat(now));
-            pollOnce(pollTimeout, now);
-
-            // If data is available, then return it immediately
-            Map<TopicPartition, List<ConsumerRecord<K, V>>> records = fetcher.fetchedRecords();
-            if (!records.isEmpty())
-                return new ConsumerRecords<K, V>(records);
-        }
     }
 
     /**
