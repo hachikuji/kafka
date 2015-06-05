@@ -314,6 +314,15 @@ public final class Coordinator {
         }
     }
 
+    /**
+     * Get the time until the next heartbeat is needed.
+     * @param now The current time
+     * @return The duration in milliseconds before the next heartbeat will be needed.
+     */
+    public long timeToNextHeartbeat(long now) {
+        return heartbeat.timeToNextHeartbeat(now);
+    }
+
     public boolean coordinatorUnknown() {
         return this.consumerCoordinator == null;
     }

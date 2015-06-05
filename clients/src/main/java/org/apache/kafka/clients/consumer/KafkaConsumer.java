@@ -643,51 +643,96 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     @Override
     public ConsumerRecords<K, V> poll(long timeout) {
         ensureNotClosed();
-        log.trace("Entering consumer poll");
+        if (timeout < 0)
+            throw new IllegalArgumentException("Timeout must not be negative");
 
+        if (timeout == 0)
+            return pollForever();
+        else
+            return pollUntil(timeout);
+    }
+
+    /**
+     * Poll for a timeout until data is available.
+     * @param timeout Maximum timeout in milliseconds to wait for data.
+     * @return The fetched records
+     */
+    private ConsumerRecords<K, V> pollUntil(long timeout) {
         // Poll for new data until the timeout expires
-        Cluster cluster = this.metadata.fetch();
         long remaining = timeout;
         while (remaining > 0) {
-            long start = time.milliseconds();
+            long now = time.milliseconds();
 
-            // TODO: Sub-requests should take into account the poll timeout (KAFKA-1894)
-
-            if (subscriptions.partitionsAutoAssigned()) {
-                if (subscriptions.partitionAssignmentNeeded()) {
-                    // rebalance to get partition assignment
-                    reassignPartitions(start);
-                } else {
-                    // try to heartbeat with the coordinator if needed
-                    coordinator.maybeHeartbeat(start);
-                }
-            }
-
-            // fetch positions if we have partitions we're subscribed to that we
-            // don't know the offset for
-            if (!subscriptions.hasAllFetchPositions())
-                updateFetchPositions(this.subscriptions.missingFetchPositions());
-
-            // maybe autocommit position
-            if (shouldAutoCommit(start))
-                commit(CommitType.ASYNC);
-
-            // Init any new fetches (won't resend pending fetches)
-            fetcher.initFetches(cluster, start);
-            pollClient(remaining, start);
-
-            Map<TopicPartition, List<ConsumerRecord<K, V>>> records =
-                    fetcher.fetchedRecords();
+            long pollTimeout = min(remaining, timeToNextCommit(now), coordinator.timeToNextHeartbeat(now));
+            pollOnce(pollTimeout, now);
 
             // If data is available, then return it immediately
-            if (!records.isEmpty()) {
+            Map<TopicPartition, List<ConsumerRecord<K, V>>> records = fetcher.fetchedRecords();
+            if (!records.isEmpty())
                 return new ConsumerRecords<K, V>(records);
-            }
 
-            remaining -= time.milliseconds() - start;
+            remaining -= time.milliseconds() - now;
         }
 
         return ConsumerRecords.empty();
+    }
+
+    /**
+     * Poll indefinitely until data is available.
+     * @return The fetched records
+     */
+    private ConsumerRecords<K, V> pollForever() {
+        // Poll indefinitely for new data
+        while (true) {
+            long now = time.milliseconds();
+
+            long pollTimeout = min(timeToNextCommit(now), coordinator.timeToNextHeartbeat(now));
+            pollOnce(pollTimeout, now);
+
+            // If data is available, then return it immediately
+            Map<TopicPartition, List<ConsumerRecord<K, V>>> records = fetcher.fetchedRecords();
+            if (!records.isEmpty())
+                return new ConsumerRecords<K, V>(records);
+        }
+    }
+
+    /**
+     * Do one round of polling. In addition to checking for new data, this do any needed
+     * heart-beating, auto-commits, and offset updates.
+     * @param timeout The maximum time to block in the underlying poll
+     * @param now Current time in millis
+     * @return The fetched records (may be empty)
+     */
+    private Map<TopicPartition, List<ConsumerRecord<K, V>>> pollOnce(long timeout, long now) {
+        Cluster cluster = this.metadata.fetch();
+
+        // TODO: Sub-requests should take into account the poll timeout (KAFKA-1894)
+
+        if (subscriptions.partitionsAutoAssigned()) {
+            if (subscriptions.partitionAssignmentNeeded()) {
+                // rebalance to get partition assignment
+                reassignPartitions(now);
+            } else {
+                // try to heartbeat with the coordinator if needed
+                coordinator.maybeHeartbeat(now);
+            }
+        }
+
+        // fetch positions if we have partitions we're subscribed to that we
+        // don't know the offset for
+        if (!subscriptions.hasAllFetchPositions())
+            updateFetchPositions(this.subscriptions.missingFetchPositions());
+
+        // maybe autocommit position
+        if (shouldAutoCommit(now))
+            commit(CommitType.ASYNC);
+
+        // Init any new fetches (won't resend pending fetches)
+        fetcher.initFetches(cluster, now);
+
+        pollClient(timeout, now);
+
+        return fetcher.fetchedRecords();
     }
 
     /**
@@ -880,6 +925,13 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     private boolean shouldAutoCommit(long now) {
         return this.autoCommit && this.lastCommitAttemptMs <= now - this.autoCommitIntervalMs;
+    }
+
+    private long timeToNextCommit(long now) {
+        long timeSinceLastCommit = now - this.lastCommitAttemptMs;
+        if (timeSinceLastCommit > this.autoCommitIntervalMs)
+            return 0;
+        return this.autoCommitIntervalMs - timeSinceLastCommit;
     }
 
     /**
@@ -1180,6 +1232,17 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     private void ensureNotClosed() {
         if (this.closed)
             throw new IllegalStateException("This consumer has already been closed.");
+    }
+
+
+    private long min(long ... values) {
+        long min = values[0];
+        for (int i = 1; i < values.length; i++) {
+            if (values[i] < min) {
+                min = values[i];
+            }
+        }
+        return min;
     }
 
 }
