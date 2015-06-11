@@ -212,9 +212,9 @@ public class CoordinatorTest {
 
         // With success flag
         client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NONE.code())));
-        CoordinatorResult<Void> result = coordinator.commitOffsets(Collections.singletonMap(tp, 100L), time.milliseconds());
+        RequestFuture<Void> result = coordinator.commitOffsets(Collections.singletonMap(tp, 100L), time.milliseconds());
         assertEquals(1, client.poll(0, time.milliseconds()).size());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertTrue(result.succeeded());
 
         // Without success flag
@@ -253,10 +253,10 @@ public class CoordinatorTest {
         client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NOT_COORDINATOR_FOR_CONSUMER.code())));
         client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
         client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NONE.code())));
-        CoordinatorResult<Void> result = coordinator.commitOffsets(Collections.singletonMap(tp, 100L), time.milliseconds());
+        RequestFuture<Void> result = coordinator.commitOffsets(Collections.singletonMap(tp, 100L), time.milliseconds());
         assertEquals(1, client.poll(0, time.milliseconds()).size());
-        assertTrue(result.isReady());
-        assertEquals(CoordinatorResult.CoordinatorRemedy.FIND_COORDINATOR, result.remedy());
+        assertTrue(result.isDone());
+        assertEquals(RequestFuture.RetryAction.FIND_COORDINATOR, result.retryAction());
 
         // sync commit with coordinator disconnected
         client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NONE.code())), true);
@@ -264,8 +264,8 @@ public class CoordinatorTest {
         result = coordinator.commitOffsets(Collections.singletonMap(tp, 100L), time.milliseconds());
 
         assertEquals(0, client.poll(0, time.milliseconds()).size());
-        assertTrue(result.isReady());
-        assertEquals(CoordinatorResult.CoordinatorRemedy.FIND_COORDINATOR, result.remedy());
+        assertTrue(result.isDone());
+        assertEquals(RequestFuture.RetryAction.FIND_COORDINATOR, result.retryAction());
 
         client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
         coordinator.discoverConsumerCoordinator();
@@ -273,7 +273,7 @@ public class CoordinatorTest {
 
         result = coordinator.commitOffsets(Collections.singletonMap(tp, 100L), time.milliseconds());
         assertEquals(1, client.poll(0, time.milliseconds()).size());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertTrue(result.succeeded());
     }
 
@@ -287,9 +287,9 @@ public class CoordinatorTest {
 
         // normal fetch
         client.prepareResponse(offsetFetchResponse(tp, Errors.NONE.code(), "", 100L));
-        CoordinatorResult<Map<TopicPartition, Long>> result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
+        RequestFuture<Map<TopicPartition, Long>> result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
         client.poll(0, time.milliseconds());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertEquals(100L, (long) result.value().get(tp));
 
         // fetch with loading in progress
@@ -298,13 +298,13 @@ public class CoordinatorTest {
 
         result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
         client.poll(0, time.milliseconds());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertTrue(result.failed());
-        assertEquals(CoordinatorResult.CoordinatorRemedy.RETRY, result.remedy());
+        assertEquals(RequestFuture.RetryAction.BACKOFF, result.retryAction());
 
         result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
         client.poll(0, time.milliseconds());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertEquals(100L, (long) result.value().get(tp));
 
         // fetch with not coordinator
@@ -314,37 +314,37 @@ public class CoordinatorTest {
 
         result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
         client.poll(0, time.milliseconds());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertTrue(result.failed());
-        assertEquals(CoordinatorResult.CoordinatorRemedy.FIND_COORDINATOR, result.remedy());
+        assertEquals(RequestFuture.RetryAction.FIND_COORDINATOR, result.retryAction());
 
         coordinator.discoverConsumerCoordinator();
         client.poll(0, time.milliseconds());
 
         result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
         client.poll(0, time.milliseconds());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertEquals(100L, (long) result.value().get(tp));
 
         // fetch with no fetchable offsets
         client.prepareResponse(offsetFetchResponse(tp, Errors.NONE.code(), "", -1L));
         result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
         client.poll(0, time.milliseconds());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertTrue(result.value().isEmpty());
 
         // fetch with offset topic unknown
         client.prepareResponse(offsetFetchResponse(tp, Errors.UNKNOWN_TOPIC_OR_PARTITION.code(), "", 100L));
         result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
         client.poll(0, time.milliseconds());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertTrue(result.value().isEmpty());
 
         // fetch with offset -1
         client.prepareResponse(offsetFetchResponse(tp, Errors.NONE.code(), "", -1L));
         result = coordinator.fetchOffsets(Collections.singleton(tp), time.milliseconds());
         client.poll(0, time.milliseconds());
-        assertTrue(result.isReady());
+        assertTrue(result.isDone());
         assertTrue(result.value().isEmpty());
     }
 

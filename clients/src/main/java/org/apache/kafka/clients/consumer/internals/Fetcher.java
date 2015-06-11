@@ -163,8 +163,8 @@ public class Fetcher<K, V> {
      * @param timestamp The timestamp for fetching offset.
      * @return A response which can be polled to obtain the corresponding offset.
      */
-    public BrokerResult<Long> offsetBefore(final TopicPartition topicPartition, long timestamp) {
-        final BrokerResult<Long> result = new BrokerResult<Long>();
+    public RequestFuture<Long> offsetBefore(final TopicPartition topicPartition, long timestamp) {
+
 
         Map<TopicPartition, ListOffsetRequest.PartitionData> partitions = new HashMap<TopicPartition, ListOffsetRequest.PartitionData>(1);
         partitions.put(topicPartition, new ListOffsetRequest.PartitionData(timestamp, 1));
@@ -173,11 +173,12 @@ public class Fetcher<K, V> {
         if (info == null) {
             metadata.add(topicPartition.topic());
             log.debug("Partition {} is unknown for fetching offset, wait for metadata refresh", topicPartition);
-            result.needMetadataRefresh();
+            return RequestFuture.metadataRefreshNeeded();
         } else if (info.leader() == null) {
             log.debug("Leader for partition {} unavailable for fetching offset, wait for metadata refresh", topicPartition);
-            result.needMetadataRefresh();
+            return RequestFuture.metadataRefreshNeeded();
         } else if (this.client.ready(info.leader(), now)) {
+            final RequestFuture<Long> future = new RequestFuture<Long>();
             Node node = info.leader();
             ListOffsetRequest request = new ListOffsetRequest(-1, partitions);
             RequestSend send = new RequestSend(node.idString(),
@@ -186,16 +187,16 @@ public class Fetcher<K, V> {
             RequestCompletionHandler completionHandler = new RequestCompletionHandler() {
                 @Override
                 public void onComplete(ClientResponse resp) {
-                    handleOffsetFetchResponse(topicPartition, resp, result);
+                    handleOffsetFetchResponse(topicPartition, resp, future);
                 }
             };
             ClientRequest clientRequest = new ClientRequest(now, true, send, completionHandler);
             this.client.send(clientRequest);
+            return future;
         } else {
-            result.needRetry();
+            // We initiated a connect to the leader, but we need to poll to finish it.
+            return RequestFuture.pollNeeded();
         }
-
-        return result;
     }
 
     /**
@@ -205,9 +206,9 @@ public class Fetcher<K, V> {
      */
     private void handleOffsetFetchResponse(TopicPartition topicPartition,
                                            ClientResponse clientResponse,
-                                           BrokerResult<Long> result) {
+                                           RequestFuture<Long> future) {
         if (clientResponse.wasDisconnected()) {
-            result.needMetadataRefresh();
+            future.retryAfterMetadataRefresh();
         } else {
             ListOffsetResponse lor = new ListOffsetResponse(clientResponse.responseBody());
             short errorCode = lor.responseData().get(topicPartition).errorCode;
@@ -218,16 +219,16 @@ public class Fetcher<K, V> {
                 long offset = offsets.get(0);
                 log.debug("Fetched offset {} for partition {}", offset, topicPartition);
 
-                result.complete(offset);
+                future.complete(offset);
             } else if (errorCode == Errors.NOT_LEADER_FOR_PARTITION.code()
                     || errorCode == Errors.UNKNOWN_TOPIC_OR_PARTITION.code()) {
                 log.warn("Attempt to fetch offsets for partition {} failed due to obsolete leadership information, retrying.",
                         topicPartition);
-                result.needMetadataRefresh();
+                future.retryAfterMetadataRefresh();
             } else {
                 log.error("Attempt to fetch offsets for partition {} failed due to: {}",
                         topicPartition, Errors.forCode(errorCode).exception().getMessage());
-                result.needMetadataRefresh();
+                future.retryAfterMetadataRefresh();
             }
         }
     }

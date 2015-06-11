@@ -16,10 +16,8 @@ import org.apache.kafka.clients.ClientUtils;
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.NetworkClient;
 import org.apache.kafka.clients.consumer.internals.Coordinator;
-import org.apache.kafka.clients.consumer.internals.CoordinatorResult;
-import org.apache.kafka.clients.consumer.internals.DelayedResult;
 import org.apache.kafka.clients.consumer.internals.Fetcher;
-import org.apache.kafka.clients.consumer.internals.BrokerResult;
+import org.apache.kafka.clients.consumer.internals.RequestFuture;
 import org.apache.kafka.clients.consumer.internals.SubscriptionState;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaException;
@@ -303,7 +301,31 @@ import java.util.concurrent.atomic.AtomicReference;
  * 
  * The Kafka consumer is NOT thread-safe. All network I/O happens in the thread of the application
  * making the call. It is possible, however, to safely use {@link #wakeup()} to abort a long poll from another thread.
- * In this case, a {@link ConsumerWakeupException} will be thrown from the thread invoking poll.
+ * In this case, a {@link ConsumerWakeupException} will be thrown from the thread invoking poll. This can be useful,
+ * for example, to shutdown the consumer from another thread. The following snippet shows how this might be done:
+ *
+ * <pre>
+ *     KafkaConsumer consumer = new KafkaConsumer(config);
+ *     try {
+ *         while (!closed.get()) {
+ *             try {
+ *                 ConsumerRecords records = consumer.poll(10000);
+ *                 // Handle records
+ *             } catch (ConsumerWakeupException e) {
+ *                 // Ignore since we just want to shutdown
+ *             }
+ *         }
+ *     } finally {
+ *         consumer.close();
+ *     }
+ * </pre>
+ *
+ * Then in a separate thread, the consumer can be shutdown by setting the closed flag and waking up the consumer.
+ *
+ * <pre>
+ *     closed.set(true);
+ *     consumer.wakeup();
+ * </pre>
  *
  * <p>
  * We have intentionally avoided implementing a particular threading model for processing. This leaves several
@@ -634,7 +656,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * offset using {@link #commit(Map, CommitType) commit(offsets, sync)} for the subscribed list of partitions.
      * 
      * @param timeout The time, in milliseconds, spent waiting in poll if data is not available. If 0, returns
-     *            immediately. Must not be negative
+     *            immediately with any records available now. Must not be negative.
      * @return map of topic to records since the last fetch for the subscribed list of topics and partitions
      * 
      * @throws NoOffsetForPartitionException If there is no stored offset for a subscribed partition and no automatic
@@ -764,9 +786,8 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         ensureNotClosed();
         Collection<TopicPartition> parts = partitions.length == 0 ? this.subscriptions.assignedPartitions()
                 : Arrays.asList(partitions);
-        for (TopicPartition tp : parts) {
+        for (TopicPartition tp : parts)
             subscriptions.needOffsetReset(tp, OffsetResetStrategy.EARLIEST);
-        }
     }
 
     /**
@@ -776,9 +797,8 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         ensureNotClosed();
         Collection<TopicPartition> parts = partitions.length == 0 ? this.subscriptions.assignedPartitions()
                 : Arrays.asList(partitions);
-        for (TopicPartition tp : parts) {
+        for (TopicPartition tp : parts)
             subscriptions.needOffsetReset(tp, OffsetResetStrategy.LATEST);
-        }
     }
 
     /**
@@ -896,6 +916,8 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     }
 
     private long timeToNextCommit(long now) {
+        if (!this.autoCommit)
+            return Long.MAX_VALUE;
         long timeSinceLastCommit = now - this.lastCommitAttemptMs;
         if (timeSinceLastCommit > this.autoCommitIntervalMs)
             return 0;
@@ -958,7 +980,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                 continue;
 
             // TODO: If there are several offsets to reset, we could submit offset requests in parallel
-            if (subscriptions.isOffsetResetNeeded()) {
+            if (subscriptions.isOffsetResetNeeded(tp)) {
                 resetOffset(tp);
             } else if (subscriptions.committed(tp) == null) {
                 // There's no committed position, so we need to reset with the default strategy
@@ -1002,12 +1024,15 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     private long offsetBefore(TopicPartition partition, long timestamp) {
         while (true) {
-            BrokerResult<Long> response = fetcher.offsetBefore(partition, timestamp);
-            pollClient(response, requestTimeoutMs);
+            RequestFuture<Long> future = fetcher.offsetBefore(partition, timestamp);
 
-            if (response.isReady()) {
-                if (response.succeeded()) return response.value();
-                handleBrokerFailure(response);
+            if (!future.isDone())
+                pollFuture(future, requestTimeoutMs);
+
+            if (future.isDone()) {
+                if (future.succeeded())
+                    return future.value();
+                handleRequestFailure(future);
             }
         }
     }
@@ -1036,14 +1061,14 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     private void assignPartitions() {
         while (subscriptions.partitionAssignmentNeeded()) {
-            CoordinatorResult<Void> response = coordinator.assignPartitions(time.milliseconds());
+            RequestFuture<Void> future = coordinator.assignPartitions(time.milliseconds());
 
             // Block indefinitely for the join group request (which can take as long as a session timeout)
-            pollClient(response);
+            if (!future.isDone())
+                pollFuture(future);
 
-            if (response.isReady()) {
-                handleCoordinatorFailure(response);
-            }
+            if (future.isDone() && !future.succeeded())
+                handleRequestFailure(future);
         }
     }
 
@@ -1052,11 +1077,13 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     private void ensureCoordinatorKnown() {
         while (coordinator.coordinatorUnknown()) {
-            BrokerResult<Void> response = coordinator.discoverConsumerCoordinator();
-            pollClient(response, requestTimeoutMs);
-            if (response.isReady()) {
-                handleBrokerFailure(response);
-            }
+            RequestFuture<Void> future = coordinator.discoverConsumerCoordinator();
+
+            if (!future.isDone())
+                pollFuture(future, requestTimeoutMs);
+
+            if (future.isDone() && !future.succeeded())
+                handleRequestFailure(future);
         }
     }
 
@@ -1069,18 +1096,18 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     private Map<TopicPartition, Long> fetchCommittedOffsets(Set<TopicPartition> partitions) {
         while (true) {
             long now = time.milliseconds();
-            CoordinatorResult<Map<TopicPartition, Long>> response = coordinator.fetchOffsets(partitions, now);
-            pollClient(response, requestTimeoutMs);
+            RequestFuture<Map<TopicPartition, Long>> future = coordinator.fetchOffsets(partitions, now);
 
-            if (response.isReady()) {
-                if (response.succeeded()) return response.value();
-                handleCoordinatorFailure(response);
-            }  else {
-                log.debug("Fetch committed offsets failed");
+            if (!future.isDone())
+                pollFuture(future, requestTimeoutMs);
+
+            if (future.isDone()) {
+                if (future.succeeded())
+                    return future.value();
+                handleRequestFailure(future);
             }
         }
     }
-
 
     /**
      * Commit offsets. This call blocks (regardless of commitType) until the coordinator
@@ -1090,93 +1117,91 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * @param commitType Commit policy
      */
     private void commitOffsets(Map<TopicPartition, Long> offsets, CommitType commitType) {
+        if (commitType == CommitType.ASYNC) {
+            commitOffsetsAsync(offsets);
+        } else {
+            commitOffsetsSync(offsets);
+        }
+    }
+
+    private void commitOffsetsAsync(Map<TopicPartition, Long> offsets) {
         while (true) {
             long now = time.milliseconds();
-            CoordinatorResult<Void> response = coordinator.commitOffsets(offsets, now);
-            if (commitType == CommitType.SYNC)
-                pollClient(response, requestTimeoutMs);
-            else
-                pollClient(requestTimeoutMs, now);
+            RequestFuture<Void> future = coordinator.commitOffsets(offsets, now);
 
-            // Retry for both commit types if there are coordinator connection issues
-            if (response.isReady()) {
-                if (response.succeeded()) return;
-                handleCoordinatorFailure(response);
-            } else if (commitType == CommitType.ASYNC) {
+            if (!future.isDone() || future.succeeded())
+                return;
+
+            handleRequestFailure(future);
+        }
+    }
+
+    private void commitOffsetsSync(Map<TopicPartition, Long> offsets) {
+        while (true) {
+            long now = time.milliseconds();
+            RequestFuture<Void> future = coordinator.commitOffsets(offsets, now);
+
+            if (!future.isDone())
+                pollFuture(future, requestTimeoutMs);
+
+            if (future.isDone()) {
+                if (future.succeeded())
+                    return;
+                else
+                    handleRequestFailure(future);
+            }
+        }
+    }
+
+
+    private void handleRequestFailure(RequestFuture<?> future) {
+        if (future.hasException())
+            throw future.exception();
+
+        switch (future.retryAction()) {
+            case BACKOFF:
+                Utils.sleep(retryBackoffMs);
                 break;
-            }
+            case POLL:
+                long now = time.milliseconds();
+                pollClient(retryBackoffMs, now);
+                break;
+            case FIND_COORDINATOR:
+                ensureCoordinatorKnown();
+                break;
+            case REFRESH_METADATA:
+                awaitMetadataUpdate();
+                break;
+            case NOOP:
+                // Do nothing (retry now)
         }
     }
 
     /**
-     * Handle failed coordinator responses.
-     * @param response The failed response from the coordinator.
+     * Poll until a result is ready or timeout expires
+     * @param future The future to poll for
+     * @param timeout The time in milliseconds to wait for the result
      */
-    private void handleCoordinatorFailure(CoordinatorResult<?> response) {
-        if (response.failed()) {
-            if (response.hasException()) {
-                throw response.exception();
-            } else if (response.hasRemedy()) {
-                switch (response.remedy()) {
-                    case FIND_COORDINATOR:
-                        ensureCoordinatorKnown();
-                        break;
-
-                    case RETRY:
-                        Utils.sleep(retryBackoffMs);
-                        break;
-                }
-
-            }
-        }
-    }
-
-    /**
-     * Handle failed broker responses.
-     * @param result The failed response from the broker
-     */
-    private void handleBrokerFailure(BrokerResult<?> result) {
-        if (result.failed()) {
-            if (result.hasException()) {
-                throw result.exception();
-            } else if (result.hasRemedy()) {
-                switch (result.remedy()) {
-                    case REFRESH_METADATA:
-                        awaitMetadataUpdate();
-                        break;
-
-                    case RETRY:
-                        Utils.sleep(retryBackoffMs);
-                        break;
-                }
-            }
-        }
-    }
-
-    /**
-     * Poll until a response is ready or timeout expires
-     * @param response The response to poll for
-     * @param timeout The time in milliseconds to wait for the response
-     */
-    private void pollClient(DelayedResult<?, ?> response, long timeout) {
+    private void pollFuture(RequestFuture<?> future, long timeout) {
+        // TODO: Update this code for KAFKA-2120, which adds request timeout to NetworkClient
         long remaining = timeout;
-        do {
+        while (!future.isDone() && remaining >= 0) {
             long start = time.milliseconds();
             pollClient(remaining, start);
-            if (response.isReady()) return;
+            if (future.isDone()) return;
             remaining -= time.milliseconds() - start;
-        } while (remaining > 0 && !response.isReady());
+        }
     }
 
     /**
-     * Poll indefinitely until the response is ready.
-     * @param response The response to poll for.
+     * Poll indefinitely until the result is ready.
+     * @param future The future to poll for.
      */
-    private void pollClient(DelayedResult<?, ?> response) {
-        do {
+    private void pollFuture(RequestFuture<?> future) {
+        while (!future.isDone()) {
             long now = time.milliseconds();
             pollClient(-1, now);
-        } while (!response.isReady());
+        }
     }
 
     /**
