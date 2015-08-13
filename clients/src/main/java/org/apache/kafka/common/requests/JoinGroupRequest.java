@@ -16,6 +16,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
+import org.apache.kafka.common.protocol.Protocol;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 
@@ -27,44 +28,71 @@ import java.util.List;
 public class JoinGroupRequest extends AbstractRequest {
     
     private static final Schema CURRENT_SCHEMA = ProtoUtils.currentRequestSchema(ApiKeys.JOIN_GROUP.id);
+    private static final String GROUP_TYPE_KEY_NAME = "group_type";
     private static final String GROUP_ID_KEY_NAME = "group_id";
     private static final String SESSION_TIMEOUT_KEY_NAME = "session_timeout";
-    private static final String TOPICS_KEY_NAME = "topics";
-    private static final String CONSUMER_ID_KEY_NAME = "consumer_id";
-    private static final String STRATEGY_KEY_NAME = "partition_assignment_strategy";
+    private static final String MEMBER_ID_KEY_NAME = "member_id";
+    private static final String GROUP_PROTOCOLS_KEY_NAME = "group_protocols";
+    private static final String PROTOCOL_KEY_NAME = "protocol";
+    private static final String PROTOCOL_METADATA_KEY_NAME = "protocol_metadata";
 
-    public static final String UNKNOWN_CONSUMER_ID = "";
+    public static final String UNKNOWN_MEMBER_ID = "";
 
+    private final String groupType;
     private final String groupId;
     private final int sessionTimeout;
-    private final List<String> topics;
-    private final String consumerId;
-    private final String strategy;
+    private final List<ProtocolMetadata> groupProtocols;
+    private final String memberId;
 
-    public JoinGroupRequest(String groupId, int sessionTimeout, List<String> topics, String consumerId, String strategy) {
+    public static class ProtocolMetadata {
+        public final String name;
+        public final ByteBuffer metadata;
+
+        public ProtocolMetadata(String name, ByteBuffer metadata) {
+            this.name = name;
+            this.metadata = metadata;
+        }
+    }
+
+    public JoinGroupRequest(String groupType,
+                            String groupId,
+                            int sessionTimeout,
+                            String memberId,
+                            List<ProtocolMetadata> protocols) {
         super(new Struct(CURRENT_SCHEMA));
+        struct.set(GROUP_TYPE_KEY_NAME, groupType);
         struct.set(GROUP_ID_KEY_NAME, groupId);
         struct.set(SESSION_TIMEOUT_KEY_NAME, sessionTimeout);
-        struct.set(TOPICS_KEY_NAME, topics.toArray());
-        struct.set(CONSUMER_ID_KEY_NAME, consumerId);
-        struct.set(STRATEGY_KEY_NAME, strategy);
+        struct.set(MEMBER_ID_KEY_NAME, memberId);
+        List<Struct> protocolsArray = new ArrayList<>();
+        for (ProtocolMetadata protocol : protocols) {
+            Struct protocolStruct = struct.instance(GROUP_PROTOCOLS_KEY_NAME);
+            protocolStruct.set(PROTOCOL_KEY_NAME, protocol.name);
+            protocolStruct.set(PROTOCOL_METADATA_KEY_NAME, protocol.metadata);
+        }
+        struct.set(GROUP_PROTOCOLS_KEY_NAME, protocolsArray.toArray());
+        this.groupType = groupType;
         this.groupId = groupId;
         this.sessionTimeout = sessionTimeout;
-        this.topics = topics;
-        this.consumerId = consumerId;
-        this.strategy = strategy;
+        this.memberId = memberId;
+        this.groupProtocols = protocols;
     }
 
     public JoinGroupRequest(Struct struct) {
         super(struct);
+        groupType = struct.getString(GROUP_TYPE_KEY_NAME);
         groupId = struct.getString(GROUP_ID_KEY_NAME);
         sessionTimeout = struct.getInt(SESSION_TIMEOUT_KEY_NAME);
-        Object[] topicsArray = struct.getArray(TOPICS_KEY_NAME);
-        topics = new ArrayList<String>();
-        for (Object topic: topicsArray)
-            topics.add((String) topic);
-        consumerId = struct.getString(CONSUMER_ID_KEY_NAME);
-        strategy = struct.getString(STRATEGY_KEY_NAME);
+        memberId = struct.getString(MEMBER_ID_KEY_NAME);
+
+        Object[] protocolsArray = struct.getArray(GROUP_PROTOCOLS_KEY_NAME);
+        groupProtocols = new ArrayList<>();
+        for (Object protocolObj : protocolsArray) {
+            Struct protocol = (Struct) protocolObj;
+            String protocolName = protocol.getString(PROTOCOL_KEY_NAME);
+            ByteBuffer protocolMetadata = protocol.getBytes(PROTOCOL_METADATA_KEY_NAME);
+            groupProtocols.add(new ProtocolMetadata(protocolName, protocolMetadata));
+        }
     }
 
     @Override
@@ -82,6 +110,10 @@ public class JoinGroupRequest extends AbstractRequest {
         }
     }
 
+    public String groupType() {
+        return groupType;
+    }
+
     public String groupId() {
         return groupId;
     }
@@ -90,16 +122,12 @@ public class JoinGroupRequest extends AbstractRequest {
         return sessionTimeout;
     }
 
-    public List<String> topics() {
-        return topics;
+    public List<ProtocolMetadata> groupProtocols() {
+        return groupProtocols;
     }
 
-    public String consumerId() {
-        return consumerId;
-    }
-
-    public String strategy() {
-        return strategy;
+    public String memberId() {
+        return memberId;
     }
 
     public static JoinGroupRequest parse(ByteBuffer buffer, int versionId) {
