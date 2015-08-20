@@ -72,7 +72,7 @@ class ConsumerCoordinatorResponseTest extends JUnitSuite {
 
     val joinGroupResult = joinGroup(groupId, consumerId, partitionAssignmentStrategy, DefaultSessionTimeout, isCoordinatorForGroup = false)
     val joinGroupErrorCode = joinGroupResult._4
-    assertEquals(Errors.NOT_COORDINATOR_FOR_CONSUMER.code, joinGroupErrorCode)
+    assertEquals(Errors.NOT_COORDINATOR_FOR_GROUP.code, joinGroupErrorCode)
   }
 
   @Test
@@ -116,7 +116,7 @@ class ConsumerCoordinatorResponseTest extends JUnitSuite {
 
     val joinGroupResult = joinGroup(groupId, consumerId, partitionAssignmentStrategy, DefaultSessionTimeout, isCoordinatorForGroup = true)
     val joinGroupErrorCode = joinGroupResult._4
-    assertEquals(Errors.UNKNOWN_CONSUMER_ID.code, joinGroupErrorCode)
+    assertEquals(Errors.UNKNOWN_MEMBER_ID.code, joinGroupErrorCode)
   }
 
   @Test
@@ -162,7 +162,7 @@ class ConsumerCoordinatorResponseTest extends JUnitSuite {
     EasyMock.reset(offsetManager)
     val otherJoinGroupResult = joinGroup(groupId, otherConsumerId, partitionAssignmentStrategy, DefaultSessionTimeout, isCoordinatorForGroup = true)
     val otherJoinGroupErrorCode = otherJoinGroupResult._4
-    assertEquals(Errors.UNKNOWN_CONSUMER_ID.code, otherJoinGroupErrorCode)
+    assertEquals(Errors.UNKNOWN_MEMBER_ID.code, otherJoinGroupErrorCode)
   }
 
   @Test
@@ -171,7 +171,7 @@ class ConsumerCoordinatorResponseTest extends JUnitSuite {
     val consumerId = "consumerId"
 
     val heartbeatResult = heartbeat(groupId, consumerId, -1, isCoordinatorForGroup = false)
-    assertEquals(Errors.NOT_COORDINATOR_FOR_CONSUMER.code, heartbeatResult)
+    assertEquals(Errors.NOT_COORDINATOR_FOR_GROUP.code, heartbeatResult)
   }
 
   @Test
@@ -180,7 +180,7 @@ class ConsumerCoordinatorResponseTest extends JUnitSuite {
     val consumerId = "consumerId"
 
     val heartbeatResult = heartbeat(groupId, consumerId, -1, isCoordinatorForGroup = true)
-    assertEquals(Errors.UNKNOWN_CONSUMER_ID.code, heartbeatResult)
+    assertEquals(Errors.UNKNOWN_MEMBER_ID.code, heartbeatResult)
   }
 
   @Test
@@ -196,7 +196,7 @@ class ConsumerCoordinatorResponseTest extends JUnitSuite {
 
     EasyMock.reset(offsetManager)
     val heartbeatResult = heartbeat(groupId, otherConsumerId, 1, isCoordinatorForGroup = true)
-    assertEquals(Errors.UNKNOWN_CONSUMER_ID.code, heartbeatResult)
+    assertEquals(Errors.UNKNOWN_MEMBER_ID.code, heartbeatResult)
   }
 
   @Test

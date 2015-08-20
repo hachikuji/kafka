@@ -26,54 +26,34 @@ public class MetadataSnapshotTest {
 
     @Test
     public void hashIdentity() {
-        SortedMap<String, Integer> partitionsPerTopic = new TreeMap<>();
-        partitionsPerTopic.put("foo", 25);
-        partitionsPerTopic.put("bar", 50);
+        SortedMap<String, MetadataSnapshot.TopicMetadata> partitionsPerTopic = new TreeMap<>();
+        partitionsPerTopic.put("foo", new MetadataSnapshot.TopicMetadata(25));
+        partitionsPerTopic.put("bar", new MetadataSnapshot.TopicMetadata(50));
 
-        MetadataSnapshot snapshot1 = new MetadataSnapshot(partitionsPerTopic);
-        MetadataSnapshot snapshot2 = new MetadataSnapshot(partitionsPerTopic);
+        MetadataSnapshot snapshot1 = new MetadataSnapshot(partitionsPerTopic.keySet(),
+                partitionsPerTopic.keySet(), partitionsPerTopic);
+
+        MetadataSnapshot snapshot2 = new MetadataSnapshot(partitionsPerTopic.keySet(),
+                partitionsPerTopic.keySet(), partitionsPerTopic);
 
         assertTrue(Arrays.equals(snapshot1.hash(), snapshot2.hash()));
     }
 
     @Test
     public void hashInequality() {
-        SortedMap<String, Integer> partitionsPerTopic1 = new TreeMap<>();
-        partitionsPerTopic1.put("foo", 25);
-        partitionsPerTopic1.put("bar", 50);
-        MetadataSnapshot snapshot1 = new MetadataSnapshot(partitionsPerTopic1);
+        SortedMap<String, MetadataSnapshot.TopicMetadata> partitionsPerTopic = new TreeMap<>();
+        partitionsPerTopic.put("foo", new MetadataSnapshot.TopicMetadata(25));
+        partitionsPerTopic.put("bar", new MetadataSnapshot.TopicMetadata(50));
+        MetadataSnapshot snapshot1 = new MetadataSnapshot(partitionsPerTopic.keySet(),
+                partitionsPerTopic.keySet(), partitionsPerTopic);
 
-        SortedMap<String, Integer> partitionsPerTopic2 = new TreeMap<>();
-        partitionsPerTopic2.put("foo", 26);
-        partitionsPerTopic2.put("bar", 50);
-        MetadataSnapshot snapshot2 = new MetadataSnapshot(partitionsPerTopic2);
+        SortedMap<String, MetadataSnapshot.TopicMetadata> partitionsPerTopic2 = new TreeMap<>();
+        partitionsPerTopic2.put("foo", new MetadataSnapshot.TopicMetadata(26));
+        partitionsPerTopic2.put("bar", new MetadataSnapshot.TopicMetadata(50));
+        MetadataSnapshot snapshot2 = new MetadataSnapshot(partitionsPerTopic2.keySet(),
+                partitionsPerTopic2.keySet(), partitionsPerTopic2);
 
         assertFalse(Arrays.equals(snapshot1.hash(), snapshot2.hash()));
     }
-
-    @Test
-    public void subset() {
-        SortedMap<String, Integer> partitionsPerTopic1 = new TreeMap<>();
-        partitionsPerTopic1.put("foo", 25);
-        partitionsPerTopic1.put("bar", 50);
-        MetadataSnapshot snapshot1 = new MetadataSnapshot(partitionsPerTopic1);
-
-        SortedMap<String, Integer> partitionsPerTopic2 = new TreeMap<>();
-        partitionsPerTopic2.put("foo", 26);
-        partitionsPerTopic2.put("bar", 50);
-        MetadataSnapshot snapshot2 = new MetadataSnapshot(partitionsPerTopic2);
-
-        assertFalse(Arrays.equals(
-                snapshot1.subset(Collections.singleton("foo")).hash(),
-                snapshot2.subset(Collections.singleton("foo")).hash()));
-
-        assertTrue(Arrays.equals(
-                snapshot1.subset(Collections.singleton("bar")).hash(),
-                snapshot2.subset(Collections.singleton("bar")).hash()));
-
-    }
-
-
-
 
 }

@@ -16,15 +16,11 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.MockClient;
 import org.apache.kafka.clients.consumer.CommitType;
 import org.apache.kafka.clients.consumer.ConsumerCommitCallback;
+import org.apache.kafka.clients.consumer.MockPartitionAssignor;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.clients.consumer.PartitionAssignor;
 import org.apache.kafka.common.Cluster;
@@ -35,7 +31,6 @@ import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.protocol.types.Type;
 import org.apache.kafka.common.requests.ConsumerMetadataResponse;
 import org.apache.kafka.common.requests.HeartbeatResponse;
 import org.apache.kafka.common.requests.JoinGroupResponse;
@@ -43,9 +38,10 @@ import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.OffsetFetchResponse;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.test.TestUtils;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -54,8 +50,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.junit.Before;
-import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 
 public class CoordinatorTest {
@@ -87,10 +85,11 @@ public class CoordinatorTest {
         this.client = new MockClient(time);
         this.subscriptions = new SubscriptionState(OffsetResetStrategy.EARLIEST);
         this.metadata = new Metadata(0, Long.MAX_VALUE);
+        this.metadata.update(cluster, time.milliseconds());
         this.consumerClient = new ConsumerNetworkClient(client, metadata, time, 100);
         this.metrics = new Metrics(time);
         this.rebalanceCallback = new MockRebalanceCallback();
-        this.partitionAssignor.partitions.clear();
+        this.partitionAssignor.clear();
 
         client.setNode(node);
 
@@ -139,13 +138,13 @@ public class CoordinatorTest {
         assertEquals(1, consumerClient.pendingRequestCount());
         assertFalse(future.isDone());
 
-        client.prepareResponse(heartbeatResponse(Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code()));
+        client.prepareResponse(heartbeatResponse(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code()));
         time.sleep(sessionTimeoutMs);
         consumerClient.poll(0);
 
         assertTrue(future.isDone());
         assertTrue(future.failed());
-        assertEquals(Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.exception(), future.exception());
+        assertEquals(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.exception(), future.exception());
         assertTrue(coordinator.coordinatorUnknown());
     }
 
@@ -160,13 +159,13 @@ public class CoordinatorTest {
         assertEquals(1, consumerClient.pendingRequestCount());
         assertFalse(future.isDone());
 
-        client.prepareResponse(heartbeatResponse(Errors.NOT_COORDINATOR_FOR_CONSUMER.code()));
+        client.prepareResponse(heartbeatResponse(Errors.NOT_COORDINATOR_FOR_GROUP.code()));
         time.sleep(sessionTimeoutMs);
         consumerClient.poll(0);
 
         assertTrue(future.isDone());
         assertTrue(future.failed());
-        assertEquals(Errors.NOT_COORDINATOR_FOR_CONSUMER.exception(), future.exception());
+        assertEquals(Errors.NOT_COORDINATOR_FOR_GROUP.exception(), future.exception());
         assertTrue(coordinator.coordinatorUnknown());
     }
 
@@ -208,13 +207,13 @@ public class CoordinatorTest {
         assertEquals(1, consumerClient.pendingRequestCount());
         assertFalse(future.isDone());
 
-        client.prepareResponse(heartbeatResponse(Errors.UNKNOWN_CONSUMER_ID.code()));
+        client.prepareResponse(heartbeatResponse(Errors.UNKNOWN_MEMBER_ID.code()));
         time.sleep(sessionTimeoutMs);
         consumerClient.poll(0);
 
         assertTrue(future.isDone());
         assertTrue(future.failed());
-        assertEquals(Errors.UNKNOWN_CONSUMER_ID.exception(), future.exception());
+        assertEquals(Errors.UNKNOWN_MEMBER_ID.exception(), future.exception());
         assertTrue(coordinator.needRejoin());
     }
 
@@ -326,13 +325,13 @@ public class CoordinatorTest {
 
         // async commit with coordinator not available
         MockCommitCallback cb = new MockCommitCallback();
-        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code())));
+        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code())));
         coordinator.commitOffsets(Collections.singletonMap(tp, 100L), CommitType.ASYNC, cb);
         consumerClient.poll(0);
 
         assertTrue(coordinator.coordinatorUnknown());
         assertEquals(1, cb.invoked);
-        assertEquals(Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.exception(), cb.exception);
+        assertEquals(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.exception(), cb.exception);
     }
 
     @Test
@@ -342,13 +341,13 @@ public class CoordinatorTest {
 
         // async commit with not coordinator
         MockCommitCallback cb = new MockCommitCallback();
-        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NOT_COORDINATOR_FOR_CONSUMER.code())));
+        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NOT_COORDINATOR_FOR_GROUP.code())));
         coordinator.commitOffsets(Collections.singletonMap(tp, 100L), CommitType.ASYNC, cb);
         consumerClient.poll(0);
 
         assertTrue(coordinator.coordinatorUnknown());
         assertEquals(1, cb.invoked);
-        assertEquals(Errors.NOT_COORDINATOR_FOR_CONSUMER.exception(), cb.exception);
+        assertEquals(Errors.NOT_COORDINATOR_FOR_GROUP.exception(), cb.exception);
     }
 
     @Test
@@ -374,7 +373,7 @@ public class CoordinatorTest {
 
         // sync commit with coordinator disconnected (should connect, get metadata, and then submit the commit request)
         MockCommitCallback cb = new MockCommitCallback();
-        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NOT_COORDINATOR_FOR_CONSUMER.code())));
+        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NOT_COORDINATOR_FOR_GROUP.code())));
         client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
         client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NONE.code())));
         coordinator.commitOffsets(Collections.singletonMap(tp, 100L), CommitType.SYNC, cb);
@@ -389,7 +388,7 @@ public class CoordinatorTest {
 
         // sync commit with coordinator disconnected (should connect, get metadata, and then submit the commit request)
         MockCommitCallback cb = new MockCommitCallback();
-        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code())));
+        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code())));
         client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
         client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.NONE.code())));
         coordinator.commitOffsets(Collections.singletonMap(tp, 100L), CommitType.SYNC, cb);
@@ -468,7 +467,7 @@ public class CoordinatorTest {
 
         subscriptions.subscribe(tp);
         subscriptions.needRefreshCommits();
-        client.prepareResponse(offsetFetchResponse(tp, Errors.NOT_COORDINATOR_FOR_CONSUMER.code(), "", 100L));
+        client.prepareResponse(offsetFetchResponse(tp, Errors.NOT_COORDINATOR_FOR_GROUP.code(), "", 100L));
         client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
         client.prepareResponse(offsetFetchResponse(tp, Errors.NONE.code(), "", 100L));
         coordinator.refreshCommittedOffsetsIfNeeded();
@@ -500,8 +499,7 @@ public class CoordinatorTest {
     }
 
     private Struct joinGroupResponse(int generationId, String consumerId, List<TopicPartition> assignedPartitions, short error) {
-        partitionAssignor.partitions.clear();
-        partitionAssignor.partitions.addAll(assignedPartitions);
+        partitionAssignor.prepare(PartitionAssignor.AssignmentResult.success(assignedPartitions));
         JoinGroupResponse response = new JoinGroupResponse(error, generationId, consumerId,
                 partitionAssignor.name(), partitionAssignor.version(),
                 Collections.singletonMap(consumerId, ByteBuffer.wrap(new byte[]{})));
@@ -527,55 +525,6 @@ public class CoordinatorTest {
                     success.set(true);
             }
         };
-    }
-
-    private static class MockPartitionAssignor implements PartitionAssignor<Void> {
-
-        private List<TopicPartition> partitions = new ArrayList<>();
-
-        @Override
-        public List<TopicPartition> assign(String consumerId, Map<String, Void> consumers, MetadataSnapshot metadataSnapshot) {
-            return partitions;
-        }
-
-        @Override
-        public String name() {
-            return "mock-assignor";
-        }
-
-        @Override
-        public short version() {
-            return 0;
-        }
-
-        @Override
-        public Type schema() {
-            return new Type() {
-                @Override
-                public void write(ByteBuffer buffer, Object o) {
-                }
-
-                @Override
-                public Object read(ByteBuffer buffer) {
-                    return null;
-                }
-
-                @Override
-                public Object validate(Object o) {
-                    return null;
-                }
-
-                @Override
-                public int sizeOf(Object o) {
-                    return 0;
-                }
-            };
-        }
-
-        @Override
-        public Void metadata(MetadataSnapshot subscription) {
-            return null;
-        }
     }
 
     private static class MockCommitCallback implements ConsumerCommitCallback {

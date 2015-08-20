@@ -107,9 +107,9 @@ class ConsumerCoordinator(val brokerId: Int,
                       partitionAssignmentStrategy: String,
                       responseCallback:(Set[TopicAndPartition], String, Int, Short) => Unit) {
     if (!isActive.get) {
-      responseCallback(Set.empty, consumerId, 0, Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code)
+      responseCallback(Set.empty, consumerId, 0, Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code)
     } else if (!isCoordinatorForGroup(groupId)) {
-      responseCallback(Set.empty, consumerId, 0, Errors.NOT_COORDINATOR_FOR_CONSUMER.code)
+      responseCallback(Set.empty, consumerId, 0, Errors.NOT_COORDINATOR_FOR_GROUP.code)
     } else if (!PartitionAssignor.strategies.contains(partitionAssignmentStrategy)) {
       responseCallback(Set.empty, consumerId, 0, Errors.UNKNOWN_PARTITION_ASSIGNMENT_STRATEGY.code)
     } else if (sessionTimeoutMs < groupConfig.consumerMinSessionTimeoutMs ||
@@ -122,7 +122,7 @@ class ConsumerCoordinator(val brokerId: Int,
       var group = coordinatorMetadata.getGroup(groupId)
       if (group == null) {
         if (consumerId != JoinGroupRequest.UNKNOWN_CONSUMER_ID) {
-          responseCallback(Set.empty, consumerId, 0, Errors.UNKNOWN_CONSUMER_ID.code)
+          responseCallback(Set.empty, consumerId, 0, Errors.UNKNOWN_MEMBER_ID.code)
         } else {
           group = coordinatorMetadata.addGroup(groupId, partitionAssignmentStrategy)
           doJoinGroup(group, consumerId, topics, sessionTimeoutMs, partitionAssignmentStrategy, responseCallback)
@@ -145,13 +145,13 @@ class ConsumerCoordinator(val brokerId: Int,
         // from the coordinator metadata; this is likely that the group has migrated to some other
         // coordinator OR the group is in a transient unstable phase. Let the consumer to retry
         // joining without specified consumer id,
-        responseCallback(Set.empty, consumerId, 0, Errors.UNKNOWN_CONSUMER_ID.code)
+        responseCallback(Set.empty, consumerId, 0, Errors.UNKNOWN_MEMBER_ID.code)
       } else if (partitionAssignmentStrategy != group.partitionAssignmentStrategy) {
         responseCallback(Set.empty, consumerId, 0, Errors.INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY.code)
       } else if (consumerId != JoinGroupRequest.UNKNOWN_CONSUMER_ID && !group.has(consumerId)) {
         // if the consumer trying to register with a un-recognized id, send the response to let
         // it reset its consumer id and retry
-        responseCallback(Set.empty, consumerId, 0, Errors.UNKNOWN_CONSUMER_ID.code)
+        responseCallback(Set.empty, consumerId, 0, Errors.UNKNOWN_MEMBER_ID.code)
       } else if (group.has(consumerId) && group.is(Stable) && topics == group.get(consumerId).topics) {
         /*
          * if an existing consumer sends a JoinGroupRequest with no changes while the group is stable,
@@ -193,9 +193,9 @@ class ConsumerCoordinator(val brokerId: Int,
                       generationId: Int,
                       responseCallback: Short => Unit) {
     if (!isActive.get) {
-      responseCallback(Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code)
+      responseCallback(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code)
     } else if (!isCoordinatorForGroup(groupId)) {
-      responseCallback(Errors.NOT_COORDINATOR_FOR_CONSUMER.code)
+      responseCallback(Errors.NOT_COORDINATOR_FOR_GROUP.code)
     } else {
       val group = coordinatorMetadata.getGroup(groupId)
       if (group == null) {
@@ -203,13 +203,13 @@ class ConsumerCoordinator(val brokerId: Int,
         // from the coordinator metadata; this is likely that the group has migrated to some other
         // coordinator OR the group is in a transient unstable phase. Let the consumer to retry
         // joining without specified consumer id,
-        responseCallback(Errors.UNKNOWN_CONSUMER_ID.code)
+        responseCallback(Errors.UNKNOWN_MEMBER_ID.code)
       } else {
         group synchronized {
           if (group.is(Dead)) {
-            responseCallback(Errors.UNKNOWN_CONSUMER_ID.code)
+            responseCallback(Errors.UNKNOWN_MEMBER_ID.code)
           } else if (!group.has(consumerId)) {
-            responseCallback(Errors.UNKNOWN_CONSUMER_ID.code)
+            responseCallback(Errors.UNKNOWN_MEMBER_ID.code)
           } else if (generationId != group.generationId || !group.is(Stable)) {
             responseCallback(Errors.ILLEGAL_GENERATION.code)
           } else {
@@ -228,9 +228,9 @@ class ConsumerCoordinator(val brokerId: Int,
                           offsetMetadata: immutable.Map[TopicAndPartition, OffsetAndMetadata],
                           responseCallback: immutable.Map[TopicAndPartition, Short] => Unit) {
     if (!isActive.get) {
-      responseCallback(offsetMetadata.mapValues(_ => Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code))
+      responseCallback(offsetMetadata.mapValues(_ => Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code))
     } else if (!isCoordinatorForGroup(groupId)) {
-      responseCallback(offsetMetadata.mapValues(_ => Errors.NOT_COORDINATOR_FOR_CONSUMER.code))
+      responseCallback(offsetMetadata.mapValues(_ => Errors.NOT_COORDINATOR_FOR_GROUP.code))
     } else {
       val group = coordinatorMetadata.getGroup(groupId)
       if (group == null) {
@@ -241,9 +241,9 @@ class ConsumerCoordinator(val brokerId: Int,
       } else {
         group synchronized {
           if (group.is(Dead)) {
-            responseCallback(offsetMetadata.mapValues(_ => Errors.UNKNOWN_CONSUMER_ID.code))
+            responseCallback(offsetMetadata.mapValues(_ => Errors.UNKNOWN_MEMBER_ID.code))
           } else if (!group.has(consumerId)) {
-            responseCallback(offsetMetadata.mapValues(_ => Errors.UNKNOWN_CONSUMER_ID.code))
+            responseCallback(offsetMetadata.mapValues(_ => Errors.UNKNOWN_MEMBER_ID.code))
           } else if (generationId != group.generationId) {
             responseCallback(offsetMetadata.mapValues(_ => Errors.ILLEGAL_GENERATION.code))
           } else if (!offsetMetadata.keySet.subsetOf(group.get(consumerId).assignedTopicPartitions)) {

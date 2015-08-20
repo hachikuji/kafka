@@ -115,11 +115,16 @@ public class RequestResponseTest {
     }
 
     private AbstractRequest createJoinGroupRequest() {
-        return new JoinGroupRequest("group1", 30000, Arrays.asList("topic1"), "consumer1", "strategy1");
+        List<JoinGroupRequest.ProtocolMetadata> protocols = Arrays.asList(
+                new JoinGroupRequest.ProtocolMetadata("protocol", (short) 0, ByteBuffer.wrap(new byte[] {})));
+        return new JoinGroupRequest("consumer", "group1", 30000, "consumer1", protocols);
     }
 
     private AbstractRequestResponse createJoinGroupResponse() {
-        return new JoinGroupResponse(Errors.NONE.code(), 1, "consumer1", Arrays.asList(new TopicPartition("test11", 1), new TopicPartition("test2", 1)));
+        Map<String, ByteBuffer> members = new HashMap<>();
+        members.put("consumer1", ByteBuffer.wrap(new byte[]{}));
+        members.put("consumer2", ByteBuffer.wrap(new byte[]{}));
+        return new JoinGroupResponse(Errors.NONE.code(), 1, "consumer1", "protocol", (short) 0, members);
     }
 
     private AbstractRequest createListOffsetRequest() {

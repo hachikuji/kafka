@@ -252,8 +252,8 @@ public final class Coordinator extends GroupCoordinator<ConsumerGroupController.
                     if (subscriptions.isAssigned(tp))
                         // update the local cache only if the partition is still assigned
                         subscriptions.committed(tp, offset);
-                } else if (errorCode == Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code()
-                        || errorCode == Errors.NOT_COORDINATOR_FOR_CONSUMER.code()) {
+                } else if (errorCode == Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code()
+                        || errorCode == Errors.NOT_COORDINATOR_FOR_GROUP.code()) {
                     coordinatorDead();
                     future.raise(Errors.forCode(errorCode));
                     return;
@@ -264,7 +264,7 @@ public final class Coordinator extends GroupCoordinator<ConsumerGroupController.
                             tp,
                             offset,
                             Errors.forCode(errorCode).exception().getMessage());
-                } else if (errorCode == Errors.UNKNOWN_CONSUMER_ID.code()
+                } else if (errorCode == Errors.UNKNOWN_MEMBER_ID.code()
                         || errorCode == Errors.ILLEGAL_GENERATION.code()) {
                     // need to re-join group
                     subscriptions.needReassignment();
@@ -324,11 +324,11 @@ public final class Coordinator extends GroupCoordinator<ConsumerGroupController.
                     if (data.errorCode == Errors.OFFSET_LOAD_IN_PROGRESS.code()) {
                         // just retry
                         future.raise(Errors.OFFSET_LOAD_IN_PROGRESS);
-                    } else if (data.errorCode == Errors.NOT_COORDINATOR_FOR_CONSUMER.code()) {
+                    } else if (data.errorCode == Errors.NOT_COORDINATOR_FOR_GROUP.code()) {
                         // re-discover the coordinator and retry
                         coordinatorDead();
-                        future.raise(Errors.NOT_COORDINATOR_FOR_CONSUMER);
-                    } else if (data.errorCode == Errors.UNKNOWN_CONSUMER_ID.code()
+                        future.raise(Errors.NOT_COORDINATOR_FOR_GROUP);
+                    } else if (data.errorCode == Errors.UNKNOWN_MEMBER_ID.code()
                             || data.errorCode == Errors.ILLEGAL_GENERATION.code()) {
                         // need to re-join group
                         subscriptions.needReassignment();

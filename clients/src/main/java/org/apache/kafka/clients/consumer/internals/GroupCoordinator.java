@@ -49,12 +49,11 @@ public class GroupCoordinator<T extends GroupProtocol> {
     private final Logger log = LoggerFactory.getLogger(getClass());
 
     private final GroupController<T> controller;
-    protected final String groupId;
     private final Heartbeat heartbeat;
     private final HeartbeatTask heartbeatTask;
     private final int sessionTimeoutMs;
     private final GroupCoordinatorMetrics sensors;
-
+    protected final String groupId;
     protected final ConsumerNetworkClient client;
     protected final Time time;
     protected final long retryBackoffMs;
@@ -158,8 +157,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
 
         @Override
         public void run(final long now) {
-            if (controller.needRejoin()) {
-                coordinatorUnknown();
+            if (needRejoin() || coordinatorUnknown()) {
                 // no need to send the heartbeat we're not using auto-assignment or if we are
                 // awaiting a rebalance
                 return;
@@ -230,10 +228,10 @@ public class GroupCoordinator<T extends GroupProtocol> {
 
     private class JoinGroupResponseHandler extends CoordinatorResponseHandler<JoinGroupResponse, Void> {
 
-        private List<T> allProtocolMetadata;
+        private List<T> requestProtocols;
 
         public JoinGroupResponseHandler(List<T> protocolMetadata) {
-            this.allProtocolMetadata = protocolMetadata;
+            this.requestProtocols = protocolMetadata;
         }
 
         @Override
@@ -247,12 +245,12 @@ public class GroupCoordinator<T extends GroupProtocol> {
             short errorCode = joinResponse.errorCode();
 
             if (errorCode == Errors.NONE.code()) {
-                for (T protocolMetadata : allProtocolMetadata) {
-                    if (protocolMetadata.name().equals(joinResponse.groupProtocol()) &&
-                            protocolMetadata.version() == joinResponse.groupProtocolVersion()) {
+                for (T requestProtocol : requestProtocols) {
+                    if (requestProtocol.name().equals(joinResponse.groupProtocol()) &&
+                            requestProtocol.version() == joinResponse.groupProtocolVersion()) {
                         GroupCoordinator.this.memberId = joinResponse.memberId();
                         GroupCoordinator.this.generation = joinResponse.generationId();
-                        GroupCoordinator.this.protocol = protocolMetadata;
+                        GroupCoordinator.this.protocol = requestProtocol;
                         GroupCoordinator.this.groupMetadata = joinResponse.groupMembers();
                         GroupCoordinator.this.rejoinNeeded = false;
                         heartbeatTask.reset();
@@ -261,14 +259,14 @@ public class GroupCoordinator<T extends GroupProtocol> {
                     }
                 }
                 future.raise(new IllegalStateException("Coordinator selected unsupported protocol"));
-            } else if (errorCode == Errors.UNKNOWN_CONSUMER_ID.code()) {
+            } else if (errorCode == Errors.UNKNOWN_MEMBER_ID.code()) {
                 // reset the consumer id and retry immediately
                 GroupCoordinator.this.memberId = JoinGroupRequest.UNKNOWN_MEMBER_ID;
                 log.info("Attempt to join group {} failed due to unknown consumer id, resetting and retrying.",
                         groupId);
-                future.raise(Errors.UNKNOWN_CONSUMER_ID);
-            } else if (errorCode == Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code()
-                    || errorCode == Errors.NOT_COORDINATOR_FOR_CONSUMER.code()) {
+                future.raise(Errors.UNKNOWN_MEMBER_ID);
+            } else if (errorCode == Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code()
+                    || errorCode == Errors.NOT_COORDINATOR_FOR_GROUP.code()) {
                 // re-discover the coordinator and retry with backoff
                 coordinatorDead();
                 log.info("Attempt to join group {} failed due to obsolete coordinator information, retrying.",
@@ -381,8 +379,8 @@ public class GroupCoordinator<T extends GroupProtocol> {
             if (error == Errors.NONE.code()) {
                 log.debug("Received successful heartbeat response.");
                 future.complete(null);
-            } else if (error == Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code()
-                    || error == Errors.NOT_COORDINATOR_FOR_CONSUMER.code()) {
+            } else if (error == Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code()
+                    || error == Errors.NOT_COORDINATOR_FOR_GROUP.code()) {
                 log.info("Attempt to heart beat failed since coordinator is either not started or not valid, marking it as dead.");
                 coordinatorDead();
                 future.raise(Errors.forCode(error));
@@ -390,11 +388,11 @@ public class GroupCoordinator<T extends GroupProtocol> {
                 log.info("Attempt to heart beat failed since generation id is not legal, try to re-join group.");
                 GroupCoordinator.this.rejoinNeeded = true;
                 future.raise(Errors.ILLEGAL_GENERATION);
-            } else if (error == Errors.UNKNOWN_CONSUMER_ID.code()) {
+            } else if (error == Errors.UNKNOWN_MEMBER_ID.code()) {
                 log.info("Attempt to heart beat failed since consumer id is not valid, reset it and try to re-join group.");
                 memberId = JoinGroupRequest.UNKNOWN_MEMBER_ID;
                 GroupCoordinator.this.rejoinNeeded = true;
-                future.raise(Errors.UNKNOWN_CONSUMER_ID);
+                future.raise(Errors.UNKNOWN_MEMBER_ID);
             } else {
                 future.raise(new KafkaException("Unexpected error in heartbeat response: "
                         + Errors.forCode(error).exception().getMessage()));

@@ -42,8 +42,8 @@ public class OffsetCommitResponse extends AbstractRequestResponse {
      * Possible error code:
      *
      * OFFSET_METADATA_TOO_LARGE (12)
-     * CONSUMER_COORDINATOR_NOT_AVAILABLE (15)
-     * NOT_COORDINATOR_FOR_CONSUMER (16)
+     * GROUP_COORDINATOR_NOT_AVAILABLE (15)
+     * NOT_COORDINATOR_FOR_GROUP (16)
      * ILLEGAL_GENERATION (22)
      * UNKNOWN_MEMBER_ID (25)
      * COMMITTING_PARTITIONS_NOT_ASSIGNED (27)
