@@ -51,7 +51,7 @@ public class OffsetFetchResponse extends AbstractRequestResponse {
      *  OFFSET_LOAD_IN_PROGRESS (14)
      *  NOT_COORDINATOR_FOR_CONSUMER (16)
      *  ILLEGAL_GENERATION (22)
-     *  UNKNOWN_CONSUMER_ID (25)
+     *  UNKNOWN_MEMBER_ID (25)
      */
 
     private final Map<TopicPartition, PartitionData> responseData;

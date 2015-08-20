@@ -463,7 +463,14 @@ public class NetworkClient implements KafkaClient {
     private void maybeUpdateMetadata(long now) {
         // Beware that the behavior of this method and the computation of timeouts for poll() are
         // highly dependent on the behavior of leastLoadedNode.
-        Node node = this.leastLoadedNode(now);
+
+        final Node node;
+        if (metadata.updateFrom() != null) {
+            node = metadata.updateFrom();
+        } else {
+            node = this.leastLoadedNode(now);
+        }
+
         if (node == null) {
             log.debug("Give up sending metadata request since no node is available");
             // mark the timestamp for no node available to connect

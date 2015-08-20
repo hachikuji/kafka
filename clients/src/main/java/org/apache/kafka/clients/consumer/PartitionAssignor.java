@@ -12,21 +12,62 @@
  */
 package org.apache.kafka.clients.consumer;
 
+import org.apache.kafka.clients.consumer.internals.MetadataSnapshot;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.types.Type;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
-public interface PartitionAssignor<M, S extends Type> {
+public interface PartitionAssignor<M> {
 
-    List<TopicPartition> assign(String consumerId, Map<String, M> consumers);
+    AssignmentResult assign(String consumerId,
+                            Map<String, M> consumers,
+                            MetadataSnapshot metadataSnapshot);
 
     String name();
 
-    S schema();
+    short version();
 
-    M metadata();
+    Type schema();
+
+    M metadata(MetadataSnapshot subscription);
+
+    class AssignmentResult {
+        private boolean succeeded = false;
+        private List<TopicPartition> assignment;
+        private Set<String> groupSubscription;
+
+        public AssignmentResult(boolean succeeded,
+                                List<TopicPartition> assignment,
+                                Set<String> groupSubscription) {
+            this.succeeded = succeeded;
+            this.assignment = assignment;
+            this.groupSubscription = groupSubscription;
+        }
+
+        public boolean succeeded() {
+            return succeeded;
+        }
+
+        public List<TopicPartition> assignment() {
+            return assignment;
+        }
+
+        public Set<String> groupSubscription() {
+            return groupSubscription;
+        }
+
+        public static AssignmentResult success(List<TopicPartition> assignment) {
+            return new AssignmentResult(true, assignment, null);
+        }
+
+        public static AssignmentResult failure(Set<String> groupSubscription) {
+            return new AssignmentResult(false, null, groupSubscription);
+        }
+
+    }
 
 
 

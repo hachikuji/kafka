@@ -26,6 +26,7 @@ import org.apache.kafka.clients.MockClient;
 import org.apache.kafka.clients.consumer.CommitType;
 import org.apache.kafka.clients.consumer.ConsumerCommitCallback;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
+import org.apache.kafka.clients.consumer.PartitionAssignor;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -34,6 +35,7 @@ import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.protocol.types.Type;
 import org.apache.kafka.common.requests.ConsumerMetadataResponse;
 import org.apache.kafka.common.requests.HeartbeatResponse;
 import org.apache.kafka.common.requests.JoinGroupResponse;
@@ -42,6 +44,9 @@ import org.apache.kafka.common.requests.OffsetFetchResponse;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.test.TestUtils;
 
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -62,7 +67,8 @@ public class CoordinatorTest {
     private int heartbeatIntervalMs = 2;
     private long retryBackoffMs = 100;
     private long requestTimeoutMs = 5000;
-    private String rebalanceStrategy = "not-matter";
+    private MockPartitionAssignor partitionAssignor = new MockPartitionAssignor();
+    private List<PartitionAssignor<?>> assignors = Arrays.<PartitionAssignor<?>>asList(partitionAssignor);
     private MockTime time;
     private MockClient client;
     private Cluster cluster = TestUtils.singletonCluster(topicName, 1);
@@ -84,6 +90,7 @@ public class CoordinatorTest {
         this.consumerClient = new ConsumerNetworkClient(client, metadata, time, 100);
         this.metrics = new Metrics(time);
         this.rebalanceCallback = new MockRebalanceCallback();
+        this.partitionAssignor.partitions.clear();
 
         client.setNode(node);
 
@@ -91,7 +98,8 @@ public class CoordinatorTest {
                 groupId,
                 sessionTimeoutMs,
                 heartbeatIntervalMs,
-                rebalanceStrategy,
+                assignors,
+                metadata,
                 subscriptions,
                 metrics,
                 "consumer" + groupId,
@@ -183,7 +191,7 @@ public class CoordinatorTest {
         assertTrue(future.isDone());
         assertTrue(future.failed());
         assertEquals(Errors.ILLEGAL_GENERATION.exception(), future.exception());
-        assertTrue(subscriptions.partitionAssignmentNeeded());
+        assertTrue(coordinator.needRejoin());
     }
 
     @Test
@@ -207,7 +215,7 @@ public class CoordinatorTest {
         assertTrue(future.isDone());
         assertTrue(future.failed());
         assertEquals(Errors.UNKNOWN_CONSUMER_ID.exception(), future.exception());
-        assertTrue(subscriptions.partitionAssignmentNeeded());
+        assertTrue(coordinator.needRejoin());
     }
 
     @Test
@@ -492,7 +500,11 @@ public class CoordinatorTest {
     }
 
     private Struct joinGroupResponse(int generationId, String consumerId, List<TopicPartition> assignedPartitions, short error) {
-        JoinGroupResponse response = new JoinGroupResponse(error, generationId, consumerId, assignedPartitions);
+        partitionAssignor.partitions.clear();
+        partitionAssignor.partitions.addAll(assignedPartitions);
+        JoinGroupResponse response = new JoinGroupResponse(error, generationId, consumerId,
+                partitionAssignor.name(), partitionAssignor.version(),
+                Collections.singletonMap(consumerId, ByteBuffer.wrap(new byte[]{})));
         return response.toStruct();
     }
 
@@ -515,6 +527,55 @@ public class CoordinatorTest {
                     success.set(true);
             }
         };
+    }
+
+    private static class MockPartitionAssignor implements PartitionAssignor<Void> {
+
+        private List<TopicPartition> partitions = new ArrayList<>();
+
+        @Override
+        public List<TopicPartition> assign(String consumerId, Map<String, Void> consumers, MetadataSnapshot metadataSnapshot) {
+            return partitions;
+        }
+
+        @Override
+        public String name() {
+            return "mock-assignor";
+        }
+
+        @Override
+        public short version() {
+            return 0;
+        }
+
+        @Override
+        public Type schema() {
+            return new Type() {
+                @Override
+                public void write(ByteBuffer buffer, Object o) {
+                }
+
+                @Override
+                public Object read(ByteBuffer buffer) {
+                    return null;
+                }
+
+                @Override
+                public Object validate(Object o) {
+                    return null;
+                }
+
+                @Override
+                public int sizeOf(Object o) {
+                    return 0;
+                }
+            };
+        }
+
+        @Override
+        public Void metadata(MetadataSnapshot subscription) {
+            return null;
+        }
     }
 
     private static class MockCommitCallback implements ConsumerCommitCallback {

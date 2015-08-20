@@ -12,10 +12,12 @@
  */
 package org.apache.kafka.clients;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 
 import org.apache.kafka.common.Cluster;
+import org.apache.kafka.common.Node;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +41,7 @@ public final class Metadata {
     private long lastSuccessfulRefreshMs;
     private Cluster cluster;
     private boolean needUpdate;
+    private Node updateFrom;
     private final Set<String> topics;
 
     /**
@@ -98,6 +101,11 @@ public final class Metadata {
         return this.version;
     }
 
+    public synchronized int requestUpdate(Node node) {
+        this.updateFrom = node;
+        return requestUpdate();
+    }
+
     /**
      * Wait for metadata update until the current version is larger than the last version we know of
      */
@@ -126,6 +134,12 @@ public final class Metadata {
         requestUpdate();
     }
 
+    public synchronized void setTopics(Collection<String> topics) {
+        this.topics.clear();
+        this.topics.addAll(topics);
+        requestUpdate();
+    }
+
     /**
      * Get the list of topics we are currently maintaining metadata for
      */
@@ -147,6 +161,7 @@ public final class Metadata {
      */
     public synchronized void update(Cluster cluster, long now) {
         this.needUpdate = false;
+        this.updateFrom = null;
         this.lastRefreshMs = now;
         this.lastSuccessfulRefreshMs = now;
         this.version += 1;
@@ -182,5 +197,9 @@ public final class Metadata {
      */
     public long refreshBackoff() {
         return refreshBackoffMs;
+    }
+
+    public Node updateFrom() {
+        return updateFrom;
     }
 }

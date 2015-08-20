@@ -13,13 +13,13 @@
 package org.apache.kafka.clients.consumer.internals;
 
 import org.apache.kafka.clients.ClientResponse;
+import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.consumer.CommitType;
 import org.apache.kafka.clients.consumer.ConsumerCommitCallback;
+import org.apache.kafka.clients.consumer.PartitionAssignor;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.MetricName;
-import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.metrics.Measurable;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -30,12 +30,6 @@ import org.apache.kafka.common.metrics.stats.Max;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.requests.ConsumerMetadataRequest;
-import org.apache.kafka.common.requests.ConsumerMetadataResponse;
-import org.apache.kafka.common.requests.HeartbeatRequest;
-import org.apache.kafka.common.requests.HeartbeatResponse;
-import org.apache.kafka.common.requests.JoinGroupRequest;
-import org.apache.kafka.common.requests.JoinGroupResponse;
 import org.apache.kafka.common.requests.OffsetCommitRequest;
 import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.OffsetFetchRequest;
@@ -48,35 +42,19 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
  * This class manages the coordination process with the consumer coordinator.
  */
-public final class Coordinator {
+public final class Coordinator extends GroupCoordinator<ConsumerGroupController.AssignmentProtocol> {
 
     private static final Logger log = LoggerFactory.getLogger(Coordinator.class);
 
-    private final ConsumerNetworkClient client;
-    private final Time time;
-    private final String groupId;
-    private final Heartbeat heartbeat;
-    private final HeartbeatTask heartbeatTask;
-    private final int sessionTimeoutMs;
-    private final String assignmentStrategy;
+    private final ConsumerCoordinatorMetrics sensors;
     private final SubscriptionState subscriptions;
-    private final CoordinatorMetrics sensors;
-    private final long requestTimeoutMs;
-    private final long retryBackoffMs;
-    private final RebalanceCallback rebalanceCallback;
-    private Node consumerCoordinator;
-    private String consumerId;
-    private int generation;
-
 
     /**
      * Initialize the coordination manager.
@@ -85,7 +63,8 @@ public final class Coordinator {
                        String groupId,
                        int sessionTimeoutMs,
                        int heartbeatIntervalMs,
-                       String assignmentStrategy,
+                       List<PartitionAssignor<?>> assignors,
+                       Metadata metadata,
                        SubscriptionState subscriptions,
                        Metrics metrics,
                        String metricGrpPrefix,
@@ -94,22 +73,19 @@ public final class Coordinator {
                        long requestTimeoutMs,
                        long retryBackoffMs,
                        RebalanceCallback rebalanceCallback) {
-
-        this.client = client;
-        this.time = time;
-        this.generation = -1;
-        this.consumerId = JoinGroupRequest.UNKNOWN_CONSUMER_ID;
-        this.groupId = groupId;
-        this.consumerCoordinator = null;
+        super(new ConsumerGroupController(assignors, subscriptions, metadata, rebalanceCallback),
+                client,
+                groupId,
+                sessionTimeoutMs,
+                heartbeatIntervalMs,
+                metrics,
+                metricGrpPrefix,
+                metricTags,
+                time,
+                requestTimeoutMs,
+                retryBackoffMs);
         this.subscriptions = subscriptions;
-        this.sessionTimeoutMs = sessionTimeoutMs;
-        this.assignmentStrategy = assignmentStrategy;
-        this.heartbeat = new Heartbeat(this.sessionTimeoutMs, heartbeatIntervalMs, time.milliseconds());
-        this.heartbeatTask = new HeartbeatTask();
-        this.sensors = new CoordinatorMetrics(metrics, metricGrpPrefix, metricTags);
-        this.requestTimeoutMs = requestTimeoutMs;
-        this.retryBackoffMs = retryBackoffMs;
-        this.rebalanceCallback = rebalanceCallback;
+        this.sensors = new ConsumerCoordinatorMetrics(metrics, metricGrpPrefix, metricTags);
     }
 
     /**
@@ -156,66 +132,10 @@ public final class Coordinator {
      * Ensure that we have a valid partition assignment from the coordinator.
      */
     public void ensurePartitionAssignment() {
-        if (!subscriptions.partitionAssignmentNeeded())
-            return;
-
-        // execute the user's callback before rebalance
-        log.debug("Revoking previously assigned partitions {}", this.subscriptions.assignedPartitions());
-        try {
-            Set<TopicPartition> revoked = new HashSet<TopicPartition>(subscriptions.assignedPartitions());
-            rebalanceCallback.onPartitionsRevoked(revoked);
-        } catch (Exception e) {
-            log.error("User provided callback " + this.rebalanceCallback.getClass().getName()
-                    + " failed on partition revocation: ", e);
-        }
-
-        reassignPartitions();
-
-        // execute the user's callback after rebalance
-        log.debug("Setting newly assigned partitions {}", this.subscriptions.assignedPartitions());
-        try {
-            Set<TopicPartition> assigned = new HashSet<TopicPartition>(subscriptions.assignedPartitions());
-            rebalanceCallback.onPartitionsAssigned(assigned);
-        } catch (Exception e) {
-            log.error("User provided callback " + this.rebalanceCallback.getClass().getName()
-                    + " failed on partition assignment: ", e);
-        }
+        if (subscriptions.partitionsAutoAssigned())
+            ensureActiveGroup();
     }
 
-    private void reassignPartitions() {
-        while (subscriptions.partitionAssignmentNeeded()) {
-            ensureCoordinatorKnown();
-
-            // ensure that there are no pending requests to the coordinator. This is important
-            // in particular to avoid resending a pending JoinGroup request.
-            if (client.pendingRequestCount(this.consumerCoordinator) > 0) {
-                client.awaitPendingRequests(this.consumerCoordinator);
-                continue;
-            }
-
-            RequestFuture<Void> future = sendJoinGroupRequest();
-            client.poll(future);
-
-            if (future.failed()) {
-                if (!future.isRetriable())
-                    throw future.exception();
-                Utils.sleep(retryBackoffMs);
-            }
-        }
-    }
-
-    /**
-     * Block until the coordinator for this group is known.
-     */
-    public void ensureCoordinatorKnown() {
-        while (coordinatorUnknown()) {
-            RequestFuture<Void> future = sendConsumerMetadataRequest();
-            client.poll(future, requestTimeoutMs);
-
-            if (future.failed())
-                client.awaitMetadataUpdate();
-        }
-    }
 
     /**
      * Commit offsets. This call blocks (regardless of commitType) until the coordinator
@@ -230,139 +150,6 @@ public final class Coordinator {
             commitOffsetsAsync(offsets, callback);
         else
             commitOffsetsSync(offsets, callback);
-    }
-
-    private class HeartbeatTask implements DelayedTask {
-
-        public void reset() {
-            // start or restart the heartbeat task to be executed at the next chance
-            long now = time.milliseconds();
-            heartbeat.resetSessionTimeout(now);
-            client.unschedule(this);
-            client.schedule(this, now);
-        }
-
-        @Override
-        public void run(final long now) {
-            if (!subscriptions.partitionsAutoAssigned() ||
-                    subscriptions.partitionAssignmentNeeded() ||
-                    coordinatorUnknown())
-                // no need to send if we're not using auto-assignment or if we are
-                // awaiting a rebalance
-                return;
-
-            if (heartbeat.sessionTimeoutExpired(now)) {
-                // we haven't received a successful heartbeat in one session interval
-                // so mark the coordinator dead
-                coordinatorDead();
-                return;
-            }
-
-            if (!heartbeat.shouldHeartbeat(now)) {
-                // we don't need to heartbeat now, so reschedule for when we do
-                client.schedule(this, now + heartbeat.timeToNextHeartbeat(now));
-            } else {
-                heartbeat.sentHeartbeat(now);
-                RequestFuture<Void> future = sendHeartbeatRequest();
-                future.addListener(new RequestFutureListener<Void>() {
-                    @Override
-                    public void onSuccess(Void value) {
-                        long now = time.milliseconds();
-                        heartbeat.receiveHeartbeat(now);
-                        long nextHeartbeatTime = now + heartbeat.timeToNextHeartbeat(now);
-                        client.schedule(HeartbeatTask.this, nextHeartbeatTime);
-                    }
-
-                    @Override
-                    public void onFailure(RuntimeException e) {
-                        client.schedule(HeartbeatTask.this, time.milliseconds() + retryBackoffMs);
-                    }
-                });
-            }
-        }
-    }
-
-    /**
-     * Send a request to get a new partition assignment. This is a non-blocking call which sends
-     * a JoinGroup request to the coordinator (if it is available). The returned future must
-     * be polled to see if the request completed successfully.
-     * @return A request future whose completion indicates the result of the JoinGroup request.
-     */
-    private RequestFuture<Void> sendJoinGroupRequest() {
-        if (coordinatorUnknown())
-            return RequestFuture.coordinatorNotAvailable();
-
-        // send a join group request to the coordinator
-        List<String> subscribedTopics = new ArrayList<String>(subscriptions.subscribedTopics());
-        log.debug("(Re-)joining group {} with subscribed topics {}", groupId, subscribedTopics);
-
-        JoinGroupRequest request = new JoinGroupRequest(groupId,
-                this.sessionTimeoutMs,
-                subscribedTopics,
-                this.consumerId,
-                this.assignmentStrategy);
-
-        // create the request for the coordinator
-        log.debug("Issuing request ({}: {}) to coordinator {}", ApiKeys.JOIN_GROUP, request, this.consumerCoordinator.id());
-        return client.send(consumerCoordinator, ApiKeys.JOIN_GROUP, request)
-                .compose(new JoinGroupResponseHandler());
-    }
-
-    private class JoinGroupResponseHandler extends CoordinatorResponseHandler<JoinGroupResponse, Void> {
-
-        @Override
-        public JoinGroupResponse parse(ClientResponse response) {
-            return new JoinGroupResponse(response.responseBody());
-        }
-
-        @Override
-        public void handle(JoinGroupResponse joinResponse, RequestFuture<Void> future) {
-            // process the response
-            short errorCode = joinResponse.errorCode();
-
-            if (errorCode == Errors.NONE.code()) {
-                Coordinator.this.consumerId = joinResponse.consumerId();
-                Coordinator.this.generation = joinResponse.generationId();
-
-                // set the flag to refresh last committed offsets
-                subscriptions.needRefreshCommits();
-
-                log.debug("Joined group: {}", joinResponse.toStruct());
-
-                // record re-assignment time
-                sensors.partitionReassignments.record(response.requestLatencyMs());
-
-                // update partition assignment
-                subscriptions.changePartitionAssignment(joinResponse.assignedPartitions());
-                heartbeatTask.reset();
-                future.complete(null);
-            } else if (errorCode == Errors.UNKNOWN_CONSUMER_ID.code()) {
-                // reset the consumer id and retry immediately
-                Coordinator.this.consumerId = JoinGroupRequest.UNKNOWN_CONSUMER_ID;
-                log.info("Attempt to join group {} failed due to unknown consumer id, resetting and retrying.",
-                        groupId);
-                future.raise(Errors.UNKNOWN_CONSUMER_ID);
-            } else if (errorCode == Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code()
-                    || errorCode == Errors.NOT_COORDINATOR_FOR_CONSUMER.code()) {
-                // re-discover the coordinator and retry with backoff
-                coordinatorDead();
-                log.info("Attempt to join group {} failed due to obsolete coordinator information, retrying.",
-                        groupId);
-                future.raise(Errors.forCode(errorCode));
-            } else if (errorCode == Errors.UNKNOWN_PARTITION_ASSIGNMENT_STRATEGY.code()
-                    || errorCode == Errors.INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY.code()
-                    || errorCode == Errors.INVALID_SESSION_TIMEOUT.code()) {
-                // log the error and re-throw the exception
-                Errors error = Errors.forCode(errorCode);
-                log.error("Attempt to join group {} failed due to: {}",
-                        groupId, error.exception().getMessage());
-                future.raise(error);
-            } else {
-                // unexpected error, throw the exception
-                future.raise(new KafkaException("Unexpected error in join group response: "
-                        + Errors.forCode(joinResponse.errorCode()).exception().getMessage()));
-            }
-        }
     }
 
     private void commitOffsetsAsync(final Map<TopicPartition, Long> offsets, final ConsumerCommitCallback callback) {
@@ -426,16 +213,16 @@ public final class Coordinator {
 
         // create the offset commit request
         Map<TopicPartition, OffsetCommitRequest.PartitionData> offsetData;
-        offsetData = new HashMap<TopicPartition, OffsetCommitRequest.PartitionData>(offsets.size());
+        offsetData = new HashMap<>(offsets.size());
         for (Map.Entry<TopicPartition, Long> entry : offsets.entrySet())
             offsetData.put(entry.getKey(), new OffsetCommitRequest.PartitionData(entry.getValue(), ""));
         OffsetCommitRequest req = new OffsetCommitRequest(this.groupId,
                 this.generation,
-                this.consumerId,
+                this.memberId,
                 OffsetCommitRequest.DEFAULT_RETENTION_TIME,
                 offsetData);
 
-        return client.send(consumerCoordinator, ApiKeys.OFFSET_COMMIT, req)
+        return client.send(coordinator, ApiKeys.OFFSET_COMMIT, req)
                 .compose(new OffsetCommitResponseHandler(offsets));
     }
 
@@ -513,7 +300,7 @@ public final class Coordinator {
         OffsetFetchRequest request = new OffsetFetchRequest(this.groupId, new ArrayList<TopicPartition>(partitions));
 
         // send the request with a callback
-        return client.send(consumerCoordinator, ApiKeys.OFFSET_FETCH, request)
+        return client.send(coordinator, ApiKeys.OFFSET_FETCH, request)
                 .compose(new OffsetFetchResponseHandler());
     }
 
@@ -563,170 +350,18 @@ public final class Coordinator {
         }
     }
 
-    /**
-     * Send a heartbeat request now (visible only for testing).
-     */
-    public RequestFuture<Void> sendHeartbeatRequest() {
-        HeartbeatRequest req = new HeartbeatRequest(this.groupId, this.generation, this.consumerId);
-        return client.send(consumerCoordinator, ApiKeys.HEARTBEAT, req)
-                .compose(new HeartbeatCompletionHandler());
-    }
-
-    public boolean coordinatorUnknown() {
-        return this.consumerCoordinator == null;
-    }
-
-    /**
-     * Discover the current coordinator for the consumer group. Sends a ConsumerMetadata request to
-     * one of the brokers. The returned future should be polled to get the result of the request.
-     * @return A request future which indicates the completion of the metadata request
-     */
-    private RequestFuture<Void> sendConsumerMetadataRequest() {
-        // initiate the consumer metadata request
-        // find a node to ask about the coordinator
-        Node node = this.client.leastLoadedNode();
-        if (node == null) {
-            // TODO: If there are no brokers left, perhaps we should use the bootstrap set
-            // from configuration?
-            return RequestFuture.noBrokersAvailable();
-        } else {
-            // create a consumer metadata request
-            log.debug("Issuing consumer metadata request to broker {}", node.id());
-            ConsumerMetadataRequest metadataRequest = new ConsumerMetadataRequest(this.groupId);
-            return client.send(node, ApiKeys.CONSUMER_METADATA, metadataRequest)
-                    .compose(new RequestFutureAdapter<ClientResponse, Void>() {
-                        @Override
-                        public void onSuccess(ClientResponse response, RequestFuture<Void> future) {
-                            handleConsumerMetadataResponse(response, future);
-                        }
-                    });
-        }
-    }
-
-    private void handleConsumerMetadataResponse(ClientResponse resp, RequestFuture<Void> future) {
-        log.debug("Consumer metadata response {}", resp);
-
-        // parse the response to get the coordinator info if it is not disconnected,
-        // otherwise we need to request metadata update
-        if (resp.wasDisconnected()) {
-            future.raise(new DisconnectException());
-        } else if (!coordinatorUnknown()) {
-            // We already found the coordinator, so ignore the request
-            future.complete(null);
-        } else {
-            ConsumerMetadataResponse consumerMetadataResponse = new ConsumerMetadataResponse(resp.responseBody());
-            // use MAX_VALUE - node.id as the coordinator id to mimic separate connections
-            // for the coordinator in the underlying network client layer
-            // TODO: this needs to be better handled in KAFKA-1935
-            if (consumerMetadataResponse.errorCode() == Errors.NONE.code()) {
-                this.consumerCoordinator = new Node(Integer.MAX_VALUE - consumerMetadataResponse.node().id(),
-                        consumerMetadataResponse.node().host(),
-                        consumerMetadataResponse.node().port());
-                heartbeatTask.reset();
-                future.complete(null);
-            } else {
-                future.raise(Errors.forCode(consumerMetadataResponse.errorCode()));
-            }
-        }
-    }
-
-    /**
-     * Mark the current coordinator as dead.
-     */
-    private void coordinatorDead() {
-        if (this.consumerCoordinator != null) {
-            log.info("Marking the coordinator {} dead.", this.consumerCoordinator.id());
-            this.consumerCoordinator = null;
-        }
-    }
-
-    private class HeartbeatCompletionHandler extends CoordinatorResponseHandler<HeartbeatResponse, Void> {
-        @Override
-        public HeartbeatResponse parse(ClientResponse response) {
-            return new HeartbeatResponse(response.responseBody());
-        }
-
-        @Override
-        public void handle(HeartbeatResponse heartbeatResponse, RequestFuture<Void> future) {
-            sensors.heartbeatLatency.record(response.requestLatencyMs());
-            short error = heartbeatResponse.errorCode();
-            if (error == Errors.NONE.code()) {
-                log.debug("Received successful heartbeat response.");
-                future.complete(null);
-            } else if (error == Errors.CONSUMER_COORDINATOR_NOT_AVAILABLE.code()
-                    || error == Errors.NOT_COORDINATOR_FOR_CONSUMER.code()) {
-                log.info("Attempt to heart beat failed since coordinator is either not started or not valid, marking it as dead.");
-                coordinatorDead();
-                future.raise(Errors.forCode(error));
-            } else if (error == Errors.ILLEGAL_GENERATION.code()) {
-                log.info("Attempt to heart beat failed since generation id is not legal, try to re-join group.");
-                subscriptions.needReassignment();
-                future.raise(Errors.ILLEGAL_GENERATION);
-            } else if (error == Errors.UNKNOWN_CONSUMER_ID.code()) {
-                log.info("Attempt to heart beat failed since consumer id is not valid, reset it and try to re-join group.");
-                consumerId = JoinGroupRequest.UNKNOWN_CONSUMER_ID;
-                subscriptions.needReassignment();
-                future.raise(Errors.UNKNOWN_CONSUMER_ID);
-            } else {
-                future.raise(new KafkaException("Unexpected error in heartbeat response: "
-                        + Errors.forCode(error).exception().getMessage()));
-            }
-        }
-    }
-
-    private abstract class CoordinatorResponseHandler<R, T>
-            extends RequestFutureAdapter<ClientResponse, T> {
-        protected ClientResponse response;
-
-        public abstract R parse(ClientResponse response);
-
-        public abstract void handle(R response, RequestFuture<T> future);
-
-        @Override
-        public void onSuccess(ClientResponse clientResponse, RequestFuture<T> future) {
-            this.response = clientResponse;
-
-            if (clientResponse.wasDisconnected()) {
-                int correlation = response.request().request().header().correlationId();
-                log.debug("Cancelled request {} with correlation id {} due to coordinator {} being disconnected",
-                        response.request(),
-                        correlation,
-                        response.request().request().destination());
-
-                // mark the coordinator as dead
-                coordinatorDead();
-                future.raise(new DisconnectException());
-                return;
-            }
-
-            R response = parse(clientResponse);
-            handle(response, future);
-        }
-
-        @Override
-        public void onFailure(RuntimeException e, RequestFuture<T> future) {
-            if (e instanceof DisconnectException) {
-                log.debug("Coordinator request failed", e);
-                coordinatorDead();
-            }
-            future.raise(e);
-        }
-    }
-
     public interface RebalanceCallback {
         void onPartitionsAssigned(Collection<TopicPartition> partitions);
         void onPartitionsRevoked(Collection<TopicPartition> partitions);
     }
 
-    private class CoordinatorMetrics {
+    private class ConsumerCoordinatorMetrics {
         public final Metrics metrics;
         public final String metricGrpName;
 
         public final Sensor commitLatency;
-        public final Sensor heartbeatLatency;
-        public final Sensor partitionReassignments;
 
-        public CoordinatorMetrics(Metrics metrics, String metricGrpPrefix, Map<String, String> tags) {
+        public ConsumerCoordinatorMetrics(Metrics metrics, String metricGrpPrefix, Map<String, String> tags) {
             this.metrics = metrics;
             this.metricGrpName = metricGrpPrefix + "-coordinator-metrics";
 
@@ -744,30 +379,6 @@ public final class Coordinator {
                 "The number of commit calls per second",
                 tags), new Rate(new Count()));
 
-            this.heartbeatLatency = metrics.sensor("heartbeat-latency");
-            this.heartbeatLatency.add(new MetricName("heartbeat-response-time-max",
-                this.metricGrpName,
-                "The max time taken to receive a response to a hearbeat request",
-                tags), new Max());
-            this.heartbeatLatency.add(new MetricName("heartbeat-rate",
-                this.metricGrpName,
-                "The average number of heartbeats per second",
-                tags), new Rate(new Count()));
-
-            this.partitionReassignments = metrics.sensor("reassignment-latency");
-            this.partitionReassignments.add(new MetricName("reassignment-time-avg",
-                this.metricGrpName,
-                "The average time taken for a partition reassignment",
-                tags), new Avg());
-            this.partitionReassignments.add(new MetricName("reassignment-time-max",
-                this.metricGrpName,
-                "The max time taken for a partition reassignment",
-                tags), new Avg());
-            this.partitionReassignments.add(new MetricName("reassignment-rate",
-                this.metricGrpName,
-                "The number of partition reassignments per second",
-                tags), new Rate(new Count()));
-
             Measurable numParts =
                 new Measurable() {
                     public double measure(MetricConfig config, long now) {
@@ -779,18 +390,7 @@ public final class Coordinator {
                 "The number of partitions currently assigned to this consumer",
                 tags),
                 numParts);
-
-            Measurable lastHeartbeat =
-                new Measurable() {
-                    public double measure(MetricConfig config, long now) {
-                        return TimeUnit.SECONDS.convert(now - heartbeat.lastHeartbeatSend(), TimeUnit.MILLISECONDS);
-                    }
-                };
-            metrics.addMetric(new MetricName("last-heartbeat-seconds-ago",
-                this.metricGrpName,
-                "The number of seconds since the last controller heartbeat",
-                tags),
-                lastHeartbeat);
         }
     }
+
 }

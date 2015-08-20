@@ -12,14 +12,30 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
+import org.apache.kafka.common.Node;
+
 import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.Map;
 
-public interface GroupProtocol {
+public interface GroupController<T extends GroupProtocol> {
 
-    String name();
+    String groupType();
 
-    short version();
+    boolean needRejoin();
 
-    ByteBuffer metadata();
+    List<T> metadata();
+
+    void onCoordinatorFound(Node coordinator);
+
+    void onCoordinatorDead(Node coordinator);
+
+    void onJoin(T protocol,
+                String memberId,
+                Map<String, ByteBuffer> members);
+
+    void onLeave(T protocol,
+                 String memberId,
+                 Map<String, ByteBuffer> members);
 
 }

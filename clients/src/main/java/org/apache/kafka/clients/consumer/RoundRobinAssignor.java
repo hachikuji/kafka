@@ -12,9 +12,11 @@
  */
 package org.apache.kafka.clients.consumer;
 
+import org.apache.kafka.clients.consumer.internals.AbstractPartitionAssignor;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -36,18 +38,18 @@ import java.util.TreeSet;
  * C0 -> [t0p0, t0p2, t1p1]
  * C1 -> [t0p1, t1p0, t1p2]
  */
-public class RoundRobinAssignor implements PartitionAssignor<Void> {
+public class RoundRobinAssignor extends AbstractPartitionAssignor {
 
     @Override
     public List<TopicPartition> assign(String consumerId,
                                        Map<String, Integer> partitionsPerTopic,
-                                       List<ConsumerMetadata<Void>> consumers) {
+                                       Map<String, ConsumerMetadata> consumers) {
         Map<String, List<TopicPartition>> assignment = new HashMap<>();
-        CircularIterator<ConsumerMetadata<Void>> assigner = new CircularIterator<>(sorted(consumers));
+        CircularIterator<String> assigner = new CircularIterator<>(sorted(consumers.keySet()));
         for (TopicPartition partition : allPartitions(partitionsPerTopic, consumers)) {
             final String topic = partition.topic();
-            for (; !assigner.peek().subscribedTopics().contains(topic); assigner.next());
-            put(assignment, assigner.next().consumerId(), partition);
+            for (; !consumers.get(assigner.peek()).topics().contains(topic); assigner.next());
+            put(assignment, assigner.next(), partition);
         }
         return assignment.get(consumerId);
     }
@@ -62,17 +64,17 @@ public class RoundRobinAssignor implements PartitionAssignor<Void> {
         partitions.add(partition);
     }
 
-    public List<ConsumerMetadata<Void>> sorted(List<ConsumerMetadata<Void>> consumers) {
-        List<ConsumerMetadata<Void>> res = new ArrayList<>(consumers);
+    public <T extends Comparable<T>> List<T> sorted(Collection<T> consumers) {
+        List<T> res = new ArrayList<>(consumers);
         Collections.sort(res);
         return res;
     }
 
     public List<TopicPartition> allPartitions(Map<String, Integer> partitionsPerTopic,
-                                              List<ConsumerMetadata<Void>> consumers) {
+                                              Map<String, ConsumerMetadata> consumerMetadata) {
         SortedSet<String> topics = new TreeSet<>();
-        for (ConsumerMetadata<Void> consumer : consumers)
-            topics.addAll(consumer.subscribedTopics());
+        for (ConsumerMetadata metadata : consumerMetadata.values())
+            topics.addAll(metadata.topics());
 
         List<TopicPartition> allPartitions = new ArrayList<>();
         for (String topic : topics) {
@@ -90,8 +92,8 @@ public class RoundRobinAssignor implements PartitionAssignor<Void> {
     }
 
     @Override
-    public Void metadata() {
-        return null;
+    public short version() {
+        return 0;
     }
 
     private static class CircularIterator<T> implements Iterator<T> {

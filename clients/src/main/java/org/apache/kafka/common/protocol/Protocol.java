@@ -375,33 +375,48 @@ public class Protocol {
     public static final Schema[] CONSUMER_METADATA_RESPONSE = new Schema[] {CONSUMER_METADATA_RESPONSE_V0};
 
     /* Join group api */
-    public static final Schema JOIN_GROUP_REQUEST_V0 = new Schema(new Field("group_id",
+    public static final Schema JOIN_GROUP_PROTOCOL_V0 = new Schema(new Field("protocol",
+                                                                             STRING,
+                                                                             "the protocols"),
+                                                                   new Field("protocol_version",
+                                                                             INT16,
+                                                                             "protocol version"),
+                                                                   new Field("protocol_metadata",
+                                                                             BYTES,
+                                                                             "protocol metadata"));
+    public static final Schema JOIN_GROUP_REQUEST_V0 = new Schema(new Field("group_type",
+                                                                            STRING,
+                                                                            "group type"),
+                                                                  new Field("group_id",
                                                                             STRING,
                                                                             "The consumer group id."),
                                                                   new Field("session_timeout",
                                                                             INT32,
                                                                             "The coordinator considers the consumer dead if it receives no heartbeat after this timeout in ms."),
-                                                                  new Field("topics",
-                                                                            new ArrayOf(STRING),
-                                                                            "An array of topics to subscribe to."),
-                                                                  new Field("consumer_id",
+                                                                  new Field("member_id",
                                                                             STRING,
                                                                             "The assigned consumer id or an empty string for a new consumer."),
-                                                                  new Field("partition_assignment_strategy",
-                                                                            STRING,
-                                                                            "The strategy for the coordinator to assign partitions."));
+                                                                  new Field("group_protocols",
+                                                                           new ArrayOf(JOIN_GROUP_PROTOCOL_V0),
+                                                                           "An array of topics to subscribe to."));
 
-    public static final Schema JOIN_GROUP_RESPONSE_TOPIC_V0 = new Schema(new Field("topic", STRING),
-                                                                         new Field("partitions", new ArrayOf(INT32)));
+    public static final Schema JOIN_GROUP_RESPONSE_MEMBER_V0 = new Schema(new Field("member_id", STRING),
+                                                                         new Field("member_metadata", BYTES));
     public static final Schema JOIN_GROUP_RESPONSE_V0 = new Schema(new Field("error_code", INT16),
-                                                                   new Field("group_generation_id",
+                                                                   new Field("generation_id",
                                                                              INT32,
                                                                              "The generation of the consumer group."),
-                                                                   new Field("consumer_id",
+                                                                   new Field("member_id",
                                                                              STRING,
                                                                              "The consumer id assigned by the group coordinator."),
-                                                                   new Field("assigned_partitions",
-                                                                             new ArrayOf(JOIN_GROUP_RESPONSE_TOPIC_V0)));
+                                                                   new Field("group_protocol",
+                                                                             STRING,
+                                                                             "The consumer id assigned by the group coordinator."),
+                                                                   new Field("group_protocol_version",
+                                                                             INT16,
+                                                                             "The consumer id assigned by the group coordinator."),
+                                                                   new Field("group_members",
+                                                                             new ArrayOf(JOIN_GROUP_RESPONSE_MEMBER_V0)));
 
     public static final Schema[] JOIN_GROUP_REQUEST = new Schema[] {JOIN_GROUP_REQUEST_V0};
     public static final Schema[] JOIN_GROUP_RESPONSE = new Schema[] {JOIN_GROUP_RESPONSE_V0};

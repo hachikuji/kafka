@@ -12,15 +12,16 @@
  */
 package org.apache.kafka.common.requests;
 
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.utils.CollectionUtils;
 
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class JoinGroupResponse extends AbstractRequestResponse {
     
@@ -34,59 +35,76 @@ public class JoinGroupResponse extends AbstractRequestResponse {
      * NOT_COORDINATOR_FOR_CONSUMER (16)
      * INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY (23)
      * UNKNOWN_PARTITION_ASSIGNMENT_STRATEGY (24)
-     * UNKNOWN_CONSUMER_ID (25)
+     * UNKNOWN_MEMBER_ID (25)
      * INVALID_SESSION_TIMEOUT (26)
      */
 
-    private static final String GENERATION_ID_KEY_NAME = "group_generation_id";
-    private static final String CONSUMER_ID_KEY_NAME = "consumer_id";
-    private static final String ASSIGNED_PARTITIONS_KEY_NAME = "assigned_partitions";
-    private static final String TOPIC_KEY_NAME = "topic";
-    private static final String PARTITIONS_KEY_NAME = "partitions";
+    private static final String GENERATION_ID_KEY_NAME = "generation_id";
+    private static final String MEMBER_ID_KEY_NAME = "member_id";
+    private static final String GROUP_PROTOCOL_KEY_NAME = "group_protocol";
+    private static final String GROUP_PROTOCOL_VERSION_KEY_NAME = "group_protocol_version";
+
+    private static final String GROUP_MEMBERS_KEY_NAME = "group_members";
+    private static final String PROTOCOL_METADATA_KEY_NAME = "member_metadata";
 
     public static final int UNKNOWN_GENERATION_ID = -1;
-    public static final String UNKNOWN_CONSUMER_ID = "";
+    public static final String UNKNOWN_GROUP_PROTOCOL = "";
+    public static final short UNKNOWN_GROUP_PROTOCOL_VERSION = -1;
+    public static final String UNKNOWN_MEMBER_ID = "";
 
     private final short errorCode;
     private final int generationId;
-    private final String consumerId;
-    private final List<TopicPartition> assignedPartitions;
+    private final String memberId;
+    private final String groupProtocol;
+    private final short groupProtocolVersion;
+    private final Map<String, ByteBuffer> groupMembers;
 
-    public JoinGroupResponse(short errorCode, int generationId, String consumerId, List<TopicPartition> assignedPartitions) {
+    public JoinGroupResponse(short errorCode,
+                             int generationId,
+                             String memberId,
+                             String groupProtocol,
+                             short groupProtocolVersion,
+                             Map<String, ByteBuffer> groupMembers) {
         super(new Struct(CURRENT_SCHEMA));
-
-        Map<String, List<Integer>> partitionsByTopic = CollectionUtils.groupDataByTopic(assignedPartitions);
 
         struct.set(ERROR_CODE_KEY_NAME, errorCode);
         struct.set(GENERATION_ID_KEY_NAME, generationId);
-        struct.set(CONSUMER_ID_KEY_NAME, consumerId);
-        List<Struct> topicArray = new ArrayList<Struct>();
-        for (Map.Entry<String, List<Integer>> entries: partitionsByTopic.entrySet()) {
-            Struct topicData = struct.instance(ASSIGNED_PARTITIONS_KEY_NAME);
-            topicData.set(TOPIC_KEY_NAME, entries.getKey());
-            topicData.set(PARTITIONS_KEY_NAME, entries.getValue().toArray());
-            topicArray.add(topicData);
+        struct.set(MEMBER_ID_KEY_NAME, memberId);
+        struct.set(GROUP_PROTOCOL_KEY_NAME, groupProtocol);
+        struct.set(GROUP_PROTOCOL_VERSION_KEY_NAME, groupProtocolVersion);
+
+        List<Struct> memberArray = new ArrayList<>();
+        for (Map.Entry<String, ByteBuffer> entries: groupMembers.entrySet()) {
+            Struct memberData = struct.instance(GROUP_MEMBERS_KEY_NAME);
+            memberData.set(MEMBER_ID_KEY_NAME, entries.getKey());
+            memberData.set(PROTOCOL_METADATA_KEY_NAME, entries.getValue());
+            memberArray.add(memberData);
         }
-        struct.set(ASSIGNED_PARTITIONS_KEY_NAME, topicArray.toArray());
+        struct.set(GROUP_MEMBERS_KEY_NAME, memberArray.toArray());
 
         this.errorCode = errorCode;
         this.generationId = generationId;
-        this.consumerId = consumerId;
-        this.assignedPartitions = assignedPartitions;
+        this.memberId = memberId;
+        this.groupProtocol = groupProtocol;
+        this.groupProtocolVersion = groupProtocolVersion;
+        this.groupMembers = groupMembers;
     }
 
     public JoinGroupResponse(Struct struct) {
         super(struct);
-        assignedPartitions = new ArrayList<TopicPartition>();
-        for (Object topicDataObj : struct.getArray(ASSIGNED_PARTITIONS_KEY_NAME)) {
-            Struct topicData = (Struct) topicDataObj;
-            String topic = topicData.getString(TOPIC_KEY_NAME);
-            for (Object partitionObj : topicData.getArray(PARTITIONS_KEY_NAME))
-                assignedPartitions.add(new TopicPartition(topic, (Integer) partitionObj));
+        groupMembers = new HashMap<>();
+
+        for (Object memberDataObj : struct.getArray(GROUP_MEMBERS_KEY_NAME)) {
+            Struct memberData = (Struct) memberDataObj;
+            String memberId = memberData.getString(MEMBER_ID_KEY_NAME);
+            ByteBuffer memberMetadata = memberData.getBytes(PROTOCOL_METADATA_KEY_NAME);
+            groupMembers.put(memberId, memberMetadata);
         }
         errorCode = struct.getShort(ERROR_CODE_KEY_NAME);
         generationId = struct.getInt(GENERATION_ID_KEY_NAME);
-        consumerId = struct.getString(CONSUMER_ID_KEY_NAME);
+        memberId = struct.getString(MEMBER_ID_KEY_NAME);
+        groupProtocol = struct.getString(GROUP_PROTOCOL_KEY_NAME);
+        groupProtocolVersion = struct.getShort(GROUP_PROTOCOL_VERSION_KEY_NAME);
     }
 
     public short errorCode() {
@@ -97,12 +115,20 @@ public class JoinGroupResponse extends AbstractRequestResponse {
         return generationId;
     }
 
-    public String consumerId() {
-        return consumerId;
+    public String memberId() {
+        return memberId;
     }
 
-    public List<TopicPartition> assignedPartitions() {
-        return assignedPartitions;
+    public String groupProtocol() {
+        return groupProtocol;
+    }
+
+    public short groupProtocolVersion() {
+        return groupProtocolVersion;
+    }
+
+    public Map<String, ByteBuffer> groupMembers() {
+        return groupMembers;
     }
 
     public static JoinGroupResponse parse(ByteBuffer buffer) {

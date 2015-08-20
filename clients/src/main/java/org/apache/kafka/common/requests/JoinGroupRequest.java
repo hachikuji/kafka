@@ -12,11 +12,9 @@
  */
 package org.apache.kafka.common.requests;
 
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
-import org.apache.kafka.common.protocol.Protocol;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 
@@ -34,6 +32,7 @@ public class JoinGroupRequest extends AbstractRequest {
     private static final String MEMBER_ID_KEY_NAME = "member_id";
     private static final String GROUP_PROTOCOLS_KEY_NAME = "group_protocols";
     private static final String PROTOCOL_KEY_NAME = "protocol";
+    private static final String PROTOCOL_VERSION_KEY_NAME = "protocol_version";
     private static final String PROTOCOL_METADATA_KEY_NAME = "protocol_metadata";
 
     public static final String UNKNOWN_MEMBER_ID = "";
@@ -46,10 +45,15 @@ public class JoinGroupRequest extends AbstractRequest {
 
     public static class ProtocolMetadata {
         public final String name;
+        public final short version;
         public final ByteBuffer metadata;
 
-        public ProtocolMetadata(String name, ByteBuffer metadata) {
+        public ProtocolMetadata(
+                String name,
+                short version,
+                ByteBuffer metadata) {
             this.name = name;
+            this.version = version;
             this.metadata = metadata;
         }
     }
@@ -68,6 +72,7 @@ public class JoinGroupRequest extends AbstractRequest {
         for (ProtocolMetadata protocol : protocols) {
             Struct protocolStruct = struct.instance(GROUP_PROTOCOLS_KEY_NAME);
             protocolStruct.set(PROTOCOL_KEY_NAME, protocol.name);
+            protocolStruct.set(PROTOCOL_VERSION_KEY_NAME, protocol.version);
             protocolStruct.set(PROTOCOL_METADATA_KEY_NAME, protocol.metadata);
         }
         struct.set(GROUP_PROTOCOLS_KEY_NAME, protocolsArray.toArray());
@@ -90,8 +95,9 @@ public class JoinGroupRequest extends AbstractRequest {
         for (Object protocolObj : protocolsArray) {
             Struct protocol = (Struct) protocolObj;
             String protocolName = protocol.getString(PROTOCOL_KEY_NAME);
+            short protocolVersion = protocol.getShort(PROTOCOL_VERSION_KEY_NAME);
             ByteBuffer protocolMetadata = protocol.getBytes(PROTOCOL_METADATA_KEY_NAME);
-            groupProtocols.add(new ProtocolMetadata(protocolName, protocolMetadata));
+            groupProtocols.add(new ProtocolMetadata(protocolName, protocolVersion, protocolMetadata));
         }
     }
 
@@ -102,8 +108,10 @@ public class JoinGroupRequest extends AbstractRequest {
                 return new JoinGroupResponse(
                         Errors.forException(e).code(),
                         JoinGroupResponse.UNKNOWN_GENERATION_ID,
-                        JoinGroupResponse.UNKNOWN_CONSUMER_ID,
-                        Collections.<TopicPartition>emptyList());
+                        JoinGroupResponse.UNKNOWN_MEMBER_ID,
+                        JoinGroupResponse.UNKNOWN_GROUP_PROTOCOL,
+                        JoinGroupResponse.UNKNOWN_GROUP_PROTOCOL_VERSION,
+                        Collections.<String, ByteBuffer>emptyMap());
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",
                         versionId, this.getClass().getSimpleName(), ProtoUtils.latestVersion(ApiKeys.JOIN_GROUP.id)));

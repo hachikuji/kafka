@@ -16,6 +16,7 @@ import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -48,6 +49,9 @@ public class SubscriptionState {
     /* the list of topics the user has requested */
     private final Set<String> subscribedTopics;
 
+    /* the list of topics the group has subscribed to */
+    private final Set<String> groupSubscribedTopics;
+
     /* the list of partitions the user has requested */
     private final Set<TopicPartition> subscribedPartitions;
 
@@ -66,6 +70,7 @@ public class SubscriptionState {
     public SubscriptionState(OffsetResetStrategy defaultResetStrategy) {
         this.defaultResetStrategy = defaultResetStrategy;
         this.subscribedTopics = new HashSet<>();
+        this.groupSubscribedTopics = new HashSet<>();
         this.subscribedPartitions = new HashSet<>();
         this.assignedPartitions = new HashMap<>();
         this.needsPartitionAssignment = false;
@@ -79,6 +84,13 @@ public class SubscriptionState {
             this.subscribedTopics.add(topic);
             this.needsPartitionAssignment = true;
         }
+    }
+
+    public void groupSubscribe(Collection<String> topics) {
+        if (!this.subscribedPartitions.isEmpty())
+            throw new IllegalStateException("Subscription to topics and partitions are mutually exclusive");
+        this.groupSubscribedTopics.clear();
+        this.groupSubscribedTopics.addAll(topics);
     }
 
     public void unsubscribe(String topic) {
@@ -121,6 +133,10 @@ public class SubscriptionState {
 
     public Set<String> subscribedTopics() {
         return this.subscribedTopics;
+    }
+
+    public Set<String> groupSubscribedTopics() {
+        return this.groupSubscribedTopics;
     }
 
     public Long fetched(TopicPartition tp) {

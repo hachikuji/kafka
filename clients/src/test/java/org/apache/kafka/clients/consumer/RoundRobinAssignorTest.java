@@ -12,17 +12,79 @@
  */
 package org.apache.kafka.clients.consumer;
 
+import org.apache.kafka.clients.consumer.internals.AbstractPartitionAssignor;
+import org.apache.kafka.clients.consumer.internals.MetadataSnapshot;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.Test;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class RoundRobinAssignorTest {
+
+    private ByteBuffer topicHash = ByteBuffer.wrap(new byte[] {});
+
+    @Test
+    public void matchingMetadata() {
+        RoundRobinAssignor assignor = new RoundRobinAssignor();
+
+        SortedMap<String, MetadataSnapshot.TopicMetadata> metadataA = new TreeMap<>();
+        metadataA.put("foo", new MetadataSnapshot.TopicMetadata(5));
+        metadataA.put("bar", new MetadataSnapshot.TopicMetadata(10));
+        MetadataSnapshot snapshotA = new MetadataSnapshot(metadataA.keySet(), metadataA.keySet(), metadataA);
+
+
+        SortedMap<String, MetadataSnapshot.TopicMetadata> metadataB = new TreeMap<>();
+        metadataB.put("foo", new MetadataSnapshot.TopicMetadata(5));
+        metadataB.put("bar", new MetadataSnapshot.TopicMetadata(10));
+        MetadataSnapshot snapshotB = new MetadataSnapshot(metadataB.keySet(), metadataB.keySet(), metadataB);
+
+        Map<String, AbstractPartitionAssignor.ConsumerMetadata> consumers = new HashMap<>();
+        consumers.put("A", new AbstractPartitionAssignor.ConsumerMetadata(topics("foo", "bar"), ByteBuffer.wrap(snapshotA.hash())));
+        consumers.put("B", new AbstractPartitionAssignor.ConsumerMetadata(topics("foo", "bar"), ByteBuffer.wrap(snapshotB.hash())));
+
+        PartitionAssignor.AssignmentResult result = assignor.assign("A", consumers, snapshotA);
+        assertTrue(result.succeeded());
+
+        result = assignor.assign("B", consumers, snapshotB);
+        assertTrue(result.succeeded());
+    }
+
+    @Test
+    public void mismatchingMetadata() {
+        RoundRobinAssignor assignor = new RoundRobinAssignor();
+
+        SortedMap<String, MetadataSnapshot.TopicMetadata> metadataA = new TreeMap<>();
+        metadataA.put("foo", new MetadataSnapshot.TopicMetadata(5));
+        metadataA.put("bar", new MetadataSnapshot.TopicMetadata(10));
+        MetadataSnapshot snapshotA = new MetadataSnapshot(metadataA.keySet(), metadataA.keySet(), metadataA);
+
+
+        SortedMap<String, MetadataSnapshot.TopicMetadata> metadataB = new TreeMap<>();
+        metadataB.put("foo", new MetadataSnapshot.TopicMetadata(6)); // disagreement over number of partitions
+        metadataB.put("bar", new MetadataSnapshot.TopicMetadata(10));
+        MetadataSnapshot snapshotB = new MetadataSnapshot(metadataB.keySet(), metadataB.keySet(), metadataB);
+
+        Map<String, AbstractPartitionAssignor.ConsumerMetadata> consumers = new HashMap<>();
+        consumers.put("A", new AbstractPartitionAssignor.ConsumerMetadata(topics("foo", "bar"), ByteBuffer.wrap(snapshotA.hash())));
+        consumers.put("B", new AbstractPartitionAssignor.ConsumerMetadata(topics("foo", "bar"), ByteBuffer.wrap(snapshotB.hash())));
+
+        PartitionAssignor.AssignmentResult result = assignor.assign("A", consumers, snapshotA);
+        assertFalse(result.succeeded());
+
+        result = assignor.assign("B", consumers, snapshotB);
+        assertFalse(result.succeeded());
+    }
 
     @Test
     public void assignMatchingSubscription() {
@@ -32,10 +94,9 @@ public class RoundRobinAssignorTest {
         partitionsPerTopic.put("foo", 3);
         partitionsPerTopic.put("bar", 3);
 
-        List<PartitionAssignor.ConsumerMetadata<Void>> consumers = Arrays.asList(
-                new PartitionAssignor.ConsumerMetadata<Void>("A", null, topics("foo", "bar")),
-                new PartitionAssignor.ConsumerMetadata<Void>("B", null, topics("foo", "bar"))
-        );
+        Map<String, AbstractPartitionAssignor.ConsumerMetadata> consumers = new HashMap<>();
+        consumers.put("A", new AbstractPartitionAssignor.ConsumerMetadata(topics("foo", "bar"), topicHash));
+        consumers.put("B", new AbstractPartitionAssignor.ConsumerMetadata(topics("foo", "bar"), topicHash));
 
         assertEquals(Arrays.asList(tp("bar", 0), tp("bar", 2), tp("foo", 1)),
                 assignor.assign("A", partitionsPerTopic, consumers));
@@ -51,10 +112,9 @@ public class RoundRobinAssignorTest {
         partitionsPerTopic.put("foo", 3);
         partitionsPerTopic.put("bar", 3);
 
-        List<PartitionAssignor.ConsumerMetadata<Void>> consumers = Arrays.asList(
-                new PartitionAssignor.ConsumerMetadata<Void>("A", null, topics("foo", "bar")),
-                new PartitionAssignor.ConsumerMetadata<Void>("B", null, topics("foo"))
-        );
+        Map<String, AbstractPartitionAssignor.ConsumerMetadata> consumers = new HashMap<>();
+        consumers.put("A", new AbstractPartitionAssignor.ConsumerMetadata(topics("foo", "bar"), topicHash));
+        consumers.put("B", new AbstractPartitionAssignor.ConsumerMetadata(topics("foo"), topicHash));
 
         assertEquals(Arrays.asList(tp("bar", 0), tp("bar", 1), tp("bar", 2), tp("foo", 1)),
                 assignor.assign("A", partitionsPerTopic, consumers));
