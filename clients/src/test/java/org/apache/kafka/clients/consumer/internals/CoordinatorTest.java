@@ -280,19 +280,6 @@ public class CoordinatorTest {
     }
 
     @Test(expected = ApiException.class)
-    public void testUnknownPartitionAssignmentStrategy() {
-        subscriptions.subscribe(topicName);
-        subscriptions.needReassignment();
-
-        client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
-        coordinator.ensureCoordinatorKnown();
-
-        // coordinator doesn't like our assignment strategy
-        client.prepareResponse(joinGroupResponse(0, "consumer", Collections.<TopicPartition>emptyList(), Errors.UNKNOWN_PARTITION_ASSIGNMENT_STRATEGY.code()));
-        coordinator.ensurePartitionAssignment();
-    }
-
-    @Test(expected = ApiException.class)
     public void testInvalidSessionTimeout() {
         subscriptions.subscribe(topicName);
         subscriptions.needReassignment();
@@ -409,28 +396,6 @@ public class CoordinatorTest {
         coordinator.commitOffsets(Collections.singletonMap(tp, 100L), CommitType.SYNC, cb);
         assertEquals(1, cb.invoked);
         assertNull(cb.exception);
-    }
-
-    @Test(expected = ApiException.class)
-    public void testCommitOffsetSyncThrowsNonRetriableException() {
-        client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
-        coordinator.ensureCoordinatorKnown();
-
-        // sync commit with invalid partitions should throw if we have no callback
-        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.COMMITTING_PARTITIONS_NOT_ASSIGNED.code())), false);
-        coordinator.commitOffsets(Collections.singletonMap(tp, 100L), CommitType.SYNC, null);
-    }
-
-    @Test
-    public void testCommitOffsetSyncCallbackHandlesNonRetriableException() {
-        client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
-        coordinator.ensureCoordinatorKnown();
-
-        // sync commit with invalid partitions should throw if we have no callback
-        MockCommitCallback cb = new MockCommitCallback();
-        client.prepareResponse(offsetCommitResponse(Collections.singletonMap(tp, Errors.COMMITTING_PARTITIONS_NOT_ASSIGNED.code())), false);
-        coordinator.commitOffsets(Collections.singletonMap(tp, 100L), CommitType.SYNC, cb);
-        assertTrue(cb.exception instanceof ApiException);
     }
 
     @Test

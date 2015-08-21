@@ -208,7 +208,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
         // send a join group request to the coordinator
         log.debug("(Re-)joining group {}", groupId);
 
-        List<T> metadata = controller.metadata();
+        List<T> metadata = controller.protocols();
         List<JoinGroupRequest.ProtocolMetadata> protocols = new ArrayList<>();
         for (GroupProtocol protocol : metadata)
             protocols.add(new JoinGroupRequest.ProtocolMetadata(protocol.name(), protocol.version(), protocol.metadata()));
@@ -272,8 +272,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
                 log.info("Attempt to join group {} failed due to obsolete coordinator information, retrying.",
                         groupId);
                 future.raise(Errors.forCode(errorCode));
-            } else if (errorCode == Errors.UNKNOWN_PARTITION_ASSIGNMENT_STRATEGY.code()
-                    || errorCode == Errors.INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY.code()
+            } else if (errorCode == Errors.INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY.code()
                     || errorCode == Errors.INVALID_SESSION_TIMEOUT.code()) {
                 // log the error and re-throw the exception
                 Errors error = Errors.forCode(errorCode);

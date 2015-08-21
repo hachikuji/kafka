@@ -27,7 +27,7 @@ import java.util.ArrayList
 import org.junit.Assert._
 
 import scala.collection.JavaConverters._
-import kafka.coordinator.ConsumerCoordinator
+import kafka.coordinator.GroupCoordinator
 
 
 /**
@@ -216,9 +216,9 @@ class ConsumerTest extends IntegrationTestHarness with Logging {
       consumer0.poll(50)
     
     // get metadata for the topic
-    var parts = consumer0.partitionsFor(ConsumerCoordinator.OffsetsTopicName).asScala
+    var parts = consumer0.partitionsFor(GroupCoordinator.OffsetsTopicName).asScala
     while(parts == null)
-      parts = consumer0.partitionsFor(ConsumerCoordinator.OffsetsTopicName).asScala
+      parts = consumer0.partitionsFor(GroupCoordinator.OffsetsTopicName).asScala
     assertEquals(1, parts.size)
     assertNotNull(parts(0).leader())
     

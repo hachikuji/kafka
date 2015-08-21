@@ -46,7 +46,7 @@ public class RoundRobinAssignor extends AbstractPartitionAssignor {
                                        Map<String, ConsumerMetadata> consumers) {
         Map<String, List<TopicPartition>> assignment = new HashMap<>();
         CircularIterator<String> assigner = new CircularIterator<>(sorted(consumers.keySet()));
-        for (TopicPartition partition : allPartitions(partitionsPerTopic, consumers)) {
+        for (TopicPartition partition : allPartitionsSorted(partitionsPerTopic, consumers)) {
             final String topic = partition.topic();
             for (; !consumers.get(assigner.peek()).topics().contains(topic); assigner.next());
             put(assignment, assigner.next(), partition);
@@ -70,8 +70,8 @@ public class RoundRobinAssignor extends AbstractPartitionAssignor {
         return res;
     }
 
-    public List<TopicPartition> allPartitions(Map<String, Integer> partitionsPerTopic,
-                                              Map<String, ConsumerMetadata> consumerMetadata) {
+    public List<TopicPartition> allPartitionsSorted(Map<String, Integer> partitionsPerTopic,
+                                                    Map<String, ConsumerMetadata> consumerMetadata) {
         SortedSet<String> topics = new TreeSet<>();
         for (ConsumerMetadata metadata : consumerMetadata.values())
             topics.addAll(metadata.topics());

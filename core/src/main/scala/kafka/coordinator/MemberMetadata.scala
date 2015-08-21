@@ -17,8 +17,11 @@
 
 package kafka.coordinator
 
-import kafka.common.TopicAndPartition
+import java.util
+
 import kafka.utils.nonthreadsafe
+
+import scala.collection.Map
 
 /**
  * Consumer metadata contains the following metadata:
@@ -38,12 +41,29 @@ import kafka.utils.nonthreadsafe
  *                                 consumer has sent the join group request
  */
 @nonthreadsafe
-private[coordinator] class ConsumerMetadata(val consumerId: String,
-                                            val groupId: String,
-                                            var topics: Set[String],
-                                            val sessionTimeoutMs: Int) {
+private[coordinator] class MemberMetadata(val memberId: String,
+                                          val groupId: String,
+                                          val sessionTimeoutMs: Int,
+                                          val supportedProtocols: List[(GroupProtocol, Array[Byte])]) {
 
-  var awaitingRebalanceCallback: (Set[TopicAndPartition], String, Int, Short) => Unit = null
-  var assignedTopicPartitions = Set.empty[TopicAndPartition]
+  def matches(protocol: GroupProtocol, metadata: Array[Byte]): Boolean = {
+    supportedProtocols.exists{ case (p, d) => protocol == p && util.Arrays.equals(metadata, d) }
+  }
+
+  def protocols = supportedProtocols.map{case (p, d) => p}
+
+  def metadata(protocol: GroupProtocol): Option[Array[Byte]] = {
+    supportedProtocols.find{ case (p, d) => protocol == p }.collect{ case (p, d) => d}
+  }
+
+  def vote(candidates: Set[GroupProtocol]): GroupProtocol = {
+    protocols.find(candidates.contains(_)) match {
+      case Some(protocol) => protocol
+      case None =>
+        throw new IllegalArgumentException("Member does not support any of the candidate protocols")
+    }
+  }
+
+  var awaitingRebalanceCallback: (Map[String, Array[Byte]], String, Int, GroupProtocol, Short) => Unit = null
   var latestHeartbeat: Long = -1
 }

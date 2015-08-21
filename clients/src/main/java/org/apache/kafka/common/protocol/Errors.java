@@ -74,14 +74,10 @@ public enum Errors {
             new IllegalGenerationException("Specified group generation id is not valid.")),
     INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY(23,
             new ApiException("The request partition assignment strategy does not match that of the group.")),
-    UNKNOWN_PARTITION_ASSIGNMENT_STRATEGY(24,
-            new ApiException("The request partition assignment strategy is unknown to the broker.")),
     UNKNOWN_MEMBER_ID(25,
             new UnknownMemberIdException("The coordinator is not aware of this consumer.")),
     INVALID_SESSION_TIMEOUT(26,
             new ApiException("The session timeout is not within an acceptable range.")),
-    COMMITTING_PARTITIONS_NOT_ASSIGNED(27,
-            new ApiException("Some of the committing partitions are not assigned the committer")),
     INVALID_COMMIT_OFFSET_SIZE(28,
             new ApiException("The committing offset data size is not valid"));
 

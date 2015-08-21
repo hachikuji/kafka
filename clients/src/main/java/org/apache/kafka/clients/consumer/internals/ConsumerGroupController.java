@@ -33,6 +33,7 @@ import java.util.TreeMap;
 public class ConsumerGroupController implements GroupController<ConsumerGroupController.AssignmentProtocol> {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerGroupController.class);
+    private static final String CONSUMER_GROUP_TYPE = "consumer";
 
     private final List<PartitionAssignor<?>> assignors;
     private final SubscriptionState subscription;
@@ -52,12 +53,12 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
 
     @Override
     public String groupType() {
-        return "consumer";
+        return CONSUMER_GROUP_TYPE;
     }
 
     @Override
-    public List<AssignmentProtocol> metadata() {
-        MetadataSnapshot snapshot = snapshot();
+    public List<AssignmentProtocol> protocols() {
+        MetadataSnapshot snapshot = metadataSnapshot();
         List<AssignmentProtocol> protocols = new ArrayList<>();
         for (PartitionAssignor<?> assignor : assignors)
             protocols.add(new AssignmentProtocol(assignor, snapshot));
@@ -127,7 +128,7 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
         return subscription.partitionAssignmentNeeded();
     }
 
-    private MetadataSnapshot snapshot() {
+    private MetadataSnapshot metadataSnapshot() {
         Set<String> localSubscribedTopics = new HashSet<>(subscription.subscribedTopics());
         Set<String> groupSubscribedTopics = new HashSet<>(subscription.groupSubscribedTopics());
 

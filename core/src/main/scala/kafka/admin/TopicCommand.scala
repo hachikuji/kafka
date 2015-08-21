@@ -30,7 +30,7 @@ import kafka.log.LogConfig
 import kafka.consumer.Whitelist
 import kafka.server.{ConfigType, OffsetManager}
 import org.apache.kafka.common.utils.Utils
-import kafka.coordinator.ConsumerCoordinator
+import kafka.coordinator.GroupCoordinator
 
 
 object TopicCommand extends Logging {
@@ -109,7 +109,7 @@ object TopicCommand extends Logging {
     }
     topics.foreach { topic =>
       if(opts.options.has(opts.partitionsOpt)) {
-        if (topic == ConsumerCoordinator.OffsetsTopicName) {
+        if (topic == GroupCoordinator.OffsetsTopicName) {
           throw new IllegalArgumentException("The number of partitions for the offsets topic cannot be changed.")
         }
         println("WARNING: If partitions are increased for a topic that has a key, the partition " +

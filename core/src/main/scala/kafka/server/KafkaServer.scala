@@ -42,7 +42,7 @@ import kafka.common.{ErrorMapping, InconsistentBrokerIdException, GenerateBroker
 import kafka.network.{BlockingChannel, SocketServer}
 import kafka.metrics.KafkaMetricsGroup
 import com.yammer.metrics.core.Gauge
-import kafka.coordinator.{GroupManagerConfig, ConsumerCoordinator}
+import kafka.coordinator.{GroupManagerConfig, GroupCoordinator}
 
 /**
  * Represents the lifecycle of a single Kafka broker. Handles all functionality required
@@ -82,7 +82,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
   var dynamicConfigManager: DynamicConfigManager = null
   val metrics: Metrics = new Metrics()
 
-  var consumerCoordinator: ConsumerCoordinator = null
+  var consumerCoordinator: GroupCoordinator = null
 
   var kafkaController: KafkaController = null
 
@@ -163,7 +163,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
           kafkaController.startup()
 
           /* start kafka coordinator */
-          consumerCoordinator = ConsumerCoordinator.create(config, zkClient, replicaManager, kafkaScheduler)
+          consumerCoordinator = GroupCoordinator.create(config, zkClient, replicaManager, kafkaScheduler)
           consumerCoordinator.startup()
 
           /* start processing requests */

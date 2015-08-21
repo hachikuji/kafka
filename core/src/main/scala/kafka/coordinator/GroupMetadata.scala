@@ -29,8 +29,8 @@ private[coordinator] sealed trait GroupState { def state: Byte }
  * Consumer group is preparing to rebalance
  *
  * action: respond to heartbeats with an ILLEGAL GENERATION error code
- * transition: some consumers have joined by the timeout => Rebalancing
- *             all consumers have left the group => Dead
+ * transition: some members have joined by the timeout => Rebalancing
+ *             all members have left the group => Dead
  */
 private[coordinator] case object PreparingRebalance extends GroupState { val state: Byte = 1 }
 
@@ -62,7 +62,7 @@ private[coordinator] case object Stable extends GroupState { val state: Byte = 3
 private[coordinator] case object Dead extends GroupState { val state: Byte = 4 }
 
 
-private object ConsumerGroupMetadata {
+private object GroupMetadata {
   private val validPreviousStates: Map[GroupState, Set[GroupState]] =
     Map(Dead -> Set(PreparingRebalance),
       Stable -> Set(Rebalancing),
@@ -82,52 +82,64 @@ private object ConsumerGroupMetadata {
  *  2. generation id
  */
 @nonthreadsafe
-private[coordinator] class ConsumerGroupMetadata(val groupId: String,
-                                                 val partitionAssignmentStrategy: String) {
+private[coordinator] class GroupMetadata(val groupType: String, val groupId: String) {
 
-  private val consumers = new mutable.HashMap[String, ConsumerMetadata]
+  private val members = new mutable.HashMap[String, MemberMetadata]
   private var state: GroupState = Stable
+  private var protocol: GroupProtocol = null
   var generationId = 0
 
   def is(groupState: GroupState) = state == groupState
-  def has(consumerId: String) = consumers.contains(consumerId)
-  def get(consumerId: String) = consumers(consumerId)
+  def not(groupState: GroupState) = state != groupState
+  def has(memberId: String) = members.contains(memberId)
+  def get(memberId: String) = members(memberId)
 
-  def add(consumerId: String, consumer: ConsumerMetadata) {
-    consumers.put(consumerId, consumer)
+  def add(consumerId: String, consumer: MemberMetadata) {
+    members.put(consumerId, consumer)
   }
 
   def remove(consumerId: String) {
-    consumers.remove(consumerId)
+    members.remove(consumerId)
   }
 
-  def isEmpty = consumers.isEmpty
+  def isEmpty = members.isEmpty
 
-  def topicsPerConsumer = consumers.mapValues(_.topics).toMap
+  def notYetRejoinedConsumers = members.values.filter(_.awaitingRebalanceCallback == null).toList
 
-  def topics = consumers.values.flatMap(_.topics).toSet
+  def allMembers = members.values.toList
 
-  def notYetRejoinedConsumers = consumers.values.filter(_.awaitingRebalanceCallback == null).toList
-
-  def allConsumers = consumers.values.toList
-
-  def rebalanceTimeout = consumers.values.foldLeft(0) {(timeout, consumer) =>
+  def rebalanceTimeout = members.values.foldLeft(0) {(timeout, consumer) =>
     timeout.max(consumer.sessionTimeoutMs)
   }
 
   // TODO: decide if ids should be predictable or random
-  def generateNextConsumerId = UUID.randomUUID().toString
+  def generateNextMemberId = UUID.randomUUID().toString
 
   def canRebalance = state == Stable
 
   def transitionTo(groupState: GroupState) {
     assertValidTransition(groupState)
     state = groupState
+    if (not(Stable)) protocol = null;
+  }
+
+  def currentProtocol = protocol
+
+  def stabilize(protocol: GroupProtocol): Unit = {
+    transitionTo(Stable)
+    this.protocol = protocol
+  }
+
+  def currentMemberMetadata(): Map[String, Array[Byte]] = {
+    if (not(Stable))
+      throw new IllegalStateException("Cannot obtain member metadata for group in state %s".format(state))
+    val allMemberMetadata = members map {case (memberId, memberMetadata) => (memberId, memberMetadata.metadata(protocol).get)}
+    collection.immutable.HashMap() ++ allMemberMetadata
   }
 
   private def assertValidTransition(targetState: GroupState) {
-    if (!ConsumerGroupMetadata.validPreviousStates(targetState).contains(state))
+    if (!GroupMetadata.validPreviousStates(targetState).contains(state))
       throw new IllegalStateException("Group %s should be in the %s states before moving to %s state. Instead it is in %s state"
-        .format(groupId, ConsumerGroupMetadata.validPreviousStates(targetState).mkString(","), targetState, state))
+        .format(groupId, GroupMetadata.validPreviousStates(targetState).mkString(","), targetState, state))
   }
 }

@@ -17,18 +17,20 @@
 
 package kafka.server
 
+import java.nio.ByteBuffer
+
 import org.apache.kafka.common.protocol.SecurityProtocol
-import org.apache.kafka.common.TopicPartition
 import kafka.api._
 import kafka.admin.AdminUtils
 import kafka.common._
 import kafka.controller.KafkaController
-import kafka.coordinator.ConsumerCoordinator
+import kafka.coordinator.{GroupProtocol, GroupCoordinator}
 import kafka.log._
 import kafka.network._
 import kafka.network.RequestChannel.Response
 import org.apache.kafka.common.requests.{JoinGroupRequest, JoinGroupResponse, HeartbeatRequest, HeartbeatResponse, ResponseHeader, ResponseSend}
 import kafka.utils.{ZkUtils, ZKGroupTopicDirs, SystemTime, Logging}
+import org.apache.kafka.common.utils.Utils
 import scala.collection._
 import org.I0Itec.zkclient.ZkClient
 
@@ -37,7 +39,7 @@ import org.I0Itec.zkclient.ZkClient
  */
 class KafkaApis(val requestChannel: RequestChannel,
                 val replicaManager: ReplicaManager,
-                val coordinator: ConsumerCoordinator,
+                val coordinator: GroupCoordinator,
                 val controller: KafkaController,
                 val zkClient: ZkClient,
                 val brokerId: Int,
@@ -100,12 +102,12 @@ class KafkaApis(val requestChannel: RequestChannel,
       // for each new leader or follower, call coordinator to handle
       // consumer group migration
       result.updatedLeaders.foreach { case partition =>
-        if (partition.topic == ConsumerCoordinator.OffsetsTopicName)
+        if (partition.topic == GroupCoordinator.OffsetsTopicName)
           coordinator.handleGroupImmigration(partition.partitionId)
       }
       result.updatedFollowers.foreach { case partition =>
         partition.leaderReplicaIdOpt.foreach { leaderReplica =>
-          if (partition.topic == ConsumerCoordinator.OffsetsTopicName &&
+          if (partition.topic == GroupCoordinator.OffsetsTopicName &&
               leaderReplica == brokerId)
             coordinator.handleGroupEmigration(partition.partitionId)
         }
@@ -442,9 +444,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (topics.size > 0 && topicResponses.size != topics.size) {
       val nonExistentTopics = topics -- topicResponses.map(_.topic).toSet
       val responsesForNonExistentTopics = nonExistentTopics.map { topic =>
-        if (topic == ConsumerCoordinator.OffsetsTopicName || config.autoCreateTopicsEnable) {
+        if (topic == GroupCoordinator.OffsetsTopicName || config.autoCreateTopicsEnable) {
           try {
-            if (topic == ConsumerCoordinator.OffsetsTopicName) {
+            if (topic == GroupCoordinator.OffsetsTopicName) {
               val aliveBrokers = metadataCache.getAliveBrokers
               val offsetsTopicReplicationFactor =
                 if (aliveBrokers.length > 0)
@@ -543,7 +545,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     val partition = coordinator.partitionFor(consumerMetadataRequest.group)
 
     // get metadata (and create the topic if necessary)
-    val offsetsTopicMetadata = getTopicMetadata(Set(ConsumerCoordinator.OffsetsTopicName), request.securityProtocol).head
+    val offsetsTopicMetadata = getTopicMetadata(Set(GroupCoordinator.OffsetsTopicName), request.securityProtocol).head
 
     val errorResponse = ConsumerMetadataResponse(None, ErrorMapping.ConsumerCoordinatorNotAvailableCode, consumerMetadataRequest.correlationId)
 
@@ -566,21 +568,25 @@ class KafkaApis(val requestChannel: RequestChannel,
     val respHeader = new ResponseHeader(request.header.correlationId)
 
     // the callback for sending a join-group response
-    def sendResponseCallback(partitions: Set[TopicAndPartition], consumerId: String, generationId: Int, errorCode: Short) {
-      val partitionList = partitions.map(tp => new TopicPartition(tp.topic, tp.partition)).toBuffer
-      val responseBody = new JoinGroupResponse(errorCode, generationId, consumerId, partitionList)
+    def sendResponseCallback(groupMembers: Map[String, Array[Byte]], memberId: String,
+                             generationId: Int, groupProtocol: GroupProtocol, errorCode: Short) {
+      val members = groupMembers map { case (memberId, metadataArray) => (memberId, ByteBuffer.wrap(metadataArray))}
+      val responseBody = new JoinGroupResponse(errorCode, generationId, memberId, groupProtocol.name, groupProtocol.version, members)
       trace("Sending join group response %s for correlation id %d to client %s."
               .format(responseBody, request.header.correlationId, request.header.clientId))
       requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, respHeader, responseBody)))
     }
 
+    val groupProtocols = joinGroupRequest.groupProtocols().map(protocol =>
+      (GroupProtocol(protocol.name, protocol.version), Utils.toArray(protocol.metadata))).toList
+
     // let the coordinator to handle join-group
     coordinator.handleJoinGroup(
+      joinGroupRequest.groupType(),
       joinGroupRequest.groupId(),
-      joinGroupRequest.consumerId(),
-      joinGroupRequest.topics().toSet,
+      joinGroupRequest.memberId(),
       joinGroupRequest.sessionTimeout(),
-      joinGroupRequest.strategy(),
+      groupProtocols,
       sendResponseCallback)
   }
 

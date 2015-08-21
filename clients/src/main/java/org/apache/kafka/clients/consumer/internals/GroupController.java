@@ -24,7 +24,7 @@ public interface GroupController<T extends GroupProtocol> {
 
     boolean needRejoin();
 
-    List<T> metadata();
+    List<T> protocols();
 
     void onCoordinatorFound(Node coordinator);
 

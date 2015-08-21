@@ -23,9 +23,9 @@ import kafka.server.DelayedOperation
  * Delayed heartbeat operations that are added to the purgatory for session timeout checking.
  * Heartbeats are paused during rebalance.
  */
-private[coordinator] class DelayedHeartbeat(consumerCoordinator: ConsumerCoordinator,
-                                            group: ConsumerGroupMetadata,
-                                            consumer: ConsumerMetadata,
+private[coordinator] class DelayedHeartbeat(consumerCoordinator: GroupCoordinator,
+                                            group: GroupMetadata,
+                                            consumer: MemberMetadata,
                                             heartbeatDeadline: Long,
                                             sessionTimeout: Long)
   extends DelayedOperation(sessionTimeout) {
