@@ -49,7 +49,7 @@ import java.util.Set;
 /**
  * This class manages the coordination process with the consumer coordinator.
  */
-public final class Coordinator extends GroupCoordinator<ConsumerGroupController.AssignmentProtocol> {
+public final class Coordinator extends GroupCoordinator<PartitionAssignmentProtocol> {
 
     private static final Logger log = LoggerFactory.getLogger(Coordinator.class);
 

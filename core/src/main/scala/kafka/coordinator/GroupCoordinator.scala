@@ -163,6 +163,9 @@ class GroupCoordinator(val brokerId: Int,
         // if the consumer trying to register with a un-recognized id, send the response to let
         // it reset its consumer id and retry
         responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.UNKNOWN_MEMBER_ID.code)
+      } else if (!group.supports(protocols.map(_._1).toSet)) {
+        // if the group cannot support any of the member's protocols, then reject the member
+        responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.INCONSISTENT_GROUP_PROTOCOL.code)
       } else if (matchesCurrentMetadata(group, memberId, protocols)) {
         /*
          * if an existing consumer sends a JoinGroupRequest with no changes while the group is stable,
@@ -176,14 +179,14 @@ class GroupCoordinator(val brokerId: Int,
         val member = if (memberId == JoinGroupRequest.UNKNOWN_MEMBER_ID) {
           // if the consumer id is unknown, register this consumer to the group
           val generatedMemberId = group.generateNextMemberId
-          val member = addConsumer(generatedMemberId, sessionTimeoutMs, protocols, group)
+          val member = addMember(generatedMemberId, sessionTimeoutMs, protocols, group)
           maybePrepareRebalance(group)
           member
         } else {
           val member = group.get(memberId)
           if (protocols != member.supportedProtocols) {
             // existing consumer changed its subscribed topics
-            updateConsumer(group, member)
+            updateMember(group, member)
             maybePrepareRebalance(group)
             member
           } else {
@@ -316,20 +319,20 @@ class GroupCoordinator(val brokerId: Int,
     heartbeatPurgatory.tryCompleteElseWatch(delayedHeartbeat, Seq(consumerKey))
   }
 
-  private def addConsumer(consumerId: String,
+  private def addMember(memberId: String,
                           sessionTimeoutMs: Int,
                           protocols: List[(GroupProtocol, Array[Byte])],
                           group: GroupMetadata) = {
-    val member = new MemberMetadata(consumerId, group.groupId, sessionTimeoutMs, protocols)
+    val member = new MemberMetadata(memberId, group.groupId, sessionTimeoutMs, protocols)
     group.add(member.memberId, member)
     member
   }
 
-  private def removeConsumer(group: GroupMetadata, member: MemberMetadata) {
+  private def removeMember(group: GroupMetadata, member: MemberMetadata) {
     group.remove(member.memberId)
   }
 
-  private def updateConsumer(group: GroupMetadata, member: MemberMetadata) {
+  private def updateMember(group: GroupMetadata, member: MemberMetadata) {
     group.remove(member.memberId)
     group.add(member.memberId, member)
   }
@@ -369,20 +372,18 @@ class GroupCoordinator(val brokerId: Int,
 
   private def onHeartbeatExpired(group: GroupMetadata, consumer: MemberMetadata) {
     trace("Consumer %s in group %s has failed".format(consumer.memberId, group.groupId))
-    removeConsumer(group, consumer)
+    removeMember(group, consumer)
     maybePrepareRebalance(group)
   }
 
   private def selectProtocol(group: GroupMetadata): GroupProtocol = {
-    val candidateProtocols = group.allMembers
-      .map(_.protocols.toSet)
-      .reduceLeft((commonProtocols, protocols) => commonProtocols & protocols)
+    val candidates = group.candidates
 
-    if (candidateProtocols.isEmpty)
+    if (candidates.isEmpty)
       throw new IllegalStateException("Attempt to create group with inconsistent protocols")
 
     val votes: List[(GroupProtocol, Int)] = group.allMembers
-      .map(_.vote(candidateProtocols))
+      .map(_.vote(candidates))
       .groupBy(identity)
       .mapValues(_.size)
       .toList
@@ -407,7 +408,7 @@ class GroupCoordinator(val brokerId: Int,
       val failedConsumers = group.notYetRejoinedConsumers
       if (group.isEmpty || !failedConsumers.isEmpty) {
         failedConsumers.foreach { failedConsumer =>
-          removeConsumer(group, failedConsumer)
+          removeMember(group, failedConsumer)
           // TODO: cut the socket connection to the consumer
         }
 

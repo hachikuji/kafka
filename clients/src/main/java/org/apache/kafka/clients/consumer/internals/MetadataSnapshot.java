@@ -27,10 +27,10 @@ import java.util.SortedMap;
  */
 public class MetadataSnapshot {
 
-    private static final MessageDigest md;
+    private static final MessageDigest MESSAGE_DIGEST;
     static {
         try {
-            md = MessageDigest.getInstance("SHA-256");
+            MESSAGE_DIGEST = MessageDigest.getInstance("SHA-256");
         } catch (Exception e) {
             throw new ExceptionInInitializerError(e);
         }
@@ -62,14 +62,14 @@ public class MetadataSnapshot {
     }
 
     public byte[] hash() {
-        md.reset();
+        MESSAGE_DIGEST.reset();
         for (Map.Entry<String, TopicMetadata> topicEntry : metadata.entrySet()) {
             String topic = topicEntry.getKey();
             Integer partitions = topicEntry.getValue().numberPartitions;
-            md.update(Utils.utf8(topic));
-            md.update(Utils.toArrayLE(partitions));
+            MESSAGE_DIGEST.update(Utils.utf8(topic));
+            MESSAGE_DIGEST.update(Utils.toArrayLE(partitions));
         }
-        return md.digest();
+        return MESSAGE_DIGEST.digest();
     }
 
     public boolean contains(Set<String> topics) {
@@ -88,4 +88,26 @@ public class MetadataSnapshot {
         }
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        MetadataSnapshot that = (MetadataSnapshot) o;
+
+        if (localSubscribedTopics != null ? !localSubscribedTopics.equals(that.localSubscribedTopics) : that.localSubscribedTopics != null)
+            return false;
+        if (groupSubscribedTopics != null ? !groupSubscribedTopics.equals(that.groupSubscribedTopics) : that.groupSubscribedTopics != null)
+            return false;
+        return !(metadata != null ? !metadata.equals(that.metadata) : that.metadata != null);
+
+    }
+
+    @Override
+    public int hashCode() {
+        int result = localSubscribedTopics != null ? localSubscribedTopics.hashCode() : 0;
+        result = 31 * result + (groupSubscribedTopics != null ? groupSubscribedTopics.hashCode() : 0);
+        result = 31 * result + (metadata != null ? metadata.hashCode() : 0);
+        return result;
+    }
 }

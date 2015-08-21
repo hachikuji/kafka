@@ -74,6 +74,7 @@ public class JoinGroupRequest extends AbstractRequest {
             protocolStruct.set(PROTOCOL_KEY_NAME, protocol.name);
             protocolStruct.set(PROTOCOL_VERSION_KEY_NAME, protocol.version);
             protocolStruct.set(PROTOCOL_METADATA_KEY_NAME, protocol.metadata);
+            protocolsArray.add(protocolStruct);
         }
         struct.set(GROUP_PROTOCOLS_KEY_NAME, protocolsArray.toArray());
         this.groupType = groupType;

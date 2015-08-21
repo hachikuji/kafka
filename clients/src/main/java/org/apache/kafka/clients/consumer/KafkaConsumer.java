@@ -539,7 +539,6 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             this.subscriptions = new SubscriptionState(offsetResetStrategy);
             List<PartitionAssignor<?>> assignors = Arrays.<PartitionAssignor<?>>asList(
                     config.getConfiguredInstance(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG, PartitionAssignor.class));
-
             this.coordinator = new Coordinator(this.client,
                     config.getString(ConsumerConfig.GROUP_ID_CONFIG),
                     config.getInt(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG),

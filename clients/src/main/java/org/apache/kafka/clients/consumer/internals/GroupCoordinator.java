@@ -272,7 +272,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
                 log.info("Attempt to join group {} failed due to obsolete coordinator information, retrying.",
                         groupId);
                 future.raise(Errors.forCode(errorCode));
-            } else if (errorCode == Errors.INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY.code()
+            } else if (errorCode == Errors.INCONSISTENT_GROUP_PROTOCOL.code()
                     || errorCode == Errors.INVALID_SESSION_TIMEOUT.code()) {
                 // log the error and re-throw the exception
                 Errors error = Errors.forCode(errorCode);
@@ -451,39 +451,39 @@ public class GroupCoordinator<T extends GroupProtocol> {
 
             this.heartbeatLatency = metrics.sensor("heartbeat-latency");
             this.heartbeatLatency.add(new MetricName("heartbeat-response-time-max",
-                    this.metricGrpName,
-                    "The max time taken to receive a response to a hearbeat request",
-                    tags), new Max());
+                this.metricGrpName,
+                "The max time taken to receive a response to a hearbeat request",
+                tags), new Max());
             this.heartbeatLatency.add(new MetricName("heartbeat-rate",
-                    this.metricGrpName,
-                    "The average number of heartbeats per second",
-                    tags), new Rate(new Count()));
+                this.metricGrpName,
+                "The average number of heartbeats per second",
+                tags), new Rate(new Count()));
 
             this.partitionReassignments = metrics.sensor("reassignment-latency");
             this.partitionReassignments.add(new MetricName("reassignment-time-avg",
-                    this.metricGrpName,
-                    "The average time taken for a partition reassignment",
-                    tags), new Avg());
+                this.metricGrpName,
+                "The average time taken for a partition reassignment",
+                tags), new Avg());
             this.partitionReassignments.add(new MetricName("reassignment-time-max",
-                    this.metricGrpName,
-                    "The max time taken for a partition reassignment",
-                    tags), new Avg());
+                this.metricGrpName,
+                "The max time taken for a partition reassignment",
+                tags), new Avg());
             this.partitionReassignments.add(new MetricName("reassignment-rate",
-                    this.metricGrpName,
-                    "The number of partition reassignments per second",
-                    tags), new Rate(new Count()));
+                this.metricGrpName,
+                "The number of partition reassignments per second",
+                tags), new Rate(new Count()));
 
             Measurable lastHeartbeat =
-                    new Measurable() {
-                        public double measure(MetricConfig config, long now) {
-                            return TimeUnit.SECONDS.convert(now - heartbeat.lastHeartbeatSend(), TimeUnit.MILLISECONDS);
-                        }
-                    };
+                new Measurable() {
+                    public double measure(MetricConfig config, long now) {
+                        return TimeUnit.SECONDS.convert(now - heartbeat.lastHeartbeatSend(), TimeUnit.MILLISECONDS);
+                    }
+                };
             metrics.addMetric(new MetricName("last-heartbeat-seconds-ago",
-                    this.metricGrpName,
-                    "The number of seconds since the last controller heartbeat",
-                    tags),
-                    lastHeartbeat);
+                this.metricGrpName,
+                "The number of seconds since the last controller heartbeat",
+                tags),
+                lastHeartbeat);
         }
     }
 

@@ -115,10 +115,10 @@ public class Utils {
      */
     public static byte[] toArrayLE(int val) {
         return new byte[] {
-                (byte) (val >> 8 * 0),
-                (byte) (val >> 8 * 1),
-                (byte) (val >> 8 * 2),
-                (byte) (val >> 8 * 3)
+            (byte) (val >> 8 * 0),
+            (byte) (val >> 8 * 1),
+            (byte) (val >> 8 * 2),
+            (byte) (val >> 8 * 3)
         };
     }
 

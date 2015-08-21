@@ -140,7 +140,7 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.reset(offsetManager)
     val otherJoinGroupResult = joinGroup(groupType, groupId, otherMemberId, DefaultSessionTimeout, otherProtocols, isCoordinatorForGroup = true)
     val otherJoinGroupErrorCode = otherJoinGroupResult._5
-    assertEquals(Errors.INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY.code, otherJoinGroupErrorCode)
+    assertEquals(Errors.INCONSISTENT_GROUP_PROTOCOL.code, otherJoinGroupErrorCode)
   }
 
   @Test

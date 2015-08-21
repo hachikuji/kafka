@@ -12,8 +12,10 @@
  */
 package org.apache.kafka.clients;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.kafka.common.Cluster;
@@ -43,6 +45,7 @@ public final class Metadata {
     private boolean needUpdate;
     private Node updateFrom;
     private final Set<String> topics;
+    private final List<MetadataListener> listeners;
 
     /**
      * Create a metadata instance with reasonable defaults
@@ -65,7 +68,8 @@ public final class Metadata {
         this.version = 0;
         this.cluster = Cluster.empty();
         this.needUpdate = false;
-        this.topics = new HashSet<String>();
+        this.topics = new HashSet<>();
+        this.listeners = new ArrayList<>();
     }
 
     /**
@@ -166,10 +170,14 @@ public final class Metadata {
         this.lastSuccessfulRefreshMs = now;
         this.version += 1;
         this.cluster = cluster;
+
+        for (MetadataListener listener : listeners)
+            listener.onMetadataUpdate(cluster);
+
         notifyAll();
         log.debug("Updated cluster metadata version {} to {}", this.version, this.cluster);
     }
-    
+
     /**
      * Record an attempt to update the metadata that failed. We need to keep track of this
      * to avoid retrying immediately.
@@ -199,7 +207,15 @@ public final class Metadata {
         return refreshBackoffMs;
     }
 
-    public Node updateFrom() {
+    public synchronized Node updateFrom() {
         return updateFrom;
+    }
+
+    public synchronized void addListener(MetadataListener listener) {
+        this.listeners.add(listener);
+    }
+
+    public interface MetadataListener {
+        void onMetadataUpdate(Cluster cluster);
     }
 }

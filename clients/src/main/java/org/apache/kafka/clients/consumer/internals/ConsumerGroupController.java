@@ -30,7 +30,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
-public class ConsumerGroupController implements GroupController<ConsumerGroupController.AssignmentProtocol> {
+public class ConsumerGroupController implements GroupController<PartitionAssignmentProtocol>, Metadata.MetadataListener {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerGroupController.class);
     private static final String CONSUMER_GROUP_TYPE = "consumer";
@@ -40,6 +40,7 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
     private final Metadata metadata;
     private final Coordinator.RebalanceCallback rebalanceCallback;
     private Node coordinator;
+    private MetadataSnapshot snapshot;
 
     public ConsumerGroupController(List<PartitionAssignor<?>> assignors,
                                    SubscriptionState subscription,
@@ -49,6 +50,7 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
         this.subscription = subscription;
         this.metadata = metadata;
         this.rebalanceCallback = rebalanceCallback;
+        this.metadata.addListener(this);
     }
 
     @Override
@@ -57,11 +59,10 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
     }
 
     @Override
-    public List<AssignmentProtocol> protocols() {
-        MetadataSnapshot snapshot = metadataSnapshot();
-        List<AssignmentProtocol> protocols = new ArrayList<>();
+    public List<PartitionAssignmentProtocol> protocols() {
+        List<PartitionAssignmentProtocol> protocols = new ArrayList<>();
         for (PartitionAssignor<?> assignor : assignors)
-            protocols.add(new AssignmentProtocol(assignor, snapshot));
+            protocols.add(new PartitionAssignmentProtocol(assignor, snapshot));
         return protocols;
     }
 
@@ -76,9 +77,9 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
     }
 
     @Override
-    public void onJoin(AssignmentProtocol protocol, String memberId, Map<String, ByteBuffer> members) {
+    public void onJoin(PartitionAssignmentProtocol protocol, String memberId, Map<String, ByteBuffer> members) {
         @SuppressWarnings("unchecked")
-        PartitionAssignor<Object> assignor = (PartitionAssignor<Object>) protocol.assignor;
+        PartitionAssignor<Object> assignor = (PartitionAssignor<Object>) protocol.assignor();
 
         Type schema = assignor.schema();
         SortedMap<String, Object> memberMetadata = new TreeMap<>();
@@ -87,7 +88,7 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
             memberMetadata.put(metadataEntry.getKey(), metadata);
         }
 
-        PartitionAssignor.AssignmentResult result = assignor.assign(memberId, memberMetadata, protocol.metadataSnapshot);
+        PartitionAssignor.AssignmentResult result = assignor.assign(memberId, memberMetadata, protocol.metadataSnapshot());
         if (!result.succeeded()) {
             // assignments fail due to conflicting metadata among group members, so we have to update our metadata
             subscription.groupSubscribe(result.groupSubscription());
@@ -110,7 +111,7 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
     }
 
     @Override
-    public void onLeave(AssignmentProtocol protocol, String memberId, Map<String, ByteBuffer> members) {
+    public void onLeave(PartitionAssignmentProtocol protocol, String memberId, Map<String, ByteBuffer> members) {
         // execute the user's callback before rebalance
         log.debug("Revoking previously assigned partitions {}", subscription.assignedPartitions());
         try {
@@ -128,11 +129,9 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
         return subscription.partitionAssignmentNeeded();
     }
 
-    private MetadataSnapshot metadataSnapshot() {
+    private MetadataSnapshot metadataSnapshot(Cluster cluster) {
         Set<String> localSubscribedTopics = new HashSet<>(subscription.subscribedTopics());
         Set<String> groupSubscribedTopics = new HashSet<>(subscription.groupSubscribedTopics());
-
-        Cluster cluster = metadata.fetch();
 
         SortedMap<String, MetadataSnapshot.TopicMetadata> topicMetadata = new TreeMap<>();
         for (String topic : union(localSubscribedTopics, groupSubscribedTopics)) {
@@ -149,32 +148,15 @@ public class ConsumerGroupController implements GroupController<ConsumerGroupCon
         return res;
     }
 
-    public static class AssignmentProtocol implements GroupProtocol {
-        private PartitionAssignor<?> assignor;
-        private MetadataSnapshot metadataSnapshot;
-
-        public AssignmentProtocol(PartitionAssignor<?> assignor, MetadataSnapshot metadataSnapshot) {
-            this.assignor = assignor;
-            this.metadataSnapshot = metadataSnapshot;
+    @Override
+    public void onMetadataUpdate(Cluster cluster) {
+        // check if there are any changes to the metadata which should trigger a rebalance
+        MetadataSnapshot newSnapshot = metadataSnapshot(cluster);
+        if (!newSnapshot.equals(snapshot)) {
+            this.snapshot = newSnapshot;
+            if (subscription.partitionsAutoAssigned())
+                subscription.needReassignment();
         }
-
-        public String name() {
-            return assignor.name();
-        }
-
-        public short version() {
-            return assignor.version();
-        }
-
-        @Override
-        public ByteBuffer metadata() {
-            Type schema = assignor.schema();
-            Object metadata = assignor.metadata(metadataSnapshot);
-            ByteBuffer buf = ByteBuffer.allocate(schema.sizeOf(metadata));
-            schema.write(buf, metadata);
-            return buf;
-        }
-
     }
 
 }

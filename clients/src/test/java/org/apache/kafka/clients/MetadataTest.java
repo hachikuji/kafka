@@ -12,6 +12,7 @@
  */
 package org.apache.kafka.clients;
 
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.kafka.common.Cluster;
@@ -106,6 +107,18 @@ public class MetadataTest {
 
     }
 
+    @Test
+    public void testMetadataListener() {
+        final AtomicInteger invocations = new AtomicInteger(0);
+        metadata.addListener(new Metadata.MetadataListener() {
+            @Override
+            public void onMetadataUpdate(Cluster cluster) {
+                invocations.incrementAndGet();
+            }
+        });
+        metadata.update(Cluster.empty(), 100);
+        assertEquals(1, invocations.get());
+    }
 
     private Thread asyncFetch(final String topic) {
         Thread thread = new Thread() {

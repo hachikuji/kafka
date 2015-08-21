@@ -130,6 +130,16 @@ private[coordinator] class GroupMetadata(val groupType: String, val groupId: Str
     this.protocol = protocol
   }
 
+  def candidates() = {
+    allMembers
+      .map(_.protocols.toSet)
+      .reduceLeft((commonProtocols, protocols) => commonProtocols & protocols)
+  }
+
+  def supports(protocols: Set[GroupProtocol]) = {
+    isEmpty || (protocols & candidates).nonEmpty
+  }
+
   def currentMemberMetadata(): Map[String, Array[Byte]] = {
     if (not(Stable))
       throw new IllegalStateException("Cannot obtain member metadata for group in state %s".format(state))

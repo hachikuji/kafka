@@ -72,7 +72,7 @@ public enum Errors {
             new InvalidRequiredAcksException("Produce request specified an invalid value for required acks.")),
     ILLEGAL_GENERATION(22,
             new IllegalGenerationException("Specified group generation id is not valid.")),
-    INCONSISTENT_PARTITION_ASSIGNMENT_STRATEGY(23,
+    INCONSISTENT_GROUP_PROTOCOL(23,
             new ApiException("The request partition assignment strategy does not match that of the group.")),
     UNKNOWN_MEMBER_ID(25,
             new UnknownMemberIdException("The coordinator is not aware of this consumer.")),

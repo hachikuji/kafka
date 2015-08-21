@@ -35,8 +35,8 @@ import java.util.TreeSet;
  * resulting in partitions t0p0, t0p1, t0p2, t1p0, t1p1, and t1p2.
  *
  * The assignment will be:
- * C0 -> [t0p0, t0p2, t1p1]
- * C1 -> [t0p1, t1p0, t1p2]
+ * C0: [t0p0, t0p2, t1p1]
+ * C1: [t0p1, t1p0, t1p2]
  */
 public class RoundRobinAssignor extends AbstractPartitionAssignor {
 
@@ -48,7 +48,8 @@ public class RoundRobinAssignor extends AbstractPartitionAssignor {
         CircularIterator<String> assigner = new CircularIterator<>(sorted(consumers.keySet()));
         for (TopicPartition partition : allPartitionsSorted(partitionsPerTopic, consumers)) {
             final String topic = partition.topic();
-            for (; !consumers.get(assigner.peek()).topics().contains(topic); assigner.next());
+            while (!consumers.get(assigner.peek()).topics().contains(topic))
+                assigner.next();
             put(assignment, assigner.next(), partition);
         }
         return assignment.get(consumerId);

@@ -15,7 +15,6 @@ package org.apache.kafka.clients.consumer.internals;
 import org.junit.Test;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
