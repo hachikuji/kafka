@@ -184,9 +184,9 @@ class GroupCoordinator(val brokerId: Int,
           member
         } else {
           val member = group.get(memberId)
-          if (protocols != member.supportedProtocols) {
+          if (!member.matches(protocols)) {
             // existing consumer changed its subscribed topics
-            updateMember(group, member)
+            updateMember(group, member, protocols)
             maybePrepareRebalance(group)
             member
           } else {
@@ -332,8 +332,9 @@ class GroupCoordinator(val brokerId: Int,
     group.remove(member.memberId)
   }
 
-  private def updateMember(group: GroupMetadata, member: MemberMetadata) {
+  private def updateMember(group: GroupMetadata, member: MemberMetadata, protocols: List[(GroupProtocol, Array[Byte])]) {
     group.remove(member.memberId)
+    member.supportedProtocols = protocols
     group.add(member.memberId, member)
   }
 

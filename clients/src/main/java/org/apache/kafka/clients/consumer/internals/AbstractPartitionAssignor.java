@@ -20,11 +20,13 @@ import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.SchemaException;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.protocol.types.Type;
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -84,17 +86,20 @@ public abstract class AbstractPartitionAssignor implements PartitionAssignor<Abs
     public AssignmentResult assign(String consumerId,
                                    Map<String, ConsumerMetadata> consumers,
                                    MetadataSnapshot metadataSnapshot) {
-        ByteBuffer topicMetadataHash = ByteBuffer.wrap(metadataSnapshot.hash());
+        byte[] topicMetadataHash = metadataSnapshot.hash();
         Set<String> allSubscribedTopics = new HashSet<>();
         boolean consistentMetadata = true;
 
         for (ConsumerMetadata metadata : consumers.values()) {
-            consistentMetadata = consistentMetadata && topicMetadataHash.equals(metadata.topicMetadataHash);
+            byte[] memberTopicMetadataHash = Utils.toArray(metadata.topicMetadataHash);
+            consistentMetadata = consistentMetadata && Arrays.equals(topicMetadataHash, memberTopicMetadataHash);
             allSubscribedTopics.addAll(metadata.topics);
         }
 
-        if (!consistentMetadata)
+        if (!consistentMetadata) {
+            log.debug("Assignment failed due to inconsistent metadata among consumers");
             return AssignmentResult.failure(allSubscribedTopics);
+        }
 
         Map<String, Integer> partitionsPerTopic = new HashMap<>();
         for (String topic : allSubscribedTopics) {

@@ -127,6 +127,14 @@ public class ConsumerNetworkClient implements Closeable {
     }
 
     /**
+     * Update metadata if needed
+     */
+    public void ensureFreshMetadata() {
+        if (this.metadata.timeToNextUpdate(time.milliseconds()) == 0)
+            awaitMetadataUpdate();
+    }
+
+    /**
      * Wakeup an active poll. This will cause the polling thread to throw an exception either
      * on the current poll if one is active, or the next poll.
      */

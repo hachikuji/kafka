@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +41,7 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
     private final Metadata metadata;
     private final Coordinator.RebalanceCallback rebalanceCallback;
     private Node coordinator;
-    private MetadataSnapshot snapshot;
+    private Cluster cluster;
 
     public ConsumerGroupController(List<PartitionAssignor<?>> assignors,
                                    SubscriptionState subscription,
@@ -61,8 +62,9 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
     @Override
     public List<PartitionAssignmentProtocol> protocols() {
         List<PartitionAssignmentProtocol> protocols = new ArrayList<>();
+        MetadataSnapshot metadataSnapshot = metadataSnapshot(cluster);
         for (PartitionAssignor<?> assignor : assignors)
-            protocols.add(new PartitionAssignmentProtocol(assignor, snapshot));
+            protocols.add(new PartitionAssignmentProtocol(assignor, metadataSnapshot));
         return protocols;
     }
 
@@ -135,8 +137,9 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
 
         SortedMap<String, MetadataSnapshot.TopicMetadata> topicMetadata = new TreeMap<>();
         for (String topic : union(localSubscribedTopics, groupSubscribedTopics)) {
-            Integer partitions = cluster.availablePartitionsForTopic(topic).size();
-            topicMetadata.put(topic, new MetadataSnapshot.TopicMetadata(partitions));
+            Integer partitions = cluster.partitionCountForTopic(topic);
+            if (partitions != null)
+                topicMetadata.put(topic, new MetadataSnapshot.TopicMetadata(partitions));
         }
         return new MetadataSnapshot(localSubscribedTopics, groupSubscribedTopics, topicMetadata);
     }
@@ -151,9 +154,8 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
     @Override
     public void onMetadataUpdate(Cluster cluster) {
         // check if there are any changes to the metadata which should trigger a rebalance
-        MetadataSnapshot newSnapshot = metadataSnapshot(cluster);
-        if (!newSnapshot.equals(snapshot)) {
-            this.snapshot = newSnapshot;
+        if (!cluster.equals(this.cluster)) {
+            this.cluster = cluster;
             if (subscription.partitionsAutoAssigned())
                 subscription.needReassignment();
         }

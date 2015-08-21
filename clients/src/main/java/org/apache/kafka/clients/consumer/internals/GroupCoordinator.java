@@ -124,6 +124,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
         controller.onLeave(protocol, memberId, groupMetadata);
         while (needRejoin()) {
             ensureCoordinatorKnown();
+            client.ensureFreshMetadata();
 
             // ensure that there are no pending requests to the coordinator. This is important
             // in particular to avoid resending a pending JoinGroup request.

@@ -44,10 +44,24 @@ import scala.collection.Map
 private[coordinator] class MemberMetadata(val memberId: String,
                                           val groupId: String,
                                           val sessionTimeoutMs: Int,
-                                          val supportedProtocols: List[(GroupProtocol, Array[Byte])]) {
+                                          var supportedProtocols: List[(GroupProtocol, Array[Byte])]) {
 
   def matches(protocol: GroupProtocol, metadata: Array[Byte]): Boolean = {
     supportedProtocols.exists{ case (p, d) => protocol == p && util.Arrays.equals(metadata, d) }
+  }
+
+  def matches(protocols: List[(GroupProtocol, Array[Byte])]): Boolean = {
+    if (protocols.size != supportedProtocols.size)
+      return false
+
+    for (i <- 0 to protocols.size) {
+      val p1 = protocols(i)
+      val p2 = supportedProtocols(i)
+      if (p1._1 != p2._1 || !util.Arrays.equals(p1._2, p2._2))
+        return false
+    }
+
+    true
   }
 
   def protocols = supportedProtocols.map{case (p, d) => p}
