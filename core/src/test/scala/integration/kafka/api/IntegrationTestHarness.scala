@@ -17,16 +17,33 @@
 
 package kafka.api
 
+import java.util
 import org.apache.kafka.clients.producer.ProducerConfig
-import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.{ConsumerRebalanceCallback, Consumer, ConsumerConfig, KafkaConsumer}
 import kafka.utils.TestUtils
 import java.util.Properties
-import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.KafkaProducer
-import kafka.server.{OffsetManager, KafkaConfig}
+import kafka.server.{KafkaConfig}
 import kafka.integration.KafkaServerTestHarness
+import org.apache.kafka.common.TopicPartition
 import scala.collection.mutable.Buffer
 import kafka.coordinator.GroupCoordinator
+
+class DelegatingRebalanceCallback extends ConsumerRebalanceCallback {
+  var delegate: ConsumerRebalanceCallback = null
+
+  def set(callback: ConsumerRebalanceCallback) = delegate = callback
+
+  override def onPartitionsAssigned(consumer: Consumer[_, _], partitions: util.Collection[TopicPartition]) {
+    if (delegate != null)
+      delegate.onPartitionsAssigned(consumer, partitions)
+  }
+
+  override def onPartitionsRevoked(consumer: Consumer[_, _], partitions: util.Collection[TopicPartition]): Unit = {
+    if (delegate != null)
+      delegate.onPartitionsRevoked(consumer, partitions)
+  }
+}
 
 /**
  * A helper class for writing integration tests that involve producers, consumers, and servers
@@ -41,6 +58,8 @@ trait IntegrationTestHarness extends KafkaServerTestHarness {
   lazy val serverConfig = new Properties
 
   var consumers = Buffer[KafkaConsumer[Array[Byte], Array[Byte]]]()
+  var rebalanceCallbacks = Buffer[DelegatingRebalanceCallback]()
+
   var producers = Buffer[KafkaProducer[Array[Byte], Array[Byte]]]()
 
   override def generateConfigs() = {
@@ -59,8 +78,10 @@ trait IntegrationTestHarness extends KafkaServerTestHarness {
     consumerConfig.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, classOf[org.apache.kafka.common.serialization.ByteArrayDeserializer])
     for(i <- 0 until producerCount)
       producers += new KafkaProducer(producerConfig)
-    for(i <- 0 until consumerCount)
-      consumers += new KafkaConsumer(consumerConfig)
+    for(i <- 0 until consumerCount) {
+      rebalanceCallbacks += new DelegatingRebalanceCallback
+      consumers += new KafkaConsumer(consumerConfig, rebalanceCallbacks(i), null, null)
+    }
 
     // create the consumer offset topic
     TestUtils.createTopic(zkClient, GroupCoordinator.OffsetsTopicName,

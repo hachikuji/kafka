@@ -23,7 +23,6 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +79,9 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
 
     @Override
     public void onJoin(PartitionAssignmentProtocol protocol, String memberId, Map<String, ByteBuffer> members) {
+        log.debug("Joined group with assignment strategy {}, memberId {}, and members {}",
+                protocol.name(), memberId, members.keySet());
+
         @SuppressWarnings("unchecked")
         PartitionAssignor<Object> assignor = (PartitionAssignor<Object>) protocol.assignor();
 
@@ -93,6 +95,7 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
         PartitionAssignor.AssignmentResult result = assignor.assign(memberId, memberMetadata, protocol.metadataSnapshot());
         if (!result.succeeded()) {
             // assignments fail due to conflicting metadata among group members, so we have to update our metadata
+            log.debug("Assignment failed due to inconsistent metadata, will refresh and try again");
             subscription.groupSubscribe(result.groupSubscription());
             metadata.setTopics(result.groupSubscription());
             metadata.requestUpdate(coordinator);

@@ -13,6 +13,8 @@
 
 package kafka.api
 
+import java.util
+
 import kafka.server.KafkaConfig
 import kafka.utils.{Logging, ShutdownableThread, TestUtils}
 import org.apache.kafka.clients.consumer._
@@ -21,6 +23,8 @@ import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 
 import scala.collection.JavaConversions._
+
+
 
 /**
  * Integration tests for the new consumer that cover basic usage as well as server failures
@@ -72,13 +76,23 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
 
     var consumed = 0
     val consumer = this.consumers(0)
+
+    this.rebalanceCallbacks(0).set(new ConsumerRebalanceCallback {
+      override def onPartitionsAssigned(consumer: Consumer[_, _], partitions: util.Collection[TopicPartition]) {
+        consumer.seek(tp, consumed)
+      }
+
+      override def onPartitionsRevoked(consumer: Consumer[_, _], partitions: util.Collection[TopicPartition]) {}
+    })
+
     consumer.subscribe(topic)
 
     val scheduler = new BounceBrokerScheduler(numIters)
     scheduler.start()
 
     while (scheduler.isRunning.get()) {
-      for (record <- consumer.poll(100)) {
+      val records = consumer.poll(100)
+      for (record <- records) {
         assertEquals(consumed.toLong, record.offset())
         consumed += 1
       }
@@ -155,4 +169,6 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
     }
     futures.map(_.get)
   }
+
+
 }

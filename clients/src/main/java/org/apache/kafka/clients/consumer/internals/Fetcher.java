@@ -154,6 +154,7 @@ public class Fetcher<K, V> {
                 subscriptions.needOffsetReset(tp);
                 resetOffset(tp);
             } else {
+                System.out.println("Resetting offset to the committed offset " + subscriptions.committed(tp));
                 log.debug("Resetting offset for partition {} to the committed offset {}",
                         tp, subscriptions.committed(tp));
                 subscriptions.seek(tp, subscriptions.committed(tp));
