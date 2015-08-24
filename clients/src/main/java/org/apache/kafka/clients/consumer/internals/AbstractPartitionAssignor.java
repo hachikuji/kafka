@@ -128,6 +128,24 @@ public abstract class AbstractPartitionAssignor implements PartitionAssignor<Abs
         return new ConsumerMetadata(new ArrayList<>(subscription), metadataHash);
     }
 
+    protected static <K, V> void put(Map<K, List<V>> map, K key, V value) {
+        List<V> list = map.get(key);
+        if (list == null) {
+            list = new ArrayList<>();
+            map.put(key, list);
+        }
+        list.add(value);
+    }
+
+    protected static <K, V> void putAll(Map<K, List<V>> map, K key, List<V> values) {
+        List<V> list = map.get(key);
+        if (list == null) {
+            list = new ArrayList<>();
+            map.put(key, list);
+        }
+        list.addAll(values);
+    }
+
     public static class ConsumerMetadata {
         private final ByteBuffer topicMetadataHash;
         private final List<String> topics;

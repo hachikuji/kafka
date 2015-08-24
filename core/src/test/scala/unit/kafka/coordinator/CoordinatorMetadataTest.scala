@@ -46,7 +46,7 @@ class CoordinatorMetadataTest extends JUnitSuite {
   @Test
   def testGetGroup() {
     val groupId = "group"
-    val expected = coordinatorMetadata.addGroup(groupId, "range")
+    val expected = coordinatorMetadata.addGroup("consumer", groupId)
     val actual = coordinatorMetadata.getGroup(groupId)
     assertEquals(expected, actual)
   }

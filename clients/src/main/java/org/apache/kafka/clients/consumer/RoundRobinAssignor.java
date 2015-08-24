@@ -52,17 +52,12 @@ public class RoundRobinAssignor extends AbstractPartitionAssignor {
                 assigner.next();
             put(assignment, assigner.next(), partition);
         }
-        return assignment.get(consumerId);
-    }
 
-    private void put(Map<String, List<TopicPartition>> assignment,
-                     String consumerId, TopicPartition partition) {
-        List<TopicPartition> partitions = assignment.get(consumerId);
-        if (partitions == null) {
-            partitions = new ArrayList<>();
-            assignment.put(consumerId, partitions);
-        }
-        partitions.add(partition);
+        List<TopicPartition> assignedPartitions = assignment.get(consumerId);
+        if (assignedPartitions == null)
+            return Collections.emptyList();
+
+        return assignedPartitions;
     }
 
     public <T extends Comparable<T>> List<T> sorted(Collection<T> consumers) {

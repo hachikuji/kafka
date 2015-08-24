@@ -26,7 +26,7 @@ import collection.mutable
 private[coordinator] sealed trait GroupState { def state: Byte }
 
 /**
- * Consumer group is preparing to rebalance
+ * Group is preparing to rebalance
  *
  * action: respond to heartbeats with an ILLEGAL GENERATION error code
  * transition: some members have joined by the timeout => Rebalancing
@@ -35,7 +35,7 @@ private[coordinator] sealed trait GroupState { def state: Byte }
 private[coordinator] case object PreparingRebalance extends GroupState { val state: Byte = 1 }
 
 /**
- * Consumer group is rebalancing
+ * Group is rebalancing
  *
  * action: compute the group's partition assignment
  *         send the join-group response with new partition assignment when rebalance is complete
@@ -44,17 +44,17 @@ private[coordinator] case object PreparingRebalance extends GroupState { val sta
 private[coordinator] case object Rebalancing extends GroupState { val state: Byte = 2 }
 
 /**
- * Consumer group is stable
+ * Group is stable
  *
- * action: respond to consumer heartbeats normally
- * transition: consumer failure detected via heartbeat => PreparingRebalance
- *             consumer join-group received => PreparingRebalance
+ * action: respond to member heartbeats normally
+ * transition: member failure detected via heartbeat => PreparingRebalance
+ *             member join-group received => PreparingRebalance
  *             zookeeper topic watcher fired => PreparingRebalance
  */
 private[coordinator] case object Stable extends GroupState { val state: Byte = 3 }
 
 /**
- * Consumer group has no more members
+ * Group has no more members
  *
  * action: none
  * transition: none
@@ -74,8 +74,9 @@ private object GroupMetadata {
  * Group contains the following metadata:
  *
  *  Membership metadata:
- *  1. Consumers registered in this group
- *  2. Partition assignment strategy for this group
+ *  1. Members registered in this group
+ *  2. Current protocol assigned to the group (e.g. partition assignment strategy for consumers)
+ *  3. Protocol metadata associated with group members
  *
  *  State metadata:
  *  1. group state
@@ -94,22 +95,22 @@ private[coordinator] class GroupMetadata(val groupType: String, val groupId: Str
   def has(memberId: String) = members.contains(memberId)
   def get(memberId: String) = members(memberId)
 
-  def add(consumerId: String, consumer: MemberMetadata) {
-    members.put(consumerId, consumer)
+  def add(memberId: String, member: MemberMetadata) {
+    members.put(memberId, member)
   }
 
-  def remove(consumerId: String) {
-    members.remove(consumerId)
+  def remove(memberId: String) {
+    members.remove(memberId)
   }
 
   def isEmpty = members.isEmpty
 
-  def notYetRejoinedConsumers = members.values.filter(_.awaitingRebalanceCallback == null).toList
+  def notYetRejoinedMembers = members.values.filter(_.awaitingRebalanceCallback == null).toList
 
   def allMembers = members.values.toList
 
-  def rebalanceTimeout = members.values.foldLeft(0) {(timeout, consumer) =>
-    timeout.max(consumer.sessionTimeoutMs)
+  def rebalanceTimeout = members.values.foldLeft(0) {(timeout, member) =>
+    timeout.max(member.sessionTimeoutMs)
   }
 
   // TODO: decide if ids should be predictable or random
@@ -130,14 +131,15 @@ private[coordinator] class GroupMetadata(val groupType: String, val groupId: Str
     this.protocol = protocol
   }
 
-  def candidates() = {
+  def candidateProtocols() = {
+    // get the set of protocols that are commonly supported by all members
     allMembers
       .map(_.protocols.toSet)
       .reduceLeft((commonProtocols, protocols) => commonProtocols & protocols)
   }
 
-  def supports(protocols: Set[GroupProtocol]) = {
-    isEmpty || (protocols & candidates).nonEmpty
+  def supportsProtocols(memberProtocols: Set[GroupProtocol]) = {
+    isEmpty || (memberProtocols & candidateProtocols).nonEmpty
   }
 
   def currentMemberMetadata(): Map[String, Array[Byte]] = {

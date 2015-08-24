@@ -30,6 +30,9 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+/**
+ * The main thing this class is responsible for is assigning partitions on group membership.
+ */
 public class ConsumerGroupController implements GroupController<PartitionAssignmentProtocol>, Metadata.MetadataListener {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerGroupController.class);
@@ -50,6 +53,7 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
         this.subscription = subscription;
         this.metadata = metadata;
         this.rebalanceCallback = rebalanceCallback;
+        this.cluster = metadata.fetch();
         this.metadata.addListener(this);
     }
 
@@ -157,11 +161,13 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
     @Override
     public void onMetadataUpdate(Cluster cluster) {
         // check if there are any changes to the metadata which should trigger a rebalance
-        if (!cluster.equals(this.cluster)) {
-            this.cluster = cluster;
-            if (subscription.partitionsAutoAssigned())
+        if (subscription.partitionsAutoAssigned()) {
+            MetadataSnapshot updated = metadataSnapshot(cluster);
+            if (this.cluster == null || !updated.equals(metadataSnapshot(this.cluster)))
                 subscription.needReassignment();
         }
+
+        this.cluster = cluster;
     }
 
 }

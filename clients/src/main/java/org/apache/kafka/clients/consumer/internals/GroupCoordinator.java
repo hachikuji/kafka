@@ -121,7 +121,10 @@ public class GroupCoordinator<T extends GroupProtocol> {
         if (!needRejoin())
             return;
 
-        controller.onLeave(protocol, memberId, groupMetadata);
+        if (generation > 0)
+            // onLeave only invoked if we have a valid current generation
+            controller.onLeave(protocol, memberId, groupMetadata);
+
         while (needRejoin()) {
             ensureCoordinatorKnown();
             client.ensureFreshMetadata();
@@ -209,22 +212,25 @@ public class GroupCoordinator<T extends GroupProtocol> {
         // send a join group request to the coordinator
         log.debug("(Re-)joining {} group {}", controller.groupType(), groupId);
 
-        List<T> metadata = controller.protocols();
-        List<JoinGroupRequest.ProtocolMetadata> protocols = new ArrayList<>();
-        for (GroupProtocol protocol : metadata)
-            protocols.add(new JoinGroupRequest.ProtocolMetadata(protocol.name(), protocol.version(), protocol.metadata()));
+        List<T> protocols = controller.protocols();
+        if (protocols.isEmpty())
+            throw new IllegalStateException("Supported protocol list cannot be empty");
+
+        List<JoinGroupRequest.ProtocolMetadata> protocolMetadata = new ArrayList<>();
+        for (GroupProtocol protocol : protocols)
+            protocolMetadata.add(new JoinGroupRequest.ProtocolMetadata(protocol.name(), protocol.version(), protocol.metadata()));
 
         JoinGroupRequest request = new JoinGroupRequest(
                 controller.groupType(),
                 groupId,
                 this.sessionTimeoutMs,
                 this.memberId,
-                protocols);
+                protocolMetadata);
 
         // create the request for the coordinator
         log.debug("Issuing request ({}: {}) to coordinator {}", ApiKeys.JOIN_GROUP, request, this.coordinator.id());
         return client.send(coordinator, ApiKeys.JOIN_GROUP, request)
-                .compose(new JoinGroupResponseHandler(metadata));
+                .compose(new JoinGroupResponseHandler(protocols));
     }
 
     private class JoinGroupResponseHandler extends CoordinatorResponseHandler<JoinGroupResponse, Void> {

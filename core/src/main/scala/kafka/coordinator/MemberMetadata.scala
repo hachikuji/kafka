@@ -24,21 +24,21 @@ import kafka.utils.nonthreadsafe
 import scala.collection.Map
 
 /**
- * Consumer metadata contains the following metadata:
+ * Member metadata contains the following metadata:
  *
  * Heartbeat metadata:
  * 1. negotiated heartbeat session timeout
  * 2. timestamp of the latest heartbeat
  *
- * Subscription metadata:
- * 1. subscribed topics
- * 2. assigned partitions for the subscribed topics
+ * Protocol metadata:
+ * 1. the list of supported protocols (ordered by preference)
+ * 2. the metadata associated with each protocol
  *
  * In addition, it also contains the following state information:
  *
- * 1. Awaiting rebalance callback: when the consumer group is in the prepare-rebalance state,
+ * 1. Awaiting rebalance callback: when the group is in the prepare-rebalance state,
  *                                 its rebalance callback will be kept in the metadata if the
- *                                 consumer has sent the join group request
+ *                                 member has sent the join group request
  */
 @nonthreadsafe
 private[coordinator] class MemberMetadata(val memberId: String,
@@ -46,10 +46,16 @@ private[coordinator] class MemberMetadata(val memberId: String,
                                           val sessionTimeoutMs: Int,
                                           var supportedProtocols: List[(GroupProtocol, Array[Byte])]) {
 
+  /**
+   * Check whether the current metadata for the provided protocol matches
+   */
   def matches(protocol: GroupProtocol, metadata: Array[Byte]): Boolean = {
     supportedProtocols.exists{ case (p, d) => protocol == p && util.Arrays.equals(metadata, d) }
   }
 
+  /**
+   * Check whether all protocol metadata for this member matches.
+   */
   def matches(protocols: List[(GroupProtocol, Array[Byte])]): Boolean = {
     if (protocols.size != supportedProtocols.size)
       return false
@@ -66,10 +72,17 @@ private[coordinator] class MemberMetadata(val memberId: String,
 
   def protocols = supportedProtocols.map{case (p, d) => p}
 
+  /**
+   * Get the metadata corresponding to the provided protocol (if it exists)
+   */
   def metadata(protocol: GroupProtocol): Option[Array[Byte]] = {
     supportedProtocols.find{ case (p, d) => protocol == p }.collect{ case (p, d) => d}
   }
 
+  /**
+   * Vote for one of the potential group protocols. This takes into account the protocol preference as
+   * indicated by the order of supported protocols and returns the first one also contained in the set
+   */
   def vote(candidates: Set[GroupProtocol]): GroupProtocol = {
     protocols.find(candidates.contains(_)) match {
       case Some(protocol) => protocol

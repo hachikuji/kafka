@@ -72,6 +72,8 @@ private[coordinator] class CoordinatorMetadata(brokerId: Int) {
    */
   def removeGroup(groupId: String) {
     inWriteLock(metadataLock) {
+      if (!groups.contains(groupId))
+        throw new IllegalArgumentException("Cannot remove non-existing group")
       groups.remove(groupId)
     }
   }

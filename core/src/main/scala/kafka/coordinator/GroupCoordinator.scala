@@ -30,17 +30,16 @@ import org.apache.kafka.common.requests.JoinGroupRequest
 
 import scala.collection.{Map, Seq, immutable}
 
-case class GroupManagerConfig(consumerMinSessionTimeoutMs: Int,
-                              consumerMaxSessionTimeoutMs: Int)
+case class GroupManagerConfig(groupMinSessionTimeoutMs: Int,
+                              groupMaxSessionTimeoutMs: Int)
 
 case class GroupProtocol(name: String, version: Short)
 
 /**
- * ConsumerCoordinator handles consumer group and consumer offset management.
+ * GroupCoordinator handles general group membership and offset management.
  *
  * Each Kafka server instantiates a coordinator which is responsible for a set of
- * consumer groups. Consumer groups are assigned to coordinators based on their
- * group names.
+ * groups. Groups are assigned to coordinators based on their group names.
  */
 class GroupCoordinator(val brokerId: Int,
                        val groupConfig: GroupManagerConfig,
@@ -49,7 +48,7 @@ class GroupCoordinator(val brokerId: Int,
                        zkClient: ZkClient) extends Logging {
   type JoinCallback = (Map[String, Array[Byte]], String, Int, GroupProtocol, Short) => Unit
 
-  this.logIdent = "[ConsumerCoordinator " + brokerId + "]: "
+  this.logIdent = "[GroupCoordinator " + brokerId + "]: "
 
   private val isActive = new AtomicBoolean(false)
 
@@ -114,12 +113,12 @@ class GroupCoordinator(val brokerId: Int,
       responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code)
     } else if (!isCoordinatorForGroup(groupId)) {
       responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.NOT_COORDINATOR_FOR_GROUP.code)
-    } else if (sessionTimeoutMs < groupConfig.consumerMinSessionTimeoutMs ||
-               sessionTimeoutMs > groupConfig.consumerMaxSessionTimeoutMs) {
+    } else if (sessionTimeoutMs < groupConfig.groupMinSessionTimeoutMs ||
+               sessionTimeoutMs > groupConfig.groupMaxSessionTimeoutMs) {
       responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.INVALID_SESSION_TIMEOUT.code)
     } else {
       // only try to create the group if the group is not unknown AND
-      // the consumer id is UNKNOWN, if consumer is specified but group does not
+      // the member id is UNKNOWN, if member is specified but group does not
       // exist we should reject the request
       var group = coordinatorMetadata.getGroup(groupId)
       if (group == null) {
@@ -156,19 +155,19 @@ class GroupCoordinator(val brokerId: Int,
       if (group.is(Dead)) {
         // if the group is marked as dead, it means some other thread has just removed the group
         // from the coordinator metadata; this is likely that the group has migrated to some other
-        // coordinator OR the group is in a transient unstable phase. Let the consumer to retry
-        // joining without specified consumer id,
+        // coordinator OR the group is in a transient unstable phase. Let the member retry
+        // joining without the specified member id,
         responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.UNKNOWN_MEMBER_ID.code)
       } else if (memberId != JoinGroupRequest.UNKNOWN_MEMBER_ID && !group.has(memberId)) {
-        // if the consumer trying to register with a un-recognized id, send the response to let
-        // it reset its consumer id and retry
+        // if the member trying to register with a un-recognized id, send the response to let
+        // it reset its member id and retry
         responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.UNKNOWN_MEMBER_ID.code)
-      } else if (!group.supports(protocols.map(_._1).toSet)) {
+      } else if (!group.supportsProtocols(protocols.map(_._1).toSet)) {
         // if the group cannot support any of the member's protocols, then reject the member
         responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.INCONSISTENT_GROUP_PROTOCOL.code)
       } else if (matchesCurrentMetadata(group, memberId, protocols)) {
         /*
-         * if an existing consumer sends a JoinGroupRequest with no changes while the group is stable,
+         * if an existing member sends a JoinGroupRequest with no changes while the group is stable,
          * just treat it like a heartbeat and return the current group metadata
          */
         val member = group.get(memberId)
@@ -177,7 +176,7 @@ class GroupCoordinator(val brokerId: Int,
           Errors.NONE.code)
       } else {
         val member = if (memberId == JoinGroupRequest.UNKNOWN_MEMBER_ID) {
-          // if the consumer id is unknown, register this consumer to the group
+          // if the member id is unknown, register the member to the group
           val generatedMemberId = group.generateNextMemberId
           val member = addMember(generatedMemberId, sessionTimeoutMs, protocols, group)
           maybePrepareRebalance(group)
@@ -185,12 +184,12 @@ class GroupCoordinator(val brokerId: Int,
         } else {
           val member = group.get(memberId)
           if (!member.matches(protocols)) {
-            // existing consumer changed its subscribed topics
+            // existing member changed its protocol metadata
             updateMember(group, member, protocols)
             maybePrepareRebalance(group)
             member
           } else {
-            // existing consumer rejoining a group due to restabilize
+            // existing member rejoining a group due to restabilize
             member
           }
         }
@@ -216,8 +215,8 @@ class GroupCoordinator(val brokerId: Int,
       if (group == null) {
         // if the group is marked as dead, it means some other thread has just removed the group
         // from the coordinator metadata; this is likely that the group has migrated to some other
-        // coordinator OR the group is in a transient unstable phase. Let the consumer to retry
-        // joining without specified consumer id,
+        // coordinator OR the group is in a transient unstable phase. Let the member retry
+        // joining without the specified member id,
         responseCallback(Errors.UNKNOWN_MEMBER_ID.code)
       } else {
         group synchronized {
@@ -228,8 +227,8 @@ class GroupCoordinator(val brokerId: Int,
           } else if (generationId != group.generationId || !group.is(Stable)) {
             responseCallback(Errors.ILLEGAL_GENERATION.code)
           } else {
-            val consumer = group.get(memberId)
-            completeAndScheduleNextHeartbeatExpiration(group, consumer)
+            val member = group.get(memberId)
+            completeAndScheduleNextHeartbeatExpiration(group, member)
             responseCallback(Errors.NONE.code)
           }
         }
@@ -238,7 +237,7 @@ class GroupCoordinator(val brokerId: Int,
   }
 
   def handleCommitOffsets(groupId: String,
-                          consumerId: String,
+                          memberId: String,
                           generationId: Int,
                           offsetMetadata: immutable.Map[TopicAndPartition, OffsetAndMetadata],
                           responseCallback: immutable.Map[TopicAndPartition, Short] => Unit) {
@@ -252,17 +251,17 @@ class GroupCoordinator(val brokerId: Int,
         // if the group does not exist, it means this group is not relying
         // on Kafka for partition management, and hence never send join-group
         // request to the coordinator before; in this case blindly commit the offsets
-        offsetManager.storeOffsets(groupId, consumerId, generationId, offsetMetadata, responseCallback)
+        offsetManager.storeOffsets(groupId, memberId, generationId, offsetMetadata, responseCallback)
       } else {
         group synchronized {
           if (group.is(Dead)) {
             responseCallback(offsetMetadata.mapValues(_ => Errors.UNKNOWN_MEMBER_ID.code))
-          } else if (!group.has(consumerId)) {
+          } else if (!group.has(memberId)) {
             responseCallback(offsetMetadata.mapValues(_ => Errors.UNKNOWN_MEMBER_ID.code))
           } else if (generationId != group.generationId) {
             responseCallback(offsetMetadata.mapValues(_ => Errors.ILLEGAL_GENERATION.code))
           } else {
-            offsetManager.storeOffsets(groupId, consumerId, generationId, offsetMetadata, responseCallback)
+            offsetManager.storeOffsets(groupId, memberId, generationId, offsetMetadata, responseCallback)
           }
         }
       }
@@ -285,7 +284,7 @@ class GroupCoordinator(val brokerId: Int,
       } else {
         group synchronized {
           if (group.is(Dead)) {
-            partitions.map {case topicAndPartition => (topicAndPartition, OffsetMetadataAndError.UnknownConsumer)}.toMap
+            partitions.map {case topicAndPartition => (topicAndPartition, OffsetMetadataAndError.UnknownMember)}.toMap
           } else {
             offsetManager.getOffsets(groupId, partitions)
           }
@@ -305,18 +304,18 @@ class GroupCoordinator(val brokerId: Int,
   }
 
   /**
-   * Complete existing DelayedHeartbeats for the given consumer and schedule the next one
+   * Complete existing DelayedHeartbeats for the given member and schedule the next one
    */
-  private def completeAndScheduleNextHeartbeatExpiration(group: GroupMetadata, consumer: MemberMetadata) {
+  private def completeAndScheduleNextHeartbeatExpiration(group: GroupMetadata, member: MemberMetadata) {
     // complete current heartbeat expectation
-    consumer.latestHeartbeat = SystemTime.milliseconds
-    val consumerKey = ConsumerKey(consumer.groupId, consumer.memberId)
-    heartbeatPurgatory.checkAndComplete(consumerKey)
+    member.latestHeartbeat = SystemTime.milliseconds
+    val memberKey = ConsumerKey(member.groupId, member.memberId)
+    heartbeatPurgatory.checkAndComplete(memberKey)
 
     // reschedule the next heartbeat expiration deadline
-    val newHeartbeatDeadline = consumer.latestHeartbeat + consumer.sessionTimeoutMs
-    val delayedHeartbeat = new DelayedHeartbeat(this, group, consumer, newHeartbeatDeadline, consumer.sessionTimeoutMs)
-    heartbeatPurgatory.tryCompleteElseWatch(delayedHeartbeat, Seq(consumerKey))
+    val newHeartbeatDeadline = member.latestHeartbeat + member.sessionTimeoutMs
+    val delayedHeartbeat = new DelayedHeartbeat(this, group, member, newHeartbeatDeadline, member.sessionTimeoutMs)
+    heartbeatPurgatory.tryCompleteElseWatch(delayedHeartbeat, Seq(memberKey))
   }
 
   private def addMember(memberId: String,
@@ -356,7 +355,7 @@ class GroupCoordinator(val brokerId: Int,
   }
 
   private def restabilize(group: GroupMetadata) {
-    assert(group.notYetRejoinedConsumers == List.empty[MemberMetadata])
+    assert(group.notYetRejoinedMembers == List.empty[MemberMetadata])
 
     group.transitionTo(Rebalancing)
     group.generationId += 1
@@ -371,18 +370,20 @@ class GroupCoordinator(val brokerId: Int,
     info("Stabilized group %s generation %s".format(group.groupId, group.generationId))
   }
 
-  private def onHeartbeatExpired(group: GroupMetadata, consumer: MemberMetadata) {
-    trace("Consumer %s in group %s has failed".format(consumer.memberId, group.groupId))
-    removeMember(group, consumer)
+  private def onHeartbeatExpired(group: GroupMetadata, member: MemberMetadata) {
+    trace("Member %s in group %s has failed".format(member.memberId, group.groupId))
+    removeMember(group, member)
     maybePrepareRebalance(group)
   }
 
   private def selectProtocol(group: GroupMetadata): GroupProtocol = {
-    val candidates = group.candidates
+    // select the protocol for this group which is supported by all members
+    val candidates = group.candidateProtocols
 
     if (candidates.isEmpty)
       throw new IllegalStateException("Attempt to create group with inconsistent protocols")
 
+    // let each member vote for one of the protocols and choose the one with the most votes
     val votes: List[(GroupProtocol, Int)] = group.allMembers
       .map(_.vote(candidates))
       .groupBy(identity)
@@ -394,7 +395,7 @@ class GroupCoordinator(val brokerId: Int,
 
   def tryCompleteRebalance(group: GroupMetadata, forceComplete: () => Boolean) = {
     group synchronized {
-      if (group.notYetRejoinedConsumers == List.empty[MemberMetadata])
+      if (group.notYetRejoinedMembers == List.empty[MemberMetadata])
         forceComplete()
       else false
     }
@@ -406,11 +407,11 @@ class GroupCoordinator(val brokerId: Int,
 
   def onCompleteRestabilize(group: GroupMetadata) {
     group synchronized {
-      val failedConsumers = group.notYetRejoinedConsumers
-      if (group.isEmpty || !failedConsumers.isEmpty) {
-        failedConsumers.foreach { failedConsumer =>
-          removeMember(group, failedConsumer)
-          // TODO: cut the socket connection to the consumer
+      val failedMembers = group.notYetRejoinedMembers
+      if (group.isEmpty || !failedMembers.isEmpty) {
+        failedMembers.foreach { failedMember =>
+          removeMember(group, failedMember)
+          // TODO: cut the socket connection to the client
         }
 
         if (group.isEmpty) {
@@ -420,33 +421,33 @@ class GroupCoordinator(val brokerId: Int,
         }
       }
       if (!group.is(Dead)) {
-        // assign partitions to existing consumers of the group according to the partitioning strategy
+        // assign partitions to existing members of the group according to the partitioning strategy
         restabilize(group)
 
-        // trigger the awaiting join group response callback for all the consumers after rebalancing
-        for (consumer <- group.allMembers) {
-          assert(consumer.awaitingRebalanceCallback != null)
-          consumer.awaitingRebalanceCallback(group.currentMemberMetadata, consumer.memberId, group.generationId,
+        // trigger the awaiting join group response callback for all the members after rebalancing
+        for (member <- group.allMembers) {
+          assert(member.awaitingRebalanceCallback != null)
+          member.awaitingRebalanceCallback(group.currentMemberMetadata, member.memberId, group.generationId,
             group.currentProtocol, Errors.NONE.code)
-          consumer.awaitingRebalanceCallback = null
-          completeAndScheduleNextHeartbeatExpiration(group, consumer)
+          member.awaitingRebalanceCallback = null
+          completeAndScheduleNextHeartbeatExpiration(group, member)
         }
       }
     }
   }
 
-  def tryCompleteHeartbeat(group: GroupMetadata, consumer: MemberMetadata, heartbeatDeadline: Long, forceComplete: () => Boolean) = {
+  def tryCompleteHeartbeat(group: GroupMetadata, member: MemberMetadata, heartbeatDeadline: Long, forceComplete: () => Boolean) = {
     group synchronized {
-      if (shouldKeepConsumerAlive(consumer, heartbeatDeadline))
+      if (shouldKeepMemberAlive(member, heartbeatDeadline))
         forceComplete()
       else false
     }
   }
 
-  def onExpirationHeartbeat(group: GroupMetadata, consumer: MemberMetadata, heartbeatDeadline: Long) {
+  def onExpirationHeartbeat(group: GroupMetadata, member: MemberMetadata, heartbeatDeadline: Long) {
     group synchronized {
-      if (!shouldKeepConsumerAlive(consumer, heartbeatDeadline))
-        onHeartbeatExpired(group, consumer)
+      if (!shouldKeepMemberAlive(member, heartbeatDeadline))
+        onHeartbeatExpired(group, member)
     }
   }
 
@@ -456,8 +457,8 @@ class GroupCoordinator(val brokerId: Int,
 
   def partitionFor(group: String): Int = offsetManager.partitionFor(group)
 
-  private def shouldKeepConsumerAlive(consumer: MemberMetadata, heartbeatDeadline: Long) =
-    consumer.awaitingRebalanceCallback != null || consumer.latestHeartbeat + consumer.sessionTimeoutMs > heartbeatDeadline
+  private def shouldKeepMemberAlive(member: MemberMetadata, heartbeatDeadline: Long) =
+    member.awaitingRebalanceCallback != null || member.latestHeartbeat + member.sessionTimeoutMs > heartbeatDeadline
 
   private def isCoordinatorForGroup(groupId: String) = offsetManager.leaderIsLocal(offsetManager.partitionFor(groupId))
 }
@@ -479,8 +480,8 @@ object GroupCoordinator {
       offsetsTopicReplicationFactor = config.offsetsTopicReplicationFactor,
       offsetCommitTimeoutMs = config.offsetCommitTimeoutMs,
       offsetCommitRequiredAcks = config.offsetCommitRequiredAcks)
-    val groupConfig = GroupManagerConfig(consumerMinSessionTimeoutMs = config.consumerMinSessionTimeoutMs,
-      consumerMaxSessionTimeoutMs = config.consumerMaxSessionTimeoutMs)
+    val groupConfig = GroupManagerConfig(groupMinSessionTimeoutMs = config.groupMinSessionTimeoutMs,
+      groupMaxSessionTimeoutMs = config.groupMaxSessionTimeoutMs)
 
     new GroupCoordinator(config.brokerId, groupConfig, offsetConfig, replicaManager, zkClient, kafkaScheduler)
   }
@@ -496,8 +497,8 @@ object GroupCoordinator {
       offsetsTopicReplicationFactor = config.offsetsTopicReplicationFactor,
       offsetCommitTimeoutMs = config.offsetCommitTimeoutMs,
       offsetCommitRequiredAcks = config.offsetCommitRequiredAcks)
-    val groupConfig = GroupManagerConfig(consumerMinSessionTimeoutMs = config.consumerMinSessionTimeoutMs,
-      consumerMaxSessionTimeoutMs = config.consumerMaxSessionTimeoutMs)
+    val groupConfig = GroupManagerConfig(groupMinSessionTimeoutMs = config.groupMinSessionTimeoutMs,
+      groupMaxSessionTimeoutMs = config.groupMaxSessionTimeoutMs)
 
     new GroupCoordinator(config.brokerId, groupConfig, offsetConfig, offsetManager, zkClient)
   }

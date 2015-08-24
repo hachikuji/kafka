@@ -252,14 +252,39 @@ public class CoordinatorTest {
 
         assertFalse(subscriptions.partitionAssignmentNeeded());
         assertEquals(Collections.singleton(tp), subscriptions.assignedPartitions());
-        assertEquals(1, rebalanceCallback.revokedCount);
-        assertEquals(Collections.emptySet(), rebalanceCallback.revoked);
+        assertEquals(0, rebalanceCallback.revokedCount);
         assertEquals(1, rebalanceCallback.assignedCount);
         assertEquals(Collections.singleton(tp), rebalanceCallback.assigned);
     }
 
     @Test
-    public void testReJoinGroup() {
+    public void testRejoinGroup() {
+        subscriptions.subscribe(topicName);
+        subscriptions.needReassignment();
+
+        client.prepareResponse(consumerMetadataResponse(node, Errors.NONE.code()));
+        coordinator.ensureCoordinatorKnown();
+
+        // join the group once
+        client.prepareResponse(joinGroupResponse(1, "consumer", Collections.singletonList(tp), Errors.NONE.code()));
+        coordinator.ensurePartitionAssignment();
+
+        assertEquals(0, rebalanceCallback.revokedCount);
+        assertEquals(1, rebalanceCallback.assignedCount);
+
+        // and join the group again
+        subscriptions.needReassignment();
+        client.prepareResponse(joinGroupResponse(1, "consumer", Collections.singletonList(tp), Errors.NONE.code()));
+        coordinator.ensurePartitionAssignment();
+
+        assertEquals(1, rebalanceCallback.revokedCount);
+        assertEquals(Collections.singleton(tp), rebalanceCallback.revoked);
+        assertEquals(2, rebalanceCallback.assignedCount);
+        assertEquals(Collections.singleton(tp), rebalanceCallback.assigned);
+    }
+
+    @Test
+    public void testDisconnectInJoin() {
         subscriptions.subscribe(topicName);
         subscriptions.needReassignment();
 
@@ -273,8 +298,7 @@ public class CoordinatorTest {
         coordinator.ensurePartitionAssignment();
         assertFalse(subscriptions.partitionAssignmentNeeded());
         assertEquals(Collections.singleton(tp), subscriptions.assignedPartitions());
-        assertEquals(1, rebalanceCallback.revokedCount);
-        assertEquals(Collections.emptySet(), rebalanceCallback.revoked);
+        assertEquals(0, rebalanceCallback.revokedCount);
         assertEquals(1, rebalanceCallback.assignedCount);
         assertEquals(Collections.singleton(tp), rebalanceCallback.assigned);
     }
