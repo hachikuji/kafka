@@ -27,10 +27,10 @@ import java.util.Map;
 public interface GroupController<T extends GroupProtocol> {
 
     /**
-     * Unique, descriptive name for the type of group implemented by the controller (e.g. "consumer" or "copycat")
-     * @return The group type
+     * Unique, descriptive name for the type of protocol implemented by the controller (e.g. "consumer" or "copycat")
+     * @return The protocol type (must be non-null)
      */
-    String groupType();
+    String protocolType();
 
     /**
      * Check whether the group should be rejoined (e.g. if metadata changes)

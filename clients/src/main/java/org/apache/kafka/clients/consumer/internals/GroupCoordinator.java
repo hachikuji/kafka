@@ -210,7 +210,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
             return RequestFuture.coordinatorNotAvailable();
 
         // send a join group request to the coordinator
-        log.debug("(Re-)joining {} group {}", controller.groupType(), groupId);
+        log.debug("(Re-)joining {} group {}", controller.protocolType(), groupId);
 
         List<T> protocols = controller.protocols();
         if (protocols.isEmpty())
@@ -221,7 +221,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
             protocolMetadata.add(new JoinGroupRequest.ProtocolMetadata(protocol.name(), protocol.version(), protocol.metadata()));
 
         JoinGroupRequest request = new JoinGroupRequest(
-                controller.groupType(),
+                controller.protocolType(),
                 groupId,
                 this.sessionTimeoutMs,
                 this.memberId,

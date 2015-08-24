@@ -582,10 +582,10 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     // let the coordinator to handle join-group
     coordinator.handleJoinGroup(
-      joinGroupRequest.groupType(),
       joinGroupRequest.groupId(),
       joinGroupRequest.memberId(),
       joinGroupRequest.sessionTimeout(),
+      joinGroupRequest.protocolType(),
       groupProtocols,
       sendResponseCallback)
   }

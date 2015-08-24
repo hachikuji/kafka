@@ -103,10 +103,10 @@ class GroupCoordinator(val brokerId: Int,
     info("Shutdown complete.")
   }
 
-  def handleJoinGroup(groupType: String,
-                      groupId: String,
+  def handleJoinGroup(groupId: String,
                       memberId: String,
                       sessionTimeoutMs: Int,
+                      protocolType: String,
                       protocols: List[(GroupProtocol, Array[Byte])],
                       responseCallback: JoinCallback) {
     if (!isActive.get) {
@@ -125,24 +125,14 @@ class GroupCoordinator(val brokerId: Int,
         if (memberId != JoinGroupRequest.UNKNOWN_MEMBER_ID) {
           responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.UNKNOWN_MEMBER_ID.code)
         } else {
-          group = coordinatorMetadata.addGroup(groupType, groupId)
+          group = coordinatorMetadata.addGroup(groupId, protocolType)
           doJoinGroup(group, memberId, sessionTimeoutMs, protocols, responseCallback)
         }
+      } else if (group.protocolType != protocolType) {
+        responseCallback(Map.empty, memberId, 0, GroupCoordinator.NoProtocol, Errors.INCONSISTENT_GROUP_PROTOCOL.code)
       } else {
         doJoinGroup(group, memberId, sessionTimeoutMs, protocols, responseCallback)
       }
-    }
-  }
-
-  private def matchesCurrentMetadata(group: GroupMetadata,
-                                     memberId: String,
-                                     protocols: List[(GroupProtocol, Array[Byte])]): Boolean = {
-    if (!group.has(memberId) || group.not(Stable))
-      return false
-
-    protocols.find(_._1 == group.currentProtocol) match {
-      case Some((protocol, data)) => group.get(memberId).matches(group.currentProtocol, data)
-      case None => false
     }
   }
 
@@ -301,6 +291,22 @@ class GroupCoordinator(val brokerId: Int,
   def handleGroupEmigration(offsetTopicPartitionId: Int) = {
     // TODO we may need to add more logic in KAFKA-2017
     offsetManager.removeOffsetsFromCacheForPartition(offsetTopicPartitionId)
+  }
+
+
+  /**
+   * Check if the member is already part of the group and has matching metadata
+   */
+  private def matchesCurrentMetadata(group: GroupMetadata,
+                                     memberId: String,
+                                     protocols: List[(GroupProtocol, Array[Byte])]): Boolean = {
+    if (!group.has(memberId) || group.not(Stable))
+      return false
+
+    protocols.find(_._1 == group.currentProtocol) match {
+      case Some((protocol, data)) => group.get(memberId).matches(group.currentProtocol, data)
+      case None => false
+    }
   }
 
   /**

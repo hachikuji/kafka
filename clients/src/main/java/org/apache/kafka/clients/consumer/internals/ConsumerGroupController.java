@@ -58,7 +58,7 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
     }
 
     @Override
-    public String groupType() {
+    public String protocolType() {
         return CONSUMER_GROUP_TYPE;
     }
 
