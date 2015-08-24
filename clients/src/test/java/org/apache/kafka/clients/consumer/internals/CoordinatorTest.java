@@ -31,7 +31,7 @@ import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.requests.ConsumerMetadataResponse;
+import org.apache.kafka.common.requests.GroupMetadataResponse;
 import org.apache.kafka.common.requests.HeartbeatResponse;
 import org.apache.kafka.common.requests.JoinGroupResponse;
 import org.apache.kafka.common.requests.OffsetCommitResponse;
@@ -478,7 +478,7 @@ public class CoordinatorTest {
     }
 
     private Struct consumerMetadataResponse(Node node, short error) {
-        ConsumerMetadataResponse response = new ConsumerMetadataResponse(error, node);
+        GroupMetadataResponse response = new GroupMetadataResponse(error, node);
         return response.toStruct();
     }
 

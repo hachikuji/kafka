@@ -50,7 +50,7 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
             case OFFSET_FETCH:
                 return OffsetFetchRequest.parse(buffer, versionId);
             case CONSUMER_METADATA:
-                return ConsumerMetadataRequest.parse(buffer, versionId);
+                return GroupMetadataRequest.parse(buffer, versionId);
             case JOIN_GROUP:
                 return JoinGroupRequest.parse(buffer, versionId);
             case HEARTBEAT:

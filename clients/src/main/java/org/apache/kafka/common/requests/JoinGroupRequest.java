@@ -30,7 +30,7 @@ public class JoinGroupRequest extends AbstractRequest {
     private static final String SESSION_TIMEOUT_KEY_NAME = "session_timeout";
     private static final String MEMBER_ID_KEY_NAME = "member_id";
     private static final String GROUP_PROTOCOLS_KEY_NAME = "group_protocols";
-    private static final String PROTOCOL_TYPE_KEY_NAME = "protcol_type";
+    private static final String PROTOCOL_TYPE_KEY_NAME = "group_protocol_type";
     private static final String PROTOCOL_KEY_NAME = "protocol";
     private static final String PROTOCOL_VERSION_KEY_NAME = "protocol_version";
     private static final String PROTOCOL_METADATA_KEY_NAME = "protocol_metadata";

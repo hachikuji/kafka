@@ -362,17 +362,17 @@ public class Protocol {
     public static final Schema[] FETCH_RESPONSE = new Schema[] {FETCH_RESPONSE_V0};
 
     /* Consumer metadata api */
-    public static final Schema CONSUMER_METADATA_REQUEST_V0 = new Schema(new Field("group_id",
-                                                                                   STRING,
-                                                                                   "The consumer group id."));
+    public static final Schema GROUP_METADATA_REQUEST_V0 = new Schema(new Field("group_id",
+                                                                                STRING,
+                                                                                "The unique group id."));
 
-    public static final Schema CONSUMER_METADATA_RESPONSE_V0 = new Schema(new Field("error_code", INT16),
-                                                                          new Field("coordinator",
-                                                                                    BROKER,
-                                                                                    "Host and port information for the coordinator for a consumer group."));
+    public static final Schema GROUP_METADATA_RESPONSE_V0 = new Schema(new Field("error_code", INT16),
+                                                                       new Field("coordinator",
+                                                                                 BROKER,
+                                                                                 "Host and port information for the coordinator for a consumer group."));
 
-    public static final Schema[] CONSUMER_METADATA_REQUEST = new Schema[] {CONSUMER_METADATA_REQUEST_V0};
-    public static final Schema[] CONSUMER_METADATA_RESPONSE = new Schema[] {CONSUMER_METADATA_RESPONSE_V0};
+    public static final Schema[] GROUP_METADATA_REQUEST = new Schema[] {GROUP_METADATA_REQUEST_V0};
+    public static final Schema[] GROUP_METADATA_RESPONSE = new Schema[] {GROUP_METADATA_RESPONSE_V0};
 
     /* Join group api */
     public static final Schema JOIN_GROUP_PROTOCOL_V0 = new Schema(new Field("protocol",
@@ -384,10 +384,7 @@ public class Protocol {
                                                                    new Field("protocol_metadata",
                                                                              BYTES,
                                                                              "protocol metadata"));
-    public static final Schema JOIN_GROUP_REQUEST_V0 = new Schema(new Field("group_type",
-                                                                            STRING,
-                                                                            "group type"),
-                                                                  new Field("group_id",
+    public static final Schema JOIN_GROUP_REQUEST_V0 = new Schema(new Field("group_id",
                                                                             STRING,
                                                                             "The consumer group id."),
                                                                   new Field("session_timeout",
@@ -396,6 +393,9 @@ public class Protocol {
                                                                   new Field("member_id",
                                                                             STRING,
                                                                             "The assigned consumer id or an empty string for a new consumer."),
+                                                                  new Field("group_protocol_type",
+                                                                            STRING,
+                                                                            "Descriptive name for the type of protocols that this group implements (e.g. 'consumer' or 'copycat')"),
                                                                   new Field("group_protocols",
                                                                            new ArrayOf(JOIN_GROUP_PROTOCOL_V0),
                                                                            "An array of topics to subscribe to."));
@@ -453,7 +453,7 @@ public class Protocol {
         REQUESTS[ApiKeys.CONTROLLED_SHUTDOWN_KEY.id] = new Schema[] {};
         REQUESTS[ApiKeys.OFFSET_COMMIT.id] = OFFSET_COMMIT_REQUEST;
         REQUESTS[ApiKeys.OFFSET_FETCH.id] = OFFSET_FETCH_REQUEST;
-        REQUESTS[ApiKeys.CONSUMER_METADATA.id] = CONSUMER_METADATA_REQUEST;
+        REQUESTS[ApiKeys.CONSUMER_METADATA.id] = GROUP_METADATA_REQUEST;
         REQUESTS[ApiKeys.JOIN_GROUP.id] = JOIN_GROUP_REQUEST;
         REQUESTS[ApiKeys.HEARTBEAT.id] = HEARTBEAT_REQUEST;
 
@@ -467,7 +467,7 @@ public class Protocol {
         RESPONSES[ApiKeys.CONTROLLED_SHUTDOWN_KEY.id] = new Schema[] {};
         RESPONSES[ApiKeys.OFFSET_COMMIT.id] = OFFSET_COMMIT_RESPONSE;
         RESPONSES[ApiKeys.OFFSET_FETCH.id] = OFFSET_FETCH_RESPONSE;
-        RESPONSES[ApiKeys.CONSUMER_METADATA.id] = CONSUMER_METADATA_RESPONSE;
+        RESPONSES[ApiKeys.CONSUMER_METADATA.id] = GROUP_METADATA_RESPONSE;
         RESPONSES[ApiKeys.JOIN_GROUP.id] = JOIN_GROUP_RESPONSE;
         RESPONSES[ApiKeys.HEARTBEAT.id] = HEARTBEAT_RESPONSE;
 

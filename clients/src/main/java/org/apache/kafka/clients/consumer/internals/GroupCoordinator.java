@@ -27,8 +27,8 @@ import org.apache.kafka.common.metrics.stats.Max;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.requests.ConsumerMetadataRequest;
-import org.apache.kafka.common.requests.ConsumerMetadataResponse;
+import org.apache.kafka.common.requests.GroupMetadataRequest;
+import org.apache.kafka.common.requests.GroupMetadataResponse;
 import org.apache.kafka.common.requests.HeartbeatRequest;
 import org.apache.kafka.common.requests.HeartbeatResponse;
 import org.apache.kafka.common.requests.JoinGroupRequest;
@@ -44,6 +44,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * GroupCoordinator implements group management for a single group member by interacting with
+ * the designated
+ * @param <T>
+ */
 public class GroupCoordinator<T extends GroupProtocol> {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
@@ -323,7 +328,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
         } else {
             // create a consumer metadata request
             log.debug("Issuing consumer metadata request to broker {}", node.id());
-            ConsumerMetadataRequest metadataRequest = new ConsumerMetadataRequest(this.groupId);
+            GroupMetadataRequest metadataRequest = new GroupMetadataRequest(this.groupId);
             return client.send(node, ApiKeys.CONSUMER_METADATA, metadataRequest)
                     .compose(new RequestFutureAdapter<ClientResponse, Void>() {
                         @Override
@@ -345,18 +350,18 @@ public class GroupCoordinator<T extends GroupProtocol> {
             // We already found the coordinator, so ignore the request
             future.complete(null);
         } else {
-            ConsumerMetadataResponse consumerMetadataResponse = new ConsumerMetadataResponse(resp.responseBody());
+            GroupMetadataResponse groupMetadataResponse = new GroupMetadataResponse(resp.responseBody());
             // use MAX_VALUE - node.id as the coordinator id to mimic separate connections
             // for the coordinator in the underlying network client layer
             // TODO: this needs to be better handled in KAFKA-1935
-            if (consumerMetadataResponse.errorCode() == Errors.NONE.code()) {
-                this.coordinator = new Node(Integer.MAX_VALUE - consumerMetadataResponse.node().id(),
-                        consumerMetadataResponse.node().host(),
-                        consumerMetadataResponse.node().port());
+            if (groupMetadataResponse.errorCode() == Errors.NONE.code()) {
+                this.coordinator = new Node(Integer.MAX_VALUE - groupMetadataResponse.node().id(),
+                        groupMetadataResponse.node().host(),
+                        groupMetadataResponse.node().port());
                 heartbeatTask.reset();
                 future.complete(null);
             } else {
-                future.raise(Errors.forCode(consumerMetadataResponse.errorCode()));
+                future.raise(Errors.forCode(groupMetadataResponse.errorCode()));
             }
         }
     }

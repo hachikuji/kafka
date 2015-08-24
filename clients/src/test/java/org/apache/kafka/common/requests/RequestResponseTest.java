@@ -86,11 +86,11 @@ public class RequestResponseTest {
     }
 
     private AbstractRequest createConsumerMetadataRequest() {
-        return new ConsumerMetadataRequest("test-group");
+        return new GroupMetadataRequest("test-group");
     }
 
     private AbstractRequestResponse createConsumerMetadataResponse() {
-        return new ConsumerMetadataResponse((short) 1, new Node(10, "host1", 2014));
+        return new GroupMetadataResponse((short) 1, new Node(10, "host1", 2014));
     }
 
     private AbstractRequest createFetchRequest() {

@@ -49,7 +49,7 @@ public class SubscriptionState {
     /* the list of topics the user has requested */
     private final Set<String> subscribedTopics;
 
-    /* the list of topics the group has subscribed to */
+    /* the list of topics the group has subscribed to (set on group join completion) */
     private final Set<String> groupSubscribedTopics;
 
     /* the list of partitions the user has requested */
