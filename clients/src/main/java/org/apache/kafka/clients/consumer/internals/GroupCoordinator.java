@@ -207,7 +207,7 @@ public class GroupCoordinator<T extends GroupProtocol> {
             return RequestFuture.coordinatorNotAvailable();
 
         // send a join group request to the coordinator
-        log.debug("(Re-)joining group {}", groupId);
+        log.debug("(Re-)joining {} group {}", controller.groupType(), groupId);
 
         List<T> metadata = controller.protocols();
         List<JoinGroupRequest.ProtocolMetadata> protocols = new ArrayList<>();

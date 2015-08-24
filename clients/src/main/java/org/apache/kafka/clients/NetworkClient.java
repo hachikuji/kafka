@@ -458,18 +458,24 @@ public class NetworkClient implements KafkaClient {
     }
 
     /**
-     * Add a metadata request to the list of sends if we can make one
+     * Send a
      */
     private void maybeUpdateMetadata(long now) {
+        Node preferred = metadata.updateFrom();
+        if (preferred != null && isSendable(preferred.idString())) {
+            sendMetadataRequest(preferred, now);
+        } else {
+            updateFromLeastLoaded(now);
+        }
+    }
+
+    /**
+     * Add a metadata request to the list of sends if we can make one
+     */
+    private void updateFromLeastLoaded(long now) {
         // Beware that the behavior of this method and the computation of timeouts for poll() are
         // highly dependent on the behavior of leastLoadedNode.
-
-        final Node node;
-        if (metadata.updateFrom() != null) {
-            node = metadata.updateFrom();
-        } else {
-            node = this.leastLoadedNode(now);
-        }
+        Node node = this.leastLoadedNode(now);
 
         if (node == null) {
             log.debug("Give up sending metadata request since no node is available");
@@ -480,13 +486,8 @@ public class NetworkClient implements KafkaClient {
         String nodeConnectionId = node.idString();
 
 
-        if (connectionStates.isConnected(nodeConnectionId) && inFlightRequests.canSendMore(nodeConnectionId)) {
-            Set<String> topics = metadata.topics();
-            this.metadataFetchInProgress = true;
-            ClientRequest metadataRequest = metadataRequest(now, nodeConnectionId, topics);
-            log.debug("Sending metadata request {} to node {}", metadataRequest, node.id());
-            this.selector.send(metadataRequest.request());
-            this.inFlightRequests.add(metadataRequest);
+        if (isSendable(nodeConnectionId)) {
+            sendMetadataRequest(node, now);
         } else if (connectionStates.canConnect(nodeConnectionId, now)) {
             // we don't have a connection to this node right now, make one
             log.debug("Initialize connection to node {} for sending metadata request", node.id());
@@ -500,6 +501,15 @@ public class NetworkClient implements KafkaClient {
             // connection might be usable again.
             this.lastNoNodeAvailableMs = now;
         }
+    }
+
+    private void sendMetadataRequest(Node node, long now) {
+        Set<String> topics = metadata.topics();
+        this.metadataFetchInProgress = true;
+        ClientRequest metadataRequest = metadataRequest(now, node.idString(), topics);
+        log.debug("Sending metadata request {} to node {}", metadataRequest, node.id());
+        this.selector.send(metadataRequest.request());
+        this.inFlightRequests.add(metadataRequest);
     }
 
     /**

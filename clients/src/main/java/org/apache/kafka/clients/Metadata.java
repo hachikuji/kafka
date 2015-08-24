@@ -105,8 +105,11 @@ public final class Metadata {
         return this.version;
     }
 
-    public synchronized int requestUpdate(Node node) {
-        this.updateFrom = node;
+    /**
+     * Request a metadata update from a specific node.
+     */
+    public synchronized int requestUpdate(Node preferred) {
+        this.updateFrom = preferred;
         return requestUpdate();
     }
 
@@ -207,10 +210,18 @@ public final class Metadata {
         return refreshBackoffMs;
     }
 
+    /**
+     * Get the preferred node for getting metadata update from (if there is one)
+     * @return The preferred node or null if there is none
+     */
     public synchronized Node updateFrom() {
         return updateFrom;
     }
 
+    /**
+     * Add a listener to get notifications when metadata is updated.
+     * @param listener The listener
+     */
     public synchronized void addListener(MetadataListener listener) {
         this.listeners.add(listener);
     }
