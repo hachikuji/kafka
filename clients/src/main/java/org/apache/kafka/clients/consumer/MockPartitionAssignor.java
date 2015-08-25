@@ -76,7 +76,7 @@ public class MockPartitionAssignor implements PartitionAssignor<Void> {
     }
 
     @Override
-    public Void metadata(MetadataSnapshot subscription) {
+    public Void metadata(MetadataSnapshot metadataSnapshot) {
         return null;
     }
 }

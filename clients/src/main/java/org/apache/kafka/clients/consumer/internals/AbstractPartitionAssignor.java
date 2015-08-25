@@ -115,9 +115,9 @@ public abstract class AbstractPartitionAssignor implements PartitionAssignor<Abs
     }
 
     @Override
-    public ConsumerMetadata metadata(MetadataSnapshot metadata) {
-        ByteBuffer metadataHash = ByteBuffer.wrap(metadata.hash());
-        Set<String> subscription = metadata.localSubscibedTopics();
+    public ConsumerMetadata metadata(MetadataSnapshot metadataSnapshot) {
+        ByteBuffer metadataHash = ByteBuffer.wrap(metadataSnapshot.hash());
+        Set<String> subscription = metadataSnapshot.localSubscibedTopics();
 
         Struct consumerMetadataStruct = new Struct(CONSUMER_METADATA_V0);
         Struct subscriptionStruct = consumerMetadataStruct.instance(SUBSCRIPTION_KEY_NAME);

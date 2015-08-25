@@ -46,8 +46,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * GroupCoordinator implements group management for a single group member by interacting with
- * the designated
- * @param <T>
+ * a designated Kafka broker (the coordinator). Group semantics are provided by an implementation
+ * of {@link GroupController}.
+ * @param <T> Protocol type used by this coordinator
  */
 public class GroupCoordinator<T extends GroupProtocol> {
 

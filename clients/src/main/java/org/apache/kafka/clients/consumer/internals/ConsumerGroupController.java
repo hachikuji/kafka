@@ -36,7 +36,7 @@ import java.util.TreeMap;
 public class ConsumerGroupController implements GroupController<PartitionAssignmentProtocol>, Metadata.MetadataListener {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerGroupController.class);
-    private static final String CONSUMER_GROUP_TYPE = "consumer";
+    private static final String CONSUMER_PROTOCOL_TYPE = "consumer";
 
     private final List<PartitionAssignor<?>> assignors;
     private final SubscriptionState subscription;
@@ -59,7 +59,7 @@ public class ConsumerGroupController implements GroupController<PartitionAssignm
 
     @Override
     public String protocolType() {
-        return CONSUMER_GROUP_TYPE;
+        return CONSUMER_PROTOCOL_TYPE;
     }
 
     @Override

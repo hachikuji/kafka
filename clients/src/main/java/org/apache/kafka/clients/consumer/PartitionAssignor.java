@@ -20,20 +20,59 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Generic interface for client-side assignment implementations. Unless custom metadata is
+ * needed, implementations will typically extend {@link org.apache.kafka.clients.consumer.internals.AbstractPartitionAssignor}.
+ * @param <M> The type of the metadata
+ */
 public interface PartitionAssignor<M> {
 
+    /**
+     * Perform the assignment for the consumer.
+     * @param consumerId The identifier of the local consumer instance
+     * @param consumers Map of all consumers in the group and their respective metadata
+     * @param metadataSnapshot The metadata snapshot that was used when the group was created, including
+     *                         subscription information and topic metadata
+     * @return
+     */
     AssignmentResult assign(String consumerId,
                             Map<String, M> consumers,
                             MetadataSnapshot metadataSnapshot);
 
+    /**
+     * The name of the partition assignor (e.g. 'roundrobin')
+     * @return The name (must not be null)
+     */
     String name();
 
+    /**
+     * The version of the partition assignor
+     * @return The version
+     */
     short version();
 
+    /**
+     * Schema representing this assignor's metadata.
+     * @return Non-null schema
+     */
     Type schema();
 
-    M metadata(MetadataSnapshot subscription);
+    /**
+     * Get the local metadata for this assignor. This will be invoked prior to every
+     * round of group membership, so it is allowed to change dynamically. The metadata
+     * will probably include at least the subscription of the consumer, but can also include
+     * local information such as the number of processors on the host or its fqdn. Note,
+     * however, that extra care must be taken when designing an assignor for large groups
+     * since the metadata from each member must be propagated to ALL members of the group.
+     *
+     * @param metadataSnapshot Snapshot of the consumer's metadata/subscription.
+     * @return The latest metadata for
+     */
+    M metadata(MetadataSnapshot metadataSnapshot);
 
+    /**
+     * Wrapper
+     */
     class AssignmentResult {
         private boolean succeeded = false;
         private List<TopicPartition> assignment;
@@ -59,10 +98,22 @@ public interface PartitionAssignor<M> {
             return groupSubscription;
         }
 
+        /**
+         * Successful assignment.
+         * @param assignment The partitions assigned to the local group member
+         * @return AssignmentResult indicated the success
+         */
         public static AssignmentResult success(List<TopicPartition> assignment) {
             return new AssignmentResult(true, assignment, null);
         }
 
+        /**
+         * Failed assignment. Assignments can fail from inconsistent metadata. In that case, we need
+         * to know the full list of subscriptions that were used by the group in order to
+         * synchronize metadata.
+         * @param groupSubscription Full set of subscriptions that group members are interested in.
+         * @return AssignmentResult indicating the failure
+         */
         public static AssignmentResult failure(Set<String> groupSubscription) {
             return new AssignmentResult(false, null, groupSubscription);
         }

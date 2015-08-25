@@ -27,15 +27,7 @@ import java.util.SortedMap;
  */
 public class MetadataSnapshot {
 
-    private static final MessageDigest MESSAGE_DIGEST;
-    static {
-        try {
-            MESSAGE_DIGEST = MessageDigest.getInstance("SHA-256");
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
-
+    private final MessageDigest digest;
     private final Set<String> localSubscribedTopics;
     private final Set<String> groupSubscribedTopics;
     private final SortedMap<String, TopicMetadata> metadata;
@@ -47,6 +39,12 @@ public class MetadataSnapshot {
         this.localSubscribedTopics = localSubscribedTopics;
         this.groupSubscribedTopics = groupSubscribedTopics;
         this.metadata = metadata;
+
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public SortedMap<String, TopicMetadata> topicMetadata() {
@@ -62,14 +60,14 @@ public class MetadataSnapshot {
     }
 
     public byte[] hash() {
-        MESSAGE_DIGEST.reset();
+        digest.reset();
         for (Map.Entry<String, TopicMetadata> topicEntry : metadata.entrySet()) {
             String topic = topicEntry.getKey();
             Integer partitions = topicEntry.getValue().numberPartitions;
-            MESSAGE_DIGEST.update(Utils.utf8(topic));
-            MESSAGE_DIGEST.update(Utils.toArrayLE(partitions));
+            digest.update(Utils.utf8(topic));
+            digest.update(Utils.toArrayLE(partitions));
         }
-        return MESSAGE_DIGEST.digest();
+        return digest.digest();
     }
 
     public boolean contains(Set<String> topics) {
