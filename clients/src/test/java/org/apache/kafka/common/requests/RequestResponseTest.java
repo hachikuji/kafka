@@ -28,6 +28,7 @@ import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -43,9 +44,9 @@ public class RequestResponseTest {
         List<AbstractRequestResponse> requestResponseList = Arrays.asList(
                 createRequestHeader(),
                 createResponseHeader(),
-                createConsumerMetadataRequest(),
-                createConsumerMetadataRequest().getErrorResponse(0, new UnknownServerException()),
-                createConsumerMetadataResponse(),
+                createGroupMetadataRequest(),
+                createGroupMetadataRequest().getErrorResponse(1, new UnknownServerException()),
+                createGroupMetadataResponse(),
                 createControlledShutdownRequest(),
                 createControlledShutdownResponse(),
                 createControlledShutdownRequest().getErrorResponse(1, new UnknownServerException()),
@@ -150,12 +151,16 @@ public class RequestResponseTest {
         return new ResponseHeader(10);
     }
 
-    private AbstractRequest createConsumerMetadataRequest() {
-        return new GroupMetadataRequest("test-group");
+    private AbstractRequest createGroupMetadataRequest() {
+        return new GroupMetadataRequest(Collections.singletonList("test-group"), false);
     }
 
-    private AbstractRequestResponse createConsumerMetadataResponse() {
-        return new GroupMetadataResponse(Errors.NONE.code(), new Node(10, "host1", 2014));
+    private AbstractRequestResponse createGroupMetadataResponse() {
+        Node coordinator = new Node(10, "host1", 2014);
+        GroupMetadataResponse.GroupMetadata metadata = new GroupMetadataResponse.GroupMetadata(Errors.NONE.code(), coordinator,
+                GroupMetadataResponse.GroupState.UNKNOWN, GroupMetadataResponse.UNKNOWN_GENERATION,
+                GroupMetadataResponse.UNKNOWN_PROTOCOL_TYPE, GroupMetadataResponse.UNKNOWN_PROTOCOL);
+        return new GroupMetadataResponse(Collections.singletonMap("test-group", metadata));
     }
 
     private AbstractRequest createFetchRequest() {

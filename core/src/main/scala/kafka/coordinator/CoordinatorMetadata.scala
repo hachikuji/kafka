@@ -48,6 +48,12 @@ private[coordinator] class CoordinatorMetadata(brokerId: Int) {
     }
   }
 
+  def currentGroups: List[String] = {
+    inReadLock(metadataLock) {
+      groups.keys.toList
+    }
+  }
+
   /**
    * Get the group associated with the given groupId, or null if not found
    */

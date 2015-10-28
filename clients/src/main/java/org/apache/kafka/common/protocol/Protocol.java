@@ -393,13 +393,26 @@ public class Protocol {
                                                                                 STRING,
                                                                                 "The unique group id."));
 
+    public static final Schema GROUP_METADATA_REQUEST_V1 = new Schema(new Field("options", INT8, "Group metadata request options"),
+                                                                      new Field("group_ids", new ArrayOf(STRING), ""));
+
     public static final Schema GROUP_METADATA_RESPONSE_V0 = new Schema(new Field("error_code", INT16),
                                                                        new Field("coordinator",
                                                                                  BROKER,
                                                                                  "Host and port information for the coordinator for a consumer group."));
 
-    public static final Schema[] GROUP_METADATA_REQUEST = new Schema[] {GROUP_METADATA_REQUEST_V0};
-    public static final Schema[] GROUP_METADATA_RESPONSE = new Schema[] {GROUP_METADATA_RESPONSE_V0};
+    public static final Schema GROUP_METADATA_RESPONSE_GROUP_V1 = new Schema(new Field("error_code", INT16),
+                                                                             new Field("group_id", STRING),
+                                                                             new Field("coordinator", BROKER),
+                                                                             new Field("state", INT8),
+                                                                             new Field("generation_id", INT32),
+                                                                             new Field("protocol_type", STRING),
+                                                                             new Field("protocol", STRING));
+
+    public static final Schema GROUP_METADATA_RESPONSE_V1 = new Schema(new Field("groups", new ArrayOf(GROUP_METADATA_RESPONSE_GROUP_V1)));
+
+    public static final Schema[] GROUP_METADATA_REQUEST = new Schema[] {GROUP_METADATA_REQUEST_V0, GROUP_METADATA_REQUEST_V1};
+    public static final Schema[] GROUP_METADATA_RESPONSE = new Schema[] {GROUP_METADATA_RESPONSE_V0, GROUP_METADATA_RESPONSE_V1};
 
     /* Controlled shutdown api */
     public static final Schema CONTROLLED_SHUTDOWN_REQUEST_V1 = new Schema(new Field("broker_id",

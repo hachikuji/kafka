@@ -39,6 +39,13 @@ case class JoinGroupResult(members: Map[String, Array[Byte]],
                            leaderId: String,
                            errorCode: Short)
 
+case class GroupStatus(errorCode: Short,
+                       groupId: String,
+                       state: GroupState,
+                       generation: Int,
+                       protocolType: String,
+                       protocol: String)
+
 /**
  * GroupCoordinator handles general group membership and offset management.
  *
@@ -398,6 +405,29 @@ class GroupCoordinator(val brokerId: Int,
       offsetManager.getOffsets(groupId, partitions)
     }
   }
+
+  def handleGroupMetadata(includeAllMembers: Boolean,
+                          groupIds: List[String]): List[GroupStatus] = {
+    val groups = if (includeAllMembers) { coordinatorMetadata.currentGroups } else { groupIds }
+    groups.map { groupId =>
+      if (!isActive.get) {
+        GroupStatus(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, groupId, null, -1, "", "")
+      } else if (!isCoordinatorForGroup(groupId)) {
+        GroupStatus(Errors.NOT_COORDINATOR_FOR_GROUP.code, groupId, null, -1, "", "")
+      } else {
+        val group = coordinatorMetadata.getGroup(groupId)
+        if (group == null) {
+          GroupStatus(Errors.NONE.code, groupId, Dead, -1, "", "")
+        } else {
+          group synchronized {
+            GroupStatus(Errors.NONE.code, groupId, group.currentState, group.generationId,
+              group.protocolType, group.protocol)
+          }
+        }
+      }
+    }
+  }
+
 
   def handleGroupImmigration(offsetTopicPartitionId: Int) = {
     // TODO we may need to add more logic in KAFKA-2017

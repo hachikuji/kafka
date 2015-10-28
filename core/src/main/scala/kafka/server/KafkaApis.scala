@@ -23,16 +23,18 @@ import kafka.admin.AdminUtils
 import kafka.api._
 import kafka.common._
 import kafka.controller.KafkaController
-import kafka.coordinator.{GroupCoordinator, JoinGroupResult}
+import kafka.coordinator.{GroupStatus, GroupCoordinator, JoinGroupResult}
 import kafka.log._
 import kafka.message.MessageSet
 import kafka.network._
 import kafka.network.RequestChannel.{Session, Response}
 import kafka.security.auth.{Authorizer, ClusterAction, Group, Create, Describe, Operation, Read, Resource, Topic, Write}
 import kafka.utils.{Logging, SystemTime, ZKGroupTopicDirs, ZkUtils}
+import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.SecurityProtocol
-import org.apache.kafka.common.requests.{HeartbeatRequest, HeartbeatResponse, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest, LeaveGroupResponse, ResponseHeader, ResponseSend, SyncGroupRequest, SyncGroupResponse}
+import org.apache.kafka.common.requests.GroupMetadataResponse.GroupMetadata
+import org.apache.kafka.common.requests.{GroupMetadataRequest, GroupMetadataResponse, HeartbeatRequest, HeartbeatResponse, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest, LeaveGroupResponse, ResponseHeader, ResponseSend, SyncGroupRequest, SyncGroupResponse}
 import org.apache.kafka.common.utils.Utils
 
 import scala.collection._
@@ -662,30 +664,60 @@ class KafkaApis(val requestChannel: RequestChannel,
    * Handle a consumer metadata request
    */
   def handleGroupMetadataRequest(request: RequestChannel.Request) {
-    val groupMetadataRequest = request.requestObj.asInstanceOf[GroupMetadataRequest]
+    import JavaConverters._
 
-    if (!authorize(request.session, Read, new Resource(Group, groupMetadataRequest.group))) {
-      val response = GroupMetadataResponse(None, ErrorMapping.AuthorizationCode, groupMetadataRequest.correlationId)
-      requestChannel.sendResponse(new Response(request, new RequestOrResponseSend(request.connectionId, response)))
-    } else {
-      val partition = coordinator.partitionFor(groupMetadataRequest.group)
+    val groupMetadataRequest = request.body.asInstanceOf[GroupMetadataRequest]
+    val version = request.header.apiVersion
 
-      // get metadata (and create the topic if necessary)
-      val offsetsTopicMetadata = getTopicMetadata(Set(GroupCoordinator.OffsetsTopicName), request.securityProtocol).head
+    val includeAllGroups = groupMetadataRequest.includeAllGroups()
+    var groups = coordinator.handleGroupMetadata(includeAllGroups, groupMetadataRequest.groupIds().asScala.toList)
 
-      val errorResponse = GroupMetadataResponse(None, ErrorMapping.ConsumerCoordinatorNotAvailableCode, groupMetadataRequest.correlationId)
+    if (includeAllGroups)
+      groups = groups.filter(group => authorize(request.session, Describe, new Resource(Group, group.groupId)))
 
-      val response =
-        offsetsTopicMetadata.partitionsMetadata.find(_.partitionId == partition).map { partitionMetadata =>
-          partitionMetadata.leader.map { leader =>
-            GroupMetadataResponse(Some(leader), ErrorMapping.NoError, groupMetadataRequest.correlationId)
-          }.getOrElse(errorResponse)
-        }.getOrElse(errorResponse)
 
-      trace("Sending consumer metadata %s for correlation id %d to client %s."
-        .format(response, groupMetadataRequest.correlationId, groupMetadataRequest.clientId))
-      requestChannel.sendResponse(new Response(request, new RequestOrResponseSend(request.connectionId, response)))
+    val groupMetadata = groups.map{ group =>
+      var errorCode = ErrorMapping.NoError
+      var coordinatorNode = Node.noNode()
+      val state = GroupMetadataResponse.GroupState.UNKNOWN
+      var generation = GroupMetadataResponse.UNKNOWN_GENERATION
+      var protocolType = GroupMetadataResponse.UNKNOWN_PROTOCOL_TYPE
+      var protocol = GroupMetadataResponse.UNKNOWN_PROTOCOL
+
+      if (!authorize(request.session, Read, new Resource(Group, group.groupId))) {
+        errorCode = ErrorMapping.AuthorizationCode
+      } else {
+        // get metadata (and create the topic if necessary)
+        val partition = coordinator.partitionFor(group.groupId)
+        val offsetsTopicMetadata = getTopicMetadata(Set(GroupCoordinator.OffsetsTopicName), request.securityProtocol).head
+        val leader = offsetsTopicMetadata.partitionsMetadata.find(_.partitionId == partition).flatMap { partitionMetadata =>
+          partitionMetadata.leader
+        }
+
+        if (!leader.isDefined) {
+          errorCode = ErrorMapping.ConsumerCoordinatorNotAvailableCode
+        } else {
+          coordinatorNode = new Node(leader.get.id, leader.get.host, leader.get.port)
+        }
+
+        generation = group.generation
+        protocolType = group.protocolType
+        protocol = group.protocol
+      }
+
+      group.groupId -> new GroupMetadata(errorCode, coordinatorNode, state, generation, protocolType, protocol)
+    }.toMap
+
+
+    val responseHeader = new ResponseHeader(request.header.correlationId)
+    val responseBody = request.header.apiVersion match {
+      case 0 =>
+        val groupId = groupMetadataRequest.groupIds().get(0)
+        val group = groupMetadata(groupId)
+        new GroupMetadataResponse(group.errorCode(), groupId, group.coordinator())
+      case 1 => new GroupMetadataResponse(groupMetadata.asJava)
     }
+    requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
   }
 
   def handleJoinGroupRequest(request: RequestChannel.Request) {

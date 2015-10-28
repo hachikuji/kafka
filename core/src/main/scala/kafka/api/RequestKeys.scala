@@ -49,8 +49,7 @@ object RequestKeys {
         UpdateMetadataKey -> ("UpdateMetadata", UpdateMetadataRequest.readFrom),
         ControlledShutdownKey -> ("ControlledShutdown", ControlledShutdownRequest.readFrom),
         OffsetCommitKey -> ("OffsetCommit", OffsetCommitRequest.readFrom),
-        OffsetFetchKey -> ("OffsetFetch", OffsetFetchRequest.readFrom),
-        GroupMetadataKey -> ("GroupMetadata", GroupMetadataRequest.readFrom)
+        OffsetFetchKey -> ("OffsetFetch", OffsetFetchRequest.readFrom)
     )
 
   def nameForKey(key: Short): String = {
