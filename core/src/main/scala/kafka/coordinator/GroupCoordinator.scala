@@ -41,8 +41,6 @@ case class JoinGroupResult(members: Map[String, Array[Byte]],
 
 case class GroupStatus(errorCode: Short,
                        groupId: String,
-                       state: String,
-                       generation: Int,
                        protocolType: String,
                        protocol: String)
 
@@ -406,54 +404,38 @@ class GroupCoordinator(val brokerId: Int,
     }
   }
 
-  def describeAllGroups: List[GroupStatus] = {
-    describeGroups(coordinatorMetadata.currentGroups)
-  }
-
-  def describeGroups(groupIds: List[String]): List[GroupStatus] = {
+  def listGroups(): Option[List[(String, String)]] = {
     if (!isActive.get) {
-      groupIds.map{ GroupStatus(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, _, null, -1, "", "") }
+      None
     } else {
-      groupIds.map { groupId =>
-        if (!isCoordinatorForGroup(groupId)) {
-          GroupStatus(Errors.NOT_COORDINATOR_FOR_GROUP.code, groupId, null, -1, "", "")
-        } else {
-          val group = coordinatorMetadata.getGroup(groupId)
-          if (group == null) {
-            GroupStatus(Errors.NONE.code, groupId, Dead, -1, "", "")
-          } else {
-            group synchronized {
-              GroupStatus(Errors.NONE.code, groupId, group.currentState, group.generationId,
-                group.protocolType, group.protocol)
-            }
-          }
-        }
-      }
+      Some(coordinatorMetadata.currentGroups.map{ group =>
+        (group.groupId, group.protocolType)
+      })
     }
   }
 
-  def handleGroupMetadata(includeAllMembers: Boolean,
-                          groupIds: List[String]): List[GroupStatus] = {
-    val groups = if (includeAllMembers) { coordinatorMetadata.currentGroups } else { groupIds }
-    groups.map { groupId =>
-      if (!isActive.get) {
-        GroupStatus(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, groupId, null, -1, "", "")
-      } else if (!isCoordinatorForGroup(groupId)) {
-        GroupStatus(Errors.NOT_COORDINATOR_FOR_GROUP.code, groupId, null, -1, "", "")
+  def describeGroup(groupId: String): GroupStatus = {
+    import GroupCoordinator._
+
+    if (!isActive.get) {
+      GroupStatus(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, groupId, NoProtocolType, NoProtocol)
+    } else if (!isCoordinatorForGroup(groupId)) {
+      GroupStatus(Errors.NOT_COORDINATOR_FOR_GROUP.code, groupId, NoProtocolType, NoProtocol)
+    } else {
+      val group = coordinatorMetadata.getGroup(groupId)
+      if (group == null || group.is(Dead)) {
+        GroupStatus(Errors.NONE.code, groupId, NoProtocolType, NoProtocol)
       } else {
-        val group = coordinatorMetadata.getGroup(groupId)
-        if (group == null) {
-          GroupStatus(Errors.NONE.code, groupId, Dead, -1, "", "")
-        } else {
-          group synchronized {
-            GroupStatus(Errors.NONE.code, groupId, group.currentState, group.generationId,
-              group.protocolType, group.protocol)
-          }
+        group synchronized {
+          if (group.is(Stable))
+            GroupStatus(Errors.NONE.code, groupId, group.protocolType, group.protocol)
+          else
+            // group is rebalancing
+            GroupStatus(Errors.NONE.code, groupId, group.protocolType, NoProtocol)
         }
       }
     }
   }
-
 
   def handleGroupImmigration(offsetTopicPartitionId: Int) = {
     // TODO we may need to add more logic in KAFKA-2017
@@ -647,6 +629,7 @@ class GroupCoordinator(val brokerId: Int,
 
 object GroupCoordinator {
 
+  val NoProtocolType = ""
   val NoProtocol = ""
   val NoLeader = ""
   val OffsetsTopicName = "__consumer_offsets"

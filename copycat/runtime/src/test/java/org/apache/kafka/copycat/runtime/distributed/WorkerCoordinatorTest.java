@@ -161,7 +161,7 @@ public class WorkerCoordinatorTest {
 
         final String consumerId = "leader";
 
-        client.prepareResponse(groupMetadataResponse(node, groupId, Errors.NONE.code()));
+        client.prepareResponse(groupMetadataResponse(node, Errors.NONE.code()));
         coordinator.ensureCoordinatorKnown();
 
         // normal join group
@@ -201,7 +201,7 @@ public class WorkerCoordinatorTest {
 
         final String memberId = "member";
 
-        client.prepareResponse(groupMetadataResponse(node, groupId, Errors.NONE.code()));
+        client.prepareResponse(groupMetadataResponse(node, Errors.NONE.code()));
         coordinator.ensureCoordinatorKnown();
 
         // normal join group
@@ -242,7 +242,7 @@ public class WorkerCoordinatorTest {
 
         final String memberId = "member";
 
-        client.prepareResponse(groupMetadataResponse(node, groupId, Errors.NONE.code()));
+        client.prepareResponse(groupMetadataResponse(node, Errors.NONE.code()));
         coordinator.ensureCoordinatorKnown();
 
         // config mismatch results in assignment error
@@ -273,7 +273,7 @@ public class WorkerCoordinatorTest {
 
         PowerMock.replayAll();
 
-        client.prepareResponse(groupMetadataResponse(node, groupId, Errors.NONE.code()));
+        client.prepareResponse(groupMetadataResponse(node, Errors.NONE.code()));
         coordinator.ensureCoordinatorKnown();
 
         // join the group once
@@ -381,11 +381,8 @@ public class WorkerCoordinatorTest {
     }
 
 
-    private Struct groupMetadataResponse(Node node, String groupId, short error) {
-        GroupMetadataResponse.GroupMetadata metadata = new GroupMetadataResponse.GroupMetadata(error, node, GroupMetadataResponse.GroupState.UNKNOWN,
-                GroupMetadataResponse.UNKNOWN_GENERATION, GroupMetadataResponse.UNKNOWN_PROTOCOL_TYPE,
-                GroupMetadataResponse.UNKNOWN_PROTOCOL);
-        GroupMetadataResponse response = new GroupMetadataResponse(Collections.singletonMap(groupId, metadata));
+    private Struct groupMetadataResponse(Node node, short error) {
+        GroupMetadataResponse response = new GroupMetadataResponse(error, node);
         return response.toStruct();
     }
 

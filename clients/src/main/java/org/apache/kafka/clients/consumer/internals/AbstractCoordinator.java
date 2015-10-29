@@ -16,7 +16,6 @@ import org.apache.kafka.clients.ClientResponse;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.errors.ApiException;
 import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.errors.IllegalGenerationException;
 import org.apache.kafka.common.errors.RebalanceInProgressException;
@@ -446,7 +445,7 @@ public abstract class AbstractCoordinator {
         } else {
             // create a group  metadata request
             log.debug("Issuing group metadata request to broker {}", node.id());
-            GroupMetadataRequest metadataRequest = new GroupMetadataRequest(Collections.singletonList(this.groupId), false);
+            GroupMetadataRequest metadataRequest = new GroupMetadataRequest(this.groupId);
             return client.send(node, ApiKeys.GROUP_METADATA, metadataRequest)
                     .compose(new RequestFutureAdapter<ClientResponse, Void>() {
                         @Override
@@ -472,15 +471,10 @@ public abstract class AbstractCoordinator {
             // use MAX_VALUE - node.id as the coordinator id to mimic separate connections
             // for the coordinator in the underlying network client layer
             // TODO: this needs to be better handled in KAFKA-1935
-            GroupMetadataResponse.GroupMetadata groupMetadata = groupMetadataResponse.groups().get(groupId);
-
-            if (groupMetadata == null) {
-                future.raise(new ApiException("GroupMetadata response from broker contained no group metadata for " + groupId));
-            } else if (groupMetadata.errorCode() == Errors.NONE.code()) {
-                Node node = groupMetadata.coordinator();
-                this.coordinator = new Node(Integer.MAX_VALUE - node.id(),
-                        node.host(),
-                        node.port());
+            if (groupMetadataResponse.errorCode() == Errors.NONE.code()) {
+                this.coordinator = new Node(Integer.MAX_VALUE - groupMetadataResponse.node().id(),
+                        groupMetadataResponse.node().host(),
+                        groupMetadataResponse.node().port());
 
                 client.tryConnect(coordinator);
 
@@ -489,7 +483,7 @@ public abstract class AbstractCoordinator {
                     heartbeatTask.reset();
                 future.complete(null);
             } else {
-                future.raise(Errors.forCode(groupMetadata.errorCode()));
+                future.raise(Errors.forCode(groupMetadataResponse.errorCode()));
             }
         }
     }

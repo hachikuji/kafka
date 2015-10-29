@@ -21,40 +21,23 @@ import java.nio.ByteBuffer
 import java.util
 
 import kafka.admin.AdminUtils
-import kafka.api.ControlledShutdownRequest
-import kafka.api.ControlledShutdownResponse
-import kafka.api.FetchRequest
-import kafka.api.FetchResponse
-import kafka.api.LeaderAndIsrRequest
-import kafka.api.LeaderAndIsrResponse
-import kafka.api.OffsetCommitRequest
-import kafka.api.OffsetCommitResponse
-import kafka.api.OffsetFetchRequest
-import kafka.api.OffsetFetchResponse
-import kafka.api.StopReplicaRequest
-import kafka.api.StopReplicaResponse
-import kafka.api.UpdateMetadataRequest
-import kafka.api.UpdateMetadataResponse
 import kafka.api._
 import kafka.common._
 import kafka.controller.KafkaController
-import kafka.coordinator.{GroupStatus, GroupCoordinator, JoinGroupResult}
+import kafka.coordinator.{GroupCoordinator, JoinGroupResult}
 import kafka.log._
 import kafka.message.MessageSet
 import kafka.network._
 import kafka.network.RequestChannel.{Session, Response}
 import kafka.security.auth.{Authorizer, ClusterAction, Group, Create, Describe, Operation, Read, Resource, Topic, Write}
 import kafka.utils.{Logging, SystemTime, ZKGroupTopicDirs, ZkUtils}
-import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.{Errors, SecurityProtocol}
-import org.apache.kafka.common.requests._
-import org.apache.kafka.common.requests.GroupMetadataResponse.GroupMetadata
+import org.apache.kafka.common.requests.{GroupMetadataRequest, GroupMetadataResponse, ListGroupsResponse, DescribeGroupRequest, DescribeGroupResponse, HeartbeatRequest, HeartbeatResponse, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest, LeaveGroupResponse, ResponseHeader, ResponseSend, SyncGroupRequest, SyncGroupResponse}
 import org.apache.kafka.common.utils.Utils
+import org.apache.kafka.common.Node
 
 import scala.collection._
-
-
 /**
  * Logic to handle the various Kafka requests
  */
@@ -97,6 +80,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case RequestKeys.LeaveGroupKey => handleLeaveGroupRequest(request)
         case RequestKeys.SyncGroupKey => handleSyncGroupRequest(request)
         case RequestKeys.DescribeGroupKey => handleDescribeGroupRequest(request)
+        case RequestKeys.ListGroupsKey => handleListGroupsRequest(request)
         case requestId => throw new KafkaException("Unknown api code " + requestId)
       }
     } catch {
@@ -677,88 +661,64 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleGroupMetadataRequest(request: RequestChannel.Request) {
-    import JavaConverters._
-
     val groupMetadataRequest = request.body.asInstanceOf[GroupMetadataRequest]
-    val version = request.header.apiVersion
+    val responseHeader = new ResponseHeader(request.header.correlationId)
 
-    val includeAllGroups = groupMetadataRequest.includeAllGroups()
-    var groups = coordinator.handleGroupMetadata(includeAllGroups, groupMetadataRequest.groupIds().asScala.toList)
+    if (!authorize(request.session, Describe, new Resource(Group, groupMetadataRequest.groupId))) {
+      val responseBody = new GroupMetadataResponse(Errors.AUTHORIZATION_FAILED.code, Node.noNode)
+      requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
+    } else {
+      val partition = coordinator.partitionFor(groupMetadataRequest.groupId)
 
-    if (includeAllGroups)
-      groups = groups.filter(group => authorize(request.session, Describe, new Resource(Group, group.groupId)))
-
-
-    val groupMetadata = groups.map{ group =>
-      var errorCode = ErrorMapping.NoError
-      var coordinatorNode = Node.noNode()
-      val state = GroupMetadataResponse.GroupState.UNKNOWN
-      var generation = GroupMetadataResponse.UNKNOWN_GENERATION
-      var protocolType = GroupMetadataResponse.UNKNOWN_PROTOCOL_TYPE
-      var protocol = GroupMetadataResponse.UNKNOWN_PROTOCOL
-
-      if (!authorize(request.session, Read, new Resource(Group, group.groupId))) {
-        errorCode = ErrorMapping.AuthorizationCode
-      } else {
-        // get metadata (and create the topic if necessary)
-        val partition = coordinator.partitionFor(group.groupId)
-        val offsetsTopicMetadata = getTopicMetadata(Set(GroupCoordinator.OffsetsTopicName), request.securityProtocol).head
-        val leader = offsetsTopicMetadata.partitionsMetadata.find(_.partitionId == partition).flatMap { partitionMetadata =>
-          partitionMetadata.leader
-        }
-
-        if (!leader.isDefined) {
-          errorCode = ErrorMapping.ConsumerCoordinatorNotAvailableCode
-        } else {
-          coordinatorNode = new Node(leader.get.id, leader.get.host, leader.get.port)
-        }
-
-        generation = group.generation
-        protocolType = group.protocolType
-        protocol = group.protocol
+      // get metadata (and create the topic if necessary)
+      val offsetsTopicMetadata = getTopicMetadata(Set(GroupCoordinator.OffsetsTopicName), request.securityProtocol).head
+      val coordinatorEndpoint = offsetsTopicMetadata.partitionsMetadata.find(_.partitionId == partition).flatMap {
+        partitionMetadata => partitionMetadata.leader
       }
 
-      group.groupId -> new GroupMetadata(errorCode, coordinatorNode, state, generation, protocolType, protocol)
-    }.toMap
+      val responseBody = coordinatorEndpoint match {
+        case None =>
+          new GroupMetadataResponse(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, Node.noNode())
+        case Some(endpoint) =>
+          new GroupMetadataResponse(Errors.NONE.code, new Node(endpoint.id, endpoint.host, endpoint.port))
+      }
 
+      trace("Sending consumer metadata %s for correlation id %d to client %s."
+        .format(responseBody, request.header.correlationId, request.header.clientId))
+      requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
+    }
+  }
 
+  def handleDescribeGroupRequest(request: RequestChannel.Request) {
+    val describeRequest = request.body.asInstanceOf[DescribeGroupRequest]
     val responseHeader = new ResponseHeader(request.header.correlationId)
-    val responseBody = request.header.apiVersion match {
-      case 0 =>
-        val groupId = groupMetadataRequest.groupIds().get(0)
-        val group = groupMetadata(groupId)
-        new GroupMetadataResponse(group.errorCode(), groupId, group.coordinator())
-      case 1 => new GroupMetadataResponse(groupMetadata.asJava)
+
+    val responseBody = if (!authorize(request.session, Describe, new Resource(Group, describeRequest.groupId()))) {
+      new DescribeGroupResponse(Errors.AUTHORIZATION_FAILED.code, DescribeGroupResponse.UNKNOWN_STATE,
+        DescribeGroupResponse.UNKNOWN_PROTOCOL_TYPE, DescribeGroupResponse.UNKNOWN_PROTOCOL)
+    } else {
+      val groupStatus = coordinator.describeGroup(describeRequest.groupId())
+      new DescribeGroupResponse(groupStatus.errorCode, DescribeGroupResponse.UNKNOWN_STATE,
+        groupStatus.protocolType, groupStatus.protocol)
     }
     requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
   }
 
-  def handleDescribeGroupRequest(request: RequestChannel.Request) {
+  def handleListGroupsRequest(request: RequestChannel.Request) {
     import JavaConverters._
 
-    val describeRequest = request.body.asInstanceOf[DescribeGroupRequest]
-
-    val includeAll = describeRequest.groupIds.isEmpty()
-    val (authorizedGroups, unauthorizedGroups) = if (includeAll) {
-      (coordinator.describeAllGroups.filter(group => authorize(request.session, Describe, new Resource(Group, group.groupId))), List[GroupStatus]())
+    val responseHeader = new ResponseHeader(request.header.correlationId)
+    val responseBody = if (!authorize(request.session, Describe, Resource.ClusterResource)) {
+      new ListGroupsResponse(Errors.AUTHORIZATION_FAILED.code, util.Collections.emptyList())
     } else {
-      coordinator.describeGroups(describeRequest.groupIds.asScala.toList).partition{ group =>
-        authorize(request.session, Describe, new Resource(Group, group.groupId))
+      coordinator.listGroups() match {
+        case None =>
+          new ListGroupsResponse(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, util.Collections.emptyList())
+        case Some(groups) =>
+          new ListGroupsResponse(Errors.NONE.code,
+            groups.map{ case (groupId, protocolType) => new ListGroupsResponse.Group(groupId, protocolType)}.asJava);
       }
     }
-
-    val groups = new util.HashMap[String, DescribeGroupResponse.GroupMetadata]()
-    for (group <- authorizedGroups)
-      groups.put(group.groupId, new DescribeGroupResponse.GroupMetadata(group.errorCode, group.state,
-        group.generation, group.protocolType, group.protocol))
-
-    for (group <- unauthorizedGroups)
-      groups.put(group.groupId, new DescribeGroupResponse.GroupMetadata(Errors.AUTHORIZATION_FAILED.code,
-        DescribeGroupResponse.UNKNOWN_STATE, DescribeGroupResponse.UNKNOWN_GENERATION,
-        DescribeGroupResponse.UNKNOWN_PROTOCOL_TYPE, DescribeGroupResponse.UNKNOWN_PROTOCOL))
-
-    val responseHeader = new ResponseHeader(request.header.correlationId)
-    val responseBody = new DescribeGroupResponse(groups)
     requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
   }
 

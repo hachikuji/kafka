@@ -48,9 +48,9 @@ private[coordinator] class CoordinatorMetadata(brokerId: Int) {
     }
   }
 
-  def currentGroups: List[String] = {
+  def currentGroups: List[GroupMetadata] = {
     inReadLock(metadataLock) {
-      groups.keys.toList
+      groups.values.toList
     }
   }
 
