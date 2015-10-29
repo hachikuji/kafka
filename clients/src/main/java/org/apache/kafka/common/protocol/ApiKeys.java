@@ -34,7 +34,8 @@ public enum ApiKeys {
     JOIN_GROUP(11, "JoinGroup"),
     HEARTBEAT(12, "Heartbeat"),
     LEAVE_GROUP(13, "LeaveGroup"),
-    SYNC_GROUP(14, "SyncGroup");
+    SYNC_GROUP(14, "SyncGroup"),
+    DESCRIBE_GROUP(15, "DescribeGroup");
 
     private static ApiKeys[] codeToType;
     public static final int MAX_API_KEY;

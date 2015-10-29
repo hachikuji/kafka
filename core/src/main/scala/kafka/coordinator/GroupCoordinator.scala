@@ -41,7 +41,7 @@ case class JoinGroupResult(members: Map[String, Array[Byte]],
 
 case class GroupStatus(errorCode: Short,
                        groupId: String,
-                       state: GroupState,
+                       state: String,
                        generation: Int,
                        protocolType: String,
                        protocol: String)
@@ -403,6 +403,32 @@ class GroupCoordinator(val brokerId: Int,
       // return offsets blindly regardless the current group state since the group may be using
       // Kafka commit storage without automatic group management
       offsetManager.getOffsets(groupId, partitions)
+    }
+  }
+
+  def describeAllGroups: List[GroupStatus] = {
+    describeGroups(coordinatorMetadata.currentGroups)
+  }
+
+  def describeGroups(groupIds: List[String]): List[GroupStatus] = {
+    if (!isActive.get) {
+      groupIds.map{ GroupStatus(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, _, null, -1, "", "") }
+    } else {
+      groupIds.map { groupId =>
+        if (!isCoordinatorForGroup(groupId)) {
+          GroupStatus(Errors.NOT_COORDINATOR_FOR_GROUP.code, groupId, null, -1, "", "")
+        } else {
+          val group = coordinatorMetadata.getGroup(groupId)
+          if (group == null) {
+            GroupStatus(Errors.NONE.code, groupId, Dead, -1, "", "")
+          } else {
+            group synchronized {
+              GroupStatus(Errors.NONE.code, groupId, group.currentState, group.generationId,
+                group.protocolType, group.protocol)
+            }
+          }
+        }
+      }
     }
   }
 

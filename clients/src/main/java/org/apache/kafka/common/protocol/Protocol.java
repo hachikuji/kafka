@@ -388,6 +388,23 @@ public class Protocol {
     public static final Schema[] FETCH_REQUEST = new Schema[] {FETCH_REQUEST_V0, FETCH_REQUEST_V1};
     public static final Schema[] FETCH_RESPONSE = new Schema[] {FETCH_RESPONSE_V0, FETCH_RESPONSE_V1};
 
+    /* Describe group api */
+    public static final Schema DESCRIBE_GROUP_REQUEST_V0 = new Schema(new Field("verbose", INT8),
+                                                                      new Field("group_ids", new ArrayOf(STRING)));
+
+    public static final Schema DESCRIBE_GROUP_RESPONSE_GROUP_METADATA_V0 = new Schema(new Field("error_code", INT16),
+                                                                                      new Field("group_id", STRING),
+                                                                                      new Field("state", STRING),
+                                                                                      new Field("generation_id", INT32),
+                                                                                      new Field("protocol_type", STRING),
+                                                                                      new Field("protocol", STRING));
+    public static final Schema DESCRIBE_GROUP_RESPONSE_V0 = new Schema(new Field("groups", new ArrayOf(DESCRIBE_GROUP_RESPONSE_GROUP_METADATA_V0)));
+
+
+    public static final Schema[] DESCRIBE_GROUP_REQUEST = new Schema[] {DESCRIBE_GROUP_REQUEST_V0};
+    public static final Schema[] DESCRIBE_GROUP_RESPONSE = new Schema[] {DESCRIBE_GROUP_RESPONSE_V0};
+
+
     /* Consumer metadata api */
     public static final Schema GROUP_METADATA_REQUEST_V0 = new Schema(new Field("group_id",
                                                                                 STRING,
@@ -634,7 +651,7 @@ public class Protocol {
         REQUESTS[ApiKeys.HEARTBEAT.id] = HEARTBEAT_REQUEST;
         REQUESTS[ApiKeys.LEAVE_GROUP.id] = LEAVE_GROUP_REQUEST;
         REQUESTS[ApiKeys.SYNC_GROUP.id] = SYNC_GROUP_REQUEST;
-
+        REQUESTS[ApiKeys.DESCRIBE_GROUP.id] = DESCRIBE_GROUP_REQUEST;
 
         RESPONSES[ApiKeys.PRODUCE.id] = PRODUCE_RESPONSE;
         RESPONSES[ApiKeys.FETCH.id] = FETCH_RESPONSE;
@@ -651,6 +668,7 @@ public class Protocol {
         RESPONSES[ApiKeys.HEARTBEAT.id] = HEARTBEAT_RESPONSE;
         RESPONSES[ApiKeys.LEAVE_GROUP.id] = LEAVE_GROUP_RESPONSE;
         RESPONSES[ApiKeys.SYNC_GROUP.id] = SYNC_GROUP_RESPONSE;
+        RESPONSES[ApiKeys.DESCRIBE_GROUP.id] = DESCRIBE_GROUP_RESPONSE;
 
         /* set the maximum version of each api */
         for (ApiKeys api : ApiKeys.values())

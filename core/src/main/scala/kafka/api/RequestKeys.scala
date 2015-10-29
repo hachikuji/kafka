@@ -38,6 +38,7 @@ object RequestKeys {
   val HeartbeatKey: Short = 12
   val LeaveGroupKey: Short = 13
   val SyncGroupKey: Short = 14
+  val DescribeGroupKey: Short = 15
 
   val keyToNameAndDeserializerMap: Map[Short, (String, (ByteBuffer) => RequestOrResponse)]=
     Map(ProduceKey -> ("Produce", ProducerRequest.readFrom),

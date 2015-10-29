@@ -18,8 +18,23 @@
 package kafka.server
 
 import java.nio.ByteBuffer
+import java.util
 
 import kafka.admin.AdminUtils
+import kafka.api.ControlledShutdownRequest
+import kafka.api.ControlledShutdownResponse
+import kafka.api.FetchRequest
+import kafka.api.FetchResponse
+import kafka.api.LeaderAndIsrRequest
+import kafka.api.LeaderAndIsrResponse
+import kafka.api.OffsetCommitRequest
+import kafka.api.OffsetCommitResponse
+import kafka.api.OffsetFetchRequest
+import kafka.api.OffsetFetchResponse
+import kafka.api.StopReplicaRequest
+import kafka.api.StopReplicaResponse
+import kafka.api.UpdateMetadataRequest
+import kafka.api.UpdateMetadataResponse
 import kafka.api._
 import kafka.common._
 import kafka.controller.KafkaController
@@ -32,9 +47,9 @@ import kafka.security.auth.{Authorizer, ClusterAction, Group, Create, Describe, 
 import kafka.utils.{Logging, SystemTime, ZKGroupTopicDirs, ZkUtils}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.protocol.SecurityProtocol
+import org.apache.kafka.common.protocol.{Errors, SecurityProtocol}
+import org.apache.kafka.common.requests._
 import org.apache.kafka.common.requests.GroupMetadataResponse.GroupMetadata
-import org.apache.kafka.common.requests.{GroupMetadataRequest, GroupMetadataResponse, HeartbeatRequest, HeartbeatResponse, JoinGroupRequest, JoinGroupResponse, LeaveGroupRequest, LeaveGroupResponse, ResponseHeader, ResponseSend, SyncGroupRequest, SyncGroupResponse}
 import org.apache.kafka.common.utils.Utils
 
 import scala.collection._
@@ -81,6 +96,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case RequestKeys.HeartbeatKey => handleHeartbeatRequest(request)
         case RequestKeys.LeaveGroupKey => handleLeaveGroupRequest(request)
         case RequestKeys.SyncGroupKey => handleSyncGroupRequest(request)
+        case RequestKeys.DescribeGroupKey => handleDescribeGroupRequest(request)
         case requestId => throw new KafkaException("Unknown api code " + requestId)
       }
     } catch {
@@ -660,9 +676,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     requestChannel.sendResponse(new RequestChannel.Response(request, new RequestOrResponseSend(request.connectionId, response)))
   }
 
-  /*
-   * Handle a consumer metadata request
-   */
   def handleGroupMetadataRequest(request: RequestChannel.Request) {
     import JavaConverters._
 
@@ -717,6 +730,35 @@ class KafkaApis(val requestChannel: RequestChannel,
         new GroupMetadataResponse(group.errorCode(), groupId, group.coordinator())
       case 1 => new GroupMetadataResponse(groupMetadata.asJava)
     }
+    requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
+  }
+
+  def handleDescribeGroupRequest(request: RequestChannel.Request) {
+    import JavaConverters._
+
+    val describeRequest = request.body.asInstanceOf[DescribeGroupRequest]
+
+    val includeAll = describeRequest.groupIds.isEmpty()
+    val (authorizedGroups, unauthorizedGroups) = if (includeAll) {
+      (coordinator.describeAllGroups.filter(group => authorize(request.session, Describe, new Resource(Group, group.groupId))), List[GroupStatus]())
+    } else {
+      coordinator.describeGroups(describeRequest.groupIds.asScala.toList).partition{ group =>
+        authorize(request.session, Describe, new Resource(Group, group.groupId))
+      }
+    }
+
+    val groups = new util.HashMap[String, DescribeGroupResponse.GroupMetadata]()
+    for (group <- authorizedGroups)
+      groups.put(group.groupId, new DescribeGroupResponse.GroupMetadata(group.errorCode, group.state,
+        group.generation, group.protocolType, group.protocol))
+
+    for (group <- unauthorizedGroups)
+      groups.put(group.groupId, new DescribeGroupResponse.GroupMetadata(Errors.AUTHORIZATION_FAILED.code,
+        DescribeGroupResponse.UNKNOWN_STATE, DescribeGroupResponse.UNKNOWN_GENERATION,
+        DescribeGroupResponse.UNKNOWN_PROTOCOL_TYPE, DescribeGroupResponse.UNKNOWN_PROTOCOL))
+
+    val responseHeader = new ResponseHeader(request.header.correlationId)
+    val responseBody = new DescribeGroupResponse(groups)
     requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
   }
 
