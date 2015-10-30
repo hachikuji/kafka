@@ -690,16 +690,24 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleDescribeGroupRequest(request: RequestChannel.Request) {
+    import JavaConverters._
+
     val describeRequest = request.body.asInstanceOf[DescribeGroupRequest]
     val responseHeader = new ResponseHeader(request.header.correlationId)
 
     val responseBody = if (!authorize(request.session, Describe, new Resource(Group, describeRequest.groupId()))) {
-      new DescribeGroupResponse(Errors.AUTHORIZATION_FAILED.code, DescribeGroupResponse.UNKNOWN_STATE,
-        DescribeGroupResponse.UNKNOWN_PROTOCOL_TYPE, DescribeGroupResponse.UNKNOWN_PROTOCOL)
+      DescribeGroupResponse.fromError(Errors.AUTHORIZATION_FAILED)
     } else {
-      val groupStatus = coordinator.describeGroup(describeRequest.groupId())
-      new DescribeGroupResponse(groupStatus.errorCode, DescribeGroupResponse.UNKNOWN_STATE,
-        groupStatus.protocolType, groupStatus.protocol)
+      val (error, summary) = coordinator.handleDescribeGroup(describeRequest.groupId())
+
+      val members = summary.members.map { member =>
+        val metadata = ByteBuffer.wrap(member.metadata)
+        val assignment = ByteBuffer.wrap(member.assignment)
+        new DescribeGroupResponse.GroupMember(member.memberId, member.clientId, member.clientHost, metadata, assignment)
+      }
+
+      new DescribeGroupResponse(error.code, summary.state, summary.protocolType,
+        summary.protocol, members.asJava)
     }
     requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
   }
@@ -709,15 +717,11 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     val responseHeader = new ResponseHeader(request.header.correlationId)
     val responseBody = if (!authorize(request.session, Describe, Resource.ClusterResource)) {
-      new ListGroupsResponse(Errors.AUTHORIZATION_FAILED.code, util.Collections.emptyList())
+      ListGroupsResponse.fromError(Errors.AUTHORIZATION_FAILED)
     } else {
-      coordinator.listGroups() match {
-        case None =>
-          new ListGroupsResponse(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, util.Collections.emptyList())
-        case Some(groups) =>
-          new ListGroupsResponse(Errors.NONE.code,
-            groups.map{ case (groupId, protocolType) => new ListGroupsResponse.Group(groupId, protocolType)}.asJava);
-      }
+      val (error, groups) = coordinator.handleListGroups()
+      val allGroups = groups.map{ group => new ListGroupsResponse.Group(group.groupId, group.protocolType) }
+      new ListGroupsResponse(error.code, allGroups.asJava)
     }
     requestChannel.sendResponse(new RequestChannel.Response(request, new ResponseSend(request.connectionId, responseHeader, responseBody)))
   }
@@ -754,6 +758,8 @@ class KafkaApis(val requestChannel: RequestChannel,
       coordinator.handleJoinGroup(
         joinGroupRequest.groupId(),
         joinGroupRequest.memberId(),
+        request.header.clientId(),
+        request.session.host,
         joinGroupRequest.sessionTimeout(),
         joinGroupRequest.protocolType(),
         protocols,

@@ -39,11 +39,6 @@ case class JoinGroupResult(members: Map[String, Array[Byte]],
                            leaderId: String,
                            errorCode: Short)
 
-case class GroupStatus(errorCode: Short,
-                       groupId: String,
-                       protocolType: String,
-                       protocol: String)
-
 /**
  * GroupCoordinator handles general group membership and offset management.
  *
@@ -114,6 +109,8 @@ class GroupCoordinator(val brokerId: Int,
 
   def handleJoinGroup(groupId: String,
                       memberId: String,
+                      clientId: String,
+                      clientHost: String,
                       sessionTimeoutMs: Int,
                       protocolType: String,
                       protocols: List[(String, Array[Byte])],
@@ -135,16 +132,20 @@ class GroupCoordinator(val brokerId: Int,
           responseCallback(joinError(memberId, Errors.UNKNOWN_MEMBER_ID.code))
         } else {
           group = coordinatorMetadata.addGroup(groupId, protocolType)
-          doJoinGroup(group, memberId, sessionTimeoutMs, protocolType, protocols, responseCallback)
+          doJoinGroup(group, memberId, clientId, clientHost, sessionTimeoutMs, protocolType,
+            protocols, responseCallback)
         }
       } else {
-        doJoinGroup(group, memberId, sessionTimeoutMs, protocolType, protocols, responseCallback)
+        doJoinGroup(group, memberId, clientId, clientHost, sessionTimeoutMs, protocolType,
+          protocols, responseCallback)
       }
     }
   }
 
   private def doJoinGroup(group: GroupMetadata,
                           memberId: String,
+                          clientId: String,
+                          clientHost: String,
                           sessionTimeoutMs: Int,
                           protocolType: String,
                           protocols: List[(String, Array[Byte])],
@@ -168,7 +169,7 @@ class GroupCoordinator(val brokerId: Int,
 
           case PreparingRebalance =>
             if (memberId == JoinGroupRequest.UNKNOWN_MEMBER_ID) {
-              addMemberAndRebalance(sessionTimeoutMs, protocols, group, responseCallback)
+              addMemberAndRebalance(sessionTimeoutMs, clientId, clientHost, protocols, group, responseCallback)
             } else {
               val member = group.get(memberId)
               updateMemberAndRebalance(group, member, protocols, responseCallback)
@@ -176,7 +177,7 @@ class GroupCoordinator(val brokerId: Int,
 
           case AwaitingSync =>
             if (memberId == JoinGroupRequest.UNKNOWN_MEMBER_ID) {
-              addMemberAndRebalance(sessionTimeoutMs, protocols, group, responseCallback)
+              addMemberAndRebalance(sessionTimeoutMs, clientId, clientHost, protocols, group, responseCallback)
             } else {
               val member = group.get(memberId)
               if (member.matches(protocols)) {
@@ -203,7 +204,7 @@ class GroupCoordinator(val brokerId: Int,
           case Stable =>
             if (memberId == JoinGroupRequest.UNKNOWN_MEMBER_ID) {
               // if the member id is unknown, register the member to the group
-              addMemberAndRebalance(sessionTimeoutMs, protocols, group, responseCallback)
+              addMemberAndRebalance(sessionTimeoutMs, clientId, clientHost, protocols, group, responseCallback)
             } else {
               val member = group.get(memberId)
               if (memberId == group.leaderId || !member.matches(protocols)) {
@@ -404,34 +405,26 @@ class GroupCoordinator(val brokerId: Int,
     }
   }
 
-  def listGroups(): Option[List[(String, String)]] = {
+  def handleListGroups(): (Errors, List[GroupOverview]) = {
     if (!isActive.get) {
-      None
+      (Errors.GROUP_COORDINATOR_NOT_AVAILABLE, List[GroupOverview]())
     } else {
-      Some(coordinatorMetadata.currentGroups.map{ group =>
-        (group.groupId, group.protocolType)
-      })
+      (Errors.NONE, coordinatorMetadata.currentGroups.map(_.overview))
     }
   }
 
-  def describeGroup(groupId: String): GroupStatus = {
-    import GroupCoordinator._
-
+  def handleDescribeGroup(groupId: String): (Errors, GroupSummary) = {
     if (!isActive.get) {
-      GroupStatus(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code, groupId, NoProtocolType, NoProtocol)
+      (Errors.GROUP_COORDINATOR_NOT_AVAILABLE, GroupCoordinator.EmptyGroup)
     } else if (!isCoordinatorForGroup(groupId)) {
-      GroupStatus(Errors.NOT_COORDINATOR_FOR_GROUP.code, groupId, NoProtocolType, NoProtocol)
+      (Errors.NOT_COORDINATOR_FOR_GROUP, GroupCoordinator.EmptyGroup)
     } else {
       val group = coordinatorMetadata.getGroup(groupId)
-      if (group == null || group.is(Dead)) {
-        GroupStatus(Errors.NONE.code, groupId, NoProtocolType, NoProtocol)
+      if (group == null) {
+        (Errors.NONE, GroupCoordinator.EmptyGroup)
       } else {
         group synchronized {
-          if (group.is(Stable))
-            GroupStatus(Errors.NONE.code, groupId, group.protocolType, group.protocol)
-          else
-            // group is rebalancing
-            GroupStatus(Errors.NONE.code, groupId, group.protocolType, NoProtocol)
+          (Errors.NONE, group.summary)
         }
       }
     }
@@ -490,11 +483,14 @@ class GroupCoordinator(val brokerId: Int,
   }
 
   private def addMemberAndRebalance(sessionTimeoutMs: Int,
+                                    clientId: String,
+                                    clientHost: String,
                                     protocols: List[(String, Array[Byte])],
                                     group: GroupMetadata,
                                     callback: JoinCallback) = {
     val memberId = group.generateNextMemberId
-    val member = new MemberMetadata(memberId, group.groupId, sessionTimeoutMs, protocols)
+    val member = new MemberMetadata(memberId, group.groupId, clientId, clientHost,
+      sessionTimeoutMs, protocols)
     member.awaitingJoinCallback = callback
     group.add(member.memberId, member)
     maybePrepareRebalance(group)
@@ -629,6 +625,9 @@ class GroupCoordinator(val brokerId: Int,
 
 object GroupCoordinator {
 
+  val EmptyGroup = GroupSummary(NoState, NoProtocolType, NoProtocol, NoMembers)
+  val NoMembers = List[MemberSummary]()
+  val NoState = ""
   val NoProtocolType = ""
   val NoProtocol = ""
   val NoLeader = ""

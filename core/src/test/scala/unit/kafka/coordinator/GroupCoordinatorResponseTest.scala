@@ -47,10 +47,12 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
   type LeaveGroupCallbackParams = Short
   type LeaveGroupCallback = Short => Unit
 
+  val ClientId = "consumer-test"
+  val ClientHost = "localhost"
   val ConsumerMinSessionTimeout = 10
   val ConsumerMaxSessionTimeout = 1000
   val DefaultSessionTimeout = 500
-  var consumerCoordinator: GroupCoordinator = null
+  var groupCoordinator: GroupCoordinator = null
   var offsetManager : OffsetManager = null
 
   @Before
@@ -59,14 +61,14 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     props.setProperty(KafkaConfig.GroupMinSessionTimeoutMsProp, ConsumerMinSessionTimeout.toString)
     props.setProperty(KafkaConfig.GroupMaxSessionTimeoutMsProp, ConsumerMaxSessionTimeout.toString)
     offsetManager = EasyMock.createStrictMock(classOf[OffsetManager])
-    consumerCoordinator = GroupCoordinator.create(KafkaConfig.fromProps(props), null, offsetManager)
-    consumerCoordinator.startup()
+    groupCoordinator = GroupCoordinator.create(KafkaConfig.fromProps(props), null, offsetManager)
+    groupCoordinator.startup()
   }
 
   @After
   def tearDown() {
     EasyMock.reset(offsetManager)
-    consumerCoordinator.shutdown()
+    groupCoordinator.shutdown()
   }
 
   @Test
@@ -764,6 +766,115 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     assertEquals(Errors.NONE.code, leaveGroupResult)
   }
 
+  @Test
+  def testListGroupsIncludesStableGroups() {
+    val groupId = "groupId"
+    val memberId = JoinGroupRequest.UNKNOWN_MEMBER_ID
+    val metadata = Array[Byte]()
+    val protocolType = "consumer"
+    val protocols = List(("range", metadata))
+
+    val joinGroupResult = joinGroup(groupId, memberId, DefaultSessionTimeout, protocolType, protocols,
+      isCoordinatorForGroup = true)
+    val assignedMemberId = joinGroupResult.memberId
+    val generationId = joinGroupResult.generationId
+    assertEquals(Errors.NONE.code, joinGroupResult.errorCode)
+
+    EasyMock.reset(offsetManager)
+    val syncGroupResult = syncGroupLeader(groupId, generationId, assignedMemberId, Map.empty, true)
+    val syncGroupErrorCode = syncGroupResult._2
+    assertEquals(Errors.NONE.code, syncGroupErrorCode)
+
+    val (error, groups) = groupCoordinator.handleListGroups()
+    assertEquals(Errors.NONE, error)
+    assertEquals(1, groups.size)
+    assertEquals(GroupOverview("groupId", "consumer"), groups(0))
+  }
+
+  @Test
+  def testListGroupsIncludesRebalancingGroups() {
+    val groupId = "groupId"
+    val memberId = JoinGroupRequest.UNKNOWN_MEMBER_ID
+    val metadata = Array[Byte]()
+    val protocolType = "consumer"
+    val protocols = List(("range", metadata))
+
+    val joinGroupResult = joinGroup(groupId, memberId, DefaultSessionTimeout, protocolType, protocols,
+      isCoordinatorForGroup = true)
+    assertEquals(Errors.NONE.code, joinGroupResult.errorCode)
+
+    val (error, groups) = groupCoordinator.handleListGroups()
+    assertEquals(Errors.NONE, error)
+    assertEquals(1, groups.size)
+    assertEquals(GroupOverview("groupId", "consumer"), groups(0))
+  }
+
+  @Test
+  def testDescribeGroupWrongCoordinator() {
+    val groupId = "groupId"
+    EasyMock.reset(offsetManager)
+    val (error, _) = describeGroup(groupId, false)
+    assertEquals(Errors.NOT_COORDINATOR_FOR_GROUP, error)
+  }
+
+  @Test
+  def testDescribeGroupInactiveGroup() {
+    val groupId = "groupId"
+    EasyMock.reset(offsetManager)
+    val (error, summary) = describeGroup(groupId, true)
+    assertEquals(Errors.NONE, error)
+    assertEquals(GroupCoordinator.EmptyGroup, summary)
+  }
+
+  @Test
+  def testDescribeGroupStable() {
+    val groupId = "groupId"
+    val memberId = JoinGroupRequest.UNKNOWN_MEMBER_ID
+    val metadata = Array[Byte]()
+    val protocolType = "consumer"
+    val protocols = List(("range", metadata))
+
+    val joinGroupResult = joinGroup(groupId, memberId, DefaultSessionTimeout, protocolType, protocols,
+      isCoordinatorForGroup = true)
+    val assignedMemberId = joinGroupResult.memberId
+    val generationId = joinGroupResult.generationId
+    val joinGroupErrorCode = joinGroupResult.errorCode
+    assertEquals(Errors.NONE.code, joinGroupErrorCode)
+
+    EasyMock.reset(offsetManager)
+    val syncGroupResult = syncGroupLeader(groupId, generationId, assignedMemberId, Map.empty, true)
+    val syncGroupErrorCode = syncGroupResult._2
+    assertEquals(Errors.NONE.code, syncGroupErrorCode)
+
+    EasyMock.reset(offsetManager)
+    val (error, summary) = describeGroup(groupId, true)
+    assertEquals(Errors.NONE, error)
+    assertEquals(protocolType, summary.protocolType)
+    assertEquals("range", summary.protocol)
+    assertEquals(List(assignedMemberId), summary.members.map(_.memberId))
+  }
+
+  @Test
+  def testDescribeGroupRebalancing() {
+    val groupId = "groupId"
+    val memberId = JoinGroupRequest.UNKNOWN_MEMBER_ID
+    val metadata = Array[Byte]()
+    val protocolType = "consumer"
+    val protocols = List(("range", metadata))
+
+    val joinGroupResult = joinGroup(groupId, memberId, DefaultSessionTimeout, protocolType, protocols,
+      isCoordinatorForGroup = true)
+    val joinGroupErrorCode = joinGroupResult.errorCode
+    assertEquals(Errors.NONE.code, joinGroupErrorCode)
+
+    EasyMock.reset(offsetManager)
+    val (error, summary) = describeGroup(groupId, true)
+    assertEquals(Errors.NONE, error)
+    assertEquals(protocolType, summary.protocolType)
+    assertEquals(GroupCoordinator.NoProtocol, summary.protocol)
+    assertTrue(summary.members.isEmpty)
+  }
+
   private def setupJoinGroupCallback: (Future[JoinGroupResult], JoinGroupCallback) = {
     val responsePromise = Promise[JoinGroupResult]
     val responseFuture = responsePromise.future
@@ -803,7 +914,8 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.expect(offsetManager.partitionFor(groupId)).andReturn(1)
     EasyMock.expect(offsetManager.leaderIsLocal(1)).andReturn(isCoordinatorForGroup)
     EasyMock.replay(offsetManager)
-    consumerCoordinator.handleJoinGroup(groupId, memberId, sessionTimeout, protocolType, protocols, responseCallback)
+    groupCoordinator.handleJoinGroup(groupId, memberId, ClientId, ClientHost,
+      sessionTimeout, protocolType, protocols, responseCallback)
     responseFuture
   }
 
@@ -817,7 +929,7 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.expect(offsetManager.partitionFor(groupId)).andReturn(1)
     EasyMock.expect(offsetManager.leaderIsLocal(1)).andReturn(isCoordinatorForGroup)
     EasyMock.replay(offsetManager)
-    consumerCoordinator.handleSyncGroup(groupId, generation, leaderId, assignment, responseCallback)
+    groupCoordinator.handleSyncGroup(groupId, generation, leaderId, assignment, responseCallback)
     responseFuture
   }
 
@@ -829,7 +941,7 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.expect(offsetManager.partitionFor(groupId)).andReturn(1)
     EasyMock.expect(offsetManager.leaderIsLocal(1)).andReturn(isCoordinatorForGroup)
     EasyMock.replay(offsetManager)
-    consumerCoordinator.handleSyncGroup(groupId, generation, memberId, Map.empty[String, Array[Byte]], responseCallback)
+    groupCoordinator.handleSyncGroup(groupId, generation, memberId, Map.empty[String, Array[Byte]], responseCallback)
     responseFuture
   }
 
@@ -870,7 +982,7 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.expect(offsetManager.partitionFor(groupId)).andReturn(1)
     EasyMock.expect(offsetManager.leaderIsLocal(1)).andReturn(isCoordinatorForGroup)
     EasyMock.replay(offsetManager)
-    consumerCoordinator.handleHeartbeat(groupId, consumerId, generationId, responseCallback)
+    groupCoordinator.handleHeartbeat(groupId, consumerId, generationId, responseCallback)
     Await.result(responseFuture, Duration(40, TimeUnit.MILLISECONDS))
   }
 
@@ -892,7 +1004,7 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.expect(offsetManager.storeOffsets(groupId, consumerId, generationId, offsets, responseCallback))
       .andAnswer(storeOffsetAnswer)
     EasyMock.replay(offsetManager)
-    consumerCoordinator.handleCommitOffsets(groupId, consumerId, generationId, offsets, responseCallback)
+    groupCoordinator.handleCommitOffsets(groupId, consumerId, generationId, offsets, responseCallback)
     Await.result(responseFuture, Duration(40, TimeUnit.MILLISECONDS))
   }
 
@@ -901,7 +1013,15 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.expect(offsetManager.partitionFor(groupId)).andReturn(1)
     EasyMock.expect(offsetManager.leaderIsLocal(1)).andReturn(isCoordinatorForGroup)
     EasyMock.replay(offsetManager)
-    consumerCoordinator.handleLeaveGroup(groupId, consumerId, responseCallback)
+    groupCoordinator.handleLeaveGroup(groupId, consumerId, responseCallback)
     Await.result(responseFuture, Duration(40, TimeUnit.MILLISECONDS))
   }
+
+  private def describeGroup(groupId: String, isCoordinatorForGroup: Boolean): (Errors, GroupSummary) = {
+    EasyMock.expect(offsetManager.partitionFor(groupId)).andReturn(1)
+    EasyMock.expect(offsetManager.leaderIsLocal(1)).andReturn(isCoordinatorForGroup)
+    EasyMock.replay(offsetManager)
+    groupCoordinator.handleDescribeGroup(groupId)
+  }
+
 }

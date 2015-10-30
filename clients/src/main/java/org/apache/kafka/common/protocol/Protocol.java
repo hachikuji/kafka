@@ -399,21 +399,25 @@ public class Protocol {
     public static final Schema[] LIST_GROUPS_REQUEST = new Schema[] {LIST_GROUPS_REQUEST_V0};
     public static final Schema[] LIST_GROUPS_RESPONSE = new Schema[] {LIST_GROUPS_RESPONSE_V0};
 
-
     /* Describe group api */
     public static final Schema DESCRIBE_GROUP_REQUEST_V0 = new Schema(new Field("group_id", STRING));
+
+    public static final Schema DESCRIBE_GROUP_RESPONSE_MEMBER_V0 = new Schema(new Field("member_id", STRING),
+                                                                              new Field("client_id", STRING),
+                                                                              new Field("client_host", STRING),
+                                                                              new Field("member_metadata", BYTES),
+                                                                              new Field("member_assignment", BYTES));
 
     public static final Schema DESCRIBE_GROUP_RESPONSE_V0 = new Schema(new Field("error_code", INT16),
                                                                        new Field("state", STRING),
                                                                        new Field("protocol_type", STRING),
-                                                                       new Field("protocol", STRING));
-
+                                                                       new Field("protocol", STRING),
+                                                                       new Field("members", new ArrayOf(DESCRIBE_GROUP_RESPONSE_MEMBER_V0)));
 
     public static final Schema[] DESCRIBE_GROUP_REQUEST = new Schema[] {DESCRIBE_GROUP_REQUEST_V0};
     public static final Schema[] DESCRIBE_GROUP_RESPONSE = new Schema[] {DESCRIBE_GROUP_RESPONSE_V0};
 
-
-    /* Consumer metadata api */
+    /* Group metadata api */
     public static final Schema GROUP_METADATA_REQUEST_V0 = new Schema(new Field("group_id",
                                                                                 STRING,
                                                                                 "The unique group id."));

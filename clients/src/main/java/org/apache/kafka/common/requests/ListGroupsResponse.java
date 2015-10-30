@@ -13,12 +13,14 @@
 package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class ListGroupsResponse extends AbstractRequestResponse {
@@ -43,13 +45,14 @@ public class ListGroupsResponse extends AbstractRequestResponse {
     public ListGroupsResponse(short errorCode, List<Group> groups) {
         super(new Struct(CURRENT_SCHEMA));
         struct.set(ERROR_CODE_KEY_NAME, errorCode);
-        List<Struct> groupArray = new ArrayList<>();
+        List<Struct> groupList = new ArrayList<>();
         for (Group group : groups) {
             Struct groupStruct = struct.instance(GROUPS_KEY_NAME);
             groupStruct.set(GROUP_ID_KEY_NAME, group.groupId);
             groupStruct.set(PROTOCOL_TYPE_KEY_NAME, group.protocolType);
+            groupList.add(groupStruct);
         }
-        struct.set(GROUPS_KEY_NAME, groupArray.toArray());
+        struct.set(GROUPS_KEY_NAME, groupList.toArray());
         this.errorCode = errorCode;
         this.groups = groups;
     }
@@ -95,6 +98,10 @@ public class ListGroupsResponse extends AbstractRequestResponse {
 
     public static ListGroupsResponse parse(ByteBuffer buffer) {
         return new ListGroupsResponse((Struct) CURRENT_SCHEMA.read(buffer));
+    }
+
+    public static ListGroupsResponse fromError(Errors error) {
+        return new ListGroupsResponse(error.code(), Collections.<Group>emptyList());
     }
 
 }

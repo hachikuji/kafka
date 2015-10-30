@@ -213,7 +213,12 @@ public class RequestResponseTest {
     }
 
     private AbstractRequestResponse createDescribeGroupResponse() {
-        return new DescribeGroupResponse(Errors.NONE.code(), "STABLE", "consumer", "roundrobin");
+        String clientId = "consumer-1";
+        String clientHost = "localhost";
+        ByteBuffer empty = ByteBuffer.wrap(new byte[0]);
+        DescribeGroupResponse.GroupMember member = new DescribeGroupResponse.GroupMember("memberId",
+                clientId, clientHost, empty, empty);
+        return new DescribeGroupResponse(Errors.NONE.code(), "STABLE", "consumer", "roundrobin", Arrays.asList(member));
     }
 
     private AbstractRequest createLeaveGroupRequest() {

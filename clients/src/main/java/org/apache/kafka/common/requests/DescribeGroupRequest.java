@@ -19,6 +19,7 @@ import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
+import java.util.Collections;
 
 public class DescribeGroupRequest extends AbstractRequest {
     private static final Schema CURRENT_SCHEMA = ProtoUtils.currentRequestSchema(ApiKeys.DESCRIBE_GROUP.id);
@@ -47,7 +48,8 @@ public class DescribeGroupRequest extends AbstractRequest {
             case 0:
                 short error = Errors.forException(e).code();
                 return new DescribeGroupResponse(error, DescribeGroupResponse.UNKNOWN_STATE,
-                        DescribeGroupResponse.UNKNOWN_PROTOCOL_TYPE, DescribeGroupResponse.UNKNOWN_PROTOCOL);
+                        DescribeGroupResponse.UNKNOWN_PROTOCOL_TYPE, DescribeGroupResponse.UNKNOWN_PROTOCOL,
+                        Collections.<DescribeGroupResponse.GroupMember>emptyList());
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",
                         versionId, this.getClass().getSimpleName(), ProtoUtils.latestVersion(ApiKeys.DESCRIBE_GROUP.id)));
