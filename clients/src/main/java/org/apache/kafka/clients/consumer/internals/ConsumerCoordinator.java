@@ -305,12 +305,15 @@ public final class ConsumerCoordinator extends AbstractCoordinator implements Cl
         while (true) {
             try {
                 maybeAutoCommitOffsetsSync();
+                super.close();
                 return;
             } catch (WakeupException e) {
                 // ignore wakeups while closing to ensure we have a chance to commit
                 continue;
             }
         }
+
+
     }
 
     public void commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, OffsetCommitCallback callback) {

@@ -543,9 +543,9 @@ public class Protocol {
 
     /* Leave group api */
     public static final Schema LEAVE_GROUP_REQUEST_V0 = new Schema(new Field("group_id", STRING, "The consumer group id."),
-                                                                   new Field("consumer_id",
+                                                                   new Field("member_id",
                                                                              STRING,
-                                                                             "The consumer id assigned by the group coordinator."));
+                                                                             "The member id assigned by the group coordinator."));
 
     public static final Schema LEAVE_GROUP_RESPONSE_V0 = new Schema(new Field("error_code", INT16));
 

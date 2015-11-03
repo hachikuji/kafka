@@ -36,6 +36,8 @@ import org.apache.kafka.common.requests.HeartbeatRequest;
 import org.apache.kafka.common.requests.HeartbeatResponse;
 import org.apache.kafka.common.requests.JoinGroupRequest;
 import org.apache.kafka.common.requests.JoinGroupResponse;
+import org.apache.kafka.common.requests.LeaveGroupRequest;
+import org.apache.kafka.common.requests.LeaveGroupResponse;
 import org.apache.kafka.common.requests.OffsetCommitRequest;
 import org.apache.kafka.common.requests.SyncGroupRequest;
 import org.apache.kafka.common.requests.SyncGroupResponse;
@@ -44,6 +46,7 @@ import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -76,7 +79,7 @@ import java.util.concurrent.TimeUnit;
  * {@link #onJoinComplete(int, String, String, ByteBuffer)}.
  *
  */
-public abstract class AbstractCoordinator {
+public abstract class AbstractCoordinator implements Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractCoordinator.class);
 
@@ -201,6 +204,7 @@ public abstract class AbstractCoordinator {
      * Reset the generation/memberId tracked by this member
      */
     public void resetGeneration() {
+        leaveGroupIfNeeded();
         this.generation = OffsetCommitRequest.DEFAULT_GENERATION_ID;
         this.memberId = JoinGroupRequest.UNKNOWN_MEMBER_ID;
         rejoinNeeded = true;
@@ -517,6 +521,42 @@ public abstract class AbstractCoordinator {
         if (this.coordinator != null) {
             log.info("Marking the coordinator {} dead.", this.coordinator.id());
             this.coordinator = null;
+        }
+    }
+
+    @Override
+    public void close() {
+        leaveGroupIfNeeded();
+    }
+
+    private void leaveGroupIfNeeded() {
+        if (!coordinatorUnknown() && generation > 0) {
+            LeaveGroupRequest request = new LeaveGroupRequest(groupId, memberId);
+            RequestFuture<Void> future = client.send(coordinator, ApiKeys.LEAVE_GROUP, request)
+                    .compose(new LeaveGroupResponseHandler());
+            client.poll(future);
+            if (future.failed())
+                log.warn("Received an error response from leave group attempt", future.exception());
+        }
+    }
+
+
+    private class LeaveGroupResponseHandler extends CoordinatorResponseHandler<LeaveGroupResponse, Void> {
+
+        @Override
+        public LeaveGroupResponse parse(ClientResponse response) {
+            return new LeaveGroupResponse(response.responseBody());
+        }
+
+        @Override
+        public void handle(LeaveGroupResponse leaveResponse, RequestFuture<Void> future) {
+            // process the response
+            short errorCode = leaveResponse.errorCode();
+            if (errorCode == Errors.NONE.code()) {
+                future.complete(null);
+            } else {
+                future.raise(Errors.forCode(errorCode));
+            }
         }
     }
 
