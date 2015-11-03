@@ -30,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -245,6 +246,11 @@ public final class WorkerCoordinator extends AbstractCoordinator implements Clos
 
     public String memberId() {
         return this.memberId;
+    }
+
+    @Override
+    public void close() {
+        super.close(Long.MAX_VALUE);
     }
 
     private class CopycatWorkerCoordinatorMetrics {

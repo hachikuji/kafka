@@ -15,7 +15,6 @@ package org.apache.kafka.clients.consumer.internals;
 import org.apache.kafka.clients.ClientResponse;
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
-import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.clients.consumer.internals.PartitionAssignor.Assignment;
@@ -24,6 +23,7 @@ import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.metrics.Measurable;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -43,7 +43,6 @@ import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -56,7 +55,7 @@ import java.util.Set;
 /**
  * This class manages the coordination process with the consumer coordinator.
  */
-public final class ConsumerCoordinator extends AbstractCoordinator implements Closeable {
+public final class ConsumerCoordinator extends AbstractCoordinator {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerCoordinator.class);
 
@@ -299,21 +298,30 @@ public final class ConsumerCoordinator extends AbstractCoordinator implements Cl
             ensureActiveGroup();
     }
 
-    @Override
-    public void close() {
-        // commit offsets prior to closing if auto-commit enabled
-        while (true) {
-            try {
-                maybeAutoCommitOffsetsSync();
-                super.close();
-                return;
-            } catch (WakeupException e) {
-                // ignore wakeups while closing to ensure we have a chance to commit
-                continue;
+    public void close(long timeoutMs) {
+        if (timeoutMs < 0)
+            throw new IllegalArgumentException("Timeout must be non-negative");
+
+        long now = time.milliseconds();
+        long deadline = now + timeoutMs;
+        if (deadline < 0)
+            deadline = Long.MAX_VALUE;
+
+        try {
+            while (now <= deadline) {
+                try {
+                    maybeAutoCommitOffsetsSync(deadline - now);
+                    return;
+                } catch (WakeupException e) {
+                    // ignore wakeups while closing to ensure we have a chance to commit
+                    now = time.milliseconds();
+                    continue;
+                }
             }
+        } finally {
+            now = time.milliseconds();
+            super.close(Math.max(deadline - now, 0));
         }
-
-
     }
 
     public void commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, OffsetCommitCallback callback) {
@@ -334,24 +342,39 @@ public final class ConsumerCoordinator extends AbstractCoordinator implements Cl
     }
 
     public void commitOffsetsSync(Map<TopicPartition, OffsetAndMetadata> offsets) {
+        commitOffsetsSync(offsets, Long.MAX_VALUE);
+    }
+
+    private void commitOffsetsSync(Map<TopicPartition, OffsetAndMetadata> offsets, long timeoutMs) {
+        if (timeoutMs < 0)
+            throw new IllegalArgumentException("Timeout must be non-negative");
+
         if (offsets.isEmpty())
             return;
 
-        while (true) {
+        long now = time.milliseconds();
+        long deadline = now + timeoutMs;
+        if (deadline < 0)
+            deadline = Long.MAX_VALUE;
+
+        while (now <= deadline) {
             ensureCoordinatorKnown();
 
             RequestFuture<Void> future = sendOffsetCommitRequest(offsets);
-            client.poll(future);
+            client.poll(future, deadline - now);
+            now = time.milliseconds();
 
-            if (future.succeeded()) {
+            if (!future.isDone() || deadline - now < 0) {
+                log.error("Failed to commit offsets {} prior to timeout expiration", offsets);
                 return;
             }
 
-            if (!future.isRetriable()) {
-                throw future.exception();
-            }
+            if (future.succeeded())
+                return;
 
-            Utils.sleep(retryBackoffMs);
+            long backoffDurationMs = Math.min(retryBackoffMs, deadline - now);
+            Utils.sleep(backoffDurationMs);
+            now += backoffDurationMs;
         }
     }
 
@@ -372,9 +395,13 @@ public final class ConsumerCoordinator extends AbstractCoordinator implements Cl
     }
 
     private void maybeAutoCommitOffsetsSync() {
+        maybeAutoCommitOffsetsSync(Long.MAX_VALUE);
+    }
+
+    private void maybeAutoCommitOffsetsSync(long timeoutMs) {
         if (autoCommitEnabled) {
             try {
-                commitOffsetsSync(subscriptions.allConsumed());
+                commitOffsetsSync(subscriptions.allConsumed(), timeoutMs);
             } catch (WakeupException e) {
                 // rethrow wakeups since they are triggered by the user
                 throw e;
