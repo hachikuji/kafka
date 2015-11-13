@@ -31,12 +31,12 @@ public class ConsumerRecords<K, V> implements Iterable<ConsumerRecord<K, V>> {
     public static final ConsumerRecords<Object, Object> EMPTY = new ConsumerRecords<>(Collections.EMPTY_MAP, Collections.EMPTY_MAP);
 
     private final Map<TopicPartition, List<ConsumerRecord<K, V>>> records;
-    private final Map<TopicPartition, Long> hws;
+    private final Map<TopicPartition, Long> highWatermarks;
 
     public ConsumerRecords(Map<TopicPartition, List<ConsumerRecord<K, V>>> records,
-                           Map<TopicPartition, Long> hws) {
+                           Map<TopicPartition, Long> highWatermarks) {
         this.records = records;
-        this.hws = hws;
+        this.highWatermarks = highWatermarks;
     }
 
     /**
@@ -74,6 +74,16 @@ public class ConsumerRecords<K, V> implements Iterable<ConsumerRecord<K, V>> {
         return Collections.unmodifiableSet(records.keySet());
     }
 
+
+    /**
+     * Get the current end offset (or high watermark) for a specified partition (which must be one of the partitions
+     * contained in ${@link #partitions()}).
+     * @param partition The partition to
+     * @return The current end offset or null if the partition is not included in this record set
+     */
+    public Long maxEndOffset(TopicPartition partition) {
+        return highWatermarks.get(partition);
+    }
 
 
     @Override
