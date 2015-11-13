@@ -192,11 +192,19 @@ public class WorkerSinkTaskTest {
                         for (int i = 0; i < numMessages; i++)
                             records.add(new ConsumerRecord<>(TOPIC, PARTITION, FIRST_OFFSET + recordsReturned + i, RAW_KEY, RAW_VALUE));
                         recordsReturned += numMessages;
-                        return new ConsumerRecords<>(
-                                numMessages > 0 ?
-                                        Collections.singletonMap(new TopicPartition(TOPIC, PARTITION), records) :
-                                        Collections.<TopicPartition, List<ConsumerRecord<byte[], byte[]>>>emptyMap()
-                        );
+                        TopicPartition partition = new TopicPartition(TOPIC, PARTITION);
+
+                        final Map<TopicPartition, List<ConsumerRecord<byte[], byte[]>>> recordsMap;
+                        final Map<TopicPartition, Long> highWatermarkMap;
+                        if (numMessages > 0) {
+                            recordsMap = Collections.singletonMap(partition, records);
+                            highWatermarkMap = Collections.singletonMap(partition, records.get(records.size() - 1).offset());
+                        } else {
+                            recordsMap  = Collections.<TopicPartition, List<ConsumerRecord<byte[], byte[]>>>emptyMap();
+                            highWatermarkMap = Collections.<TopicPartition, Long>emptyMap();
+                        }
+
+                        return new ConsumerRecords<byte[], byte[]>(recordsMap, highWatermarkMap);
                     }
                 });
     }

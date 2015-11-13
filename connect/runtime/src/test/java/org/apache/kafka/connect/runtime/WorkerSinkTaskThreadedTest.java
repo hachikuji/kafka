@@ -481,12 +481,16 @@ public class WorkerSinkTaskThreadedTest extends ThreadedTest {
                     public ConsumerRecords<byte[], byte[]> answer() throws Throwable {
                         // "Sleep" so time will progress
                         time.sleep(pollDelayMs);
+                        TopicPartition partition = new TopicPartition(TOPIC, PARTITION);
+                        long offset = FIRST_OFFSET + recordsReturned;
+
                         ConsumerRecords<byte[], byte[]> records = new ConsumerRecords<>(
                                 Collections.singletonMap(
-                                        new TopicPartition(TOPIC, PARTITION),
+                                        partition,
                                         Arrays.asList(
-                                                new ConsumerRecord<>(TOPIC, PARTITION, FIRST_OFFSET + recordsReturned, RAW_KEY, RAW_VALUE)
-                                        )));
+                                                new ConsumerRecord<>(TOPIC, PARTITION, offset, RAW_KEY, RAW_VALUE)
+                                        )),
+                                Collections.singletonMap(partition, offset));
                         recordsReturned++;
                         return records;
                     }
@@ -509,12 +513,16 @@ public class WorkerSinkTaskThreadedTest extends ThreadedTest {
                     public ConsumerRecords<byte[], byte[]> answer() throws Throwable {
                         // "Sleep" so time will progress
                         time.sleep(1L);
+                        TopicPartition partition = new TopicPartition(TOPIC, PARTITION);
+                        long offset = FIRST_OFFSET + recordsReturned;
+
                         ConsumerRecords<byte[], byte[]> records = new ConsumerRecords<>(
                                 Collections.singletonMap(
-                                        new TopicPartition(TOPIC, PARTITION),
+                                        partition,
                                         Arrays.asList(
-                                                new ConsumerRecord<>(TOPIC, PARTITION, FIRST_OFFSET + recordsReturned, RAW_KEY, RAW_VALUE)
-                                        )));
+                                                new ConsumerRecord<>(TOPIC, PARTITION, offset, RAW_KEY, RAW_VALUE)
+                                        )),
+                                Collections.singletonMap(partition, offset));
                         recordsReturned++;
                         return records;
                     }
