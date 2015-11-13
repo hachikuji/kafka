@@ -28,12 +28,15 @@ import java.util.Set;
  * partition returned by a {@link Consumer#poll(long)} operation.
  */
 public class ConsumerRecords<K, V> implements Iterable<ConsumerRecord<K, V>> {
-    public static final ConsumerRecords<Object, Object> EMPTY = new ConsumerRecords<>(Collections.EMPTY_MAP);
+    public static final ConsumerRecords<Object, Object> EMPTY = new ConsumerRecords<>(Collections.EMPTY_MAP, Collections.EMPTY_MAP);
 
     private final Map<TopicPartition, List<ConsumerRecord<K, V>>> records;
+    private final Map<TopicPartition, Long> hws;
 
-    public ConsumerRecords(Map<TopicPartition, List<ConsumerRecord<K, V>>> records) {
+    public ConsumerRecords(Map<TopicPartition, List<ConsumerRecord<K, V>>> records,
+                           Map<TopicPartition, Long> hws) {
         this.records = records;
+        this.hws = hws;
     }
 
     /**
@@ -70,6 +73,8 @@ public class ConsumerRecords<K, V> implements Iterable<ConsumerRecord<K, V>> {
     public Set<TopicPartition> partitions() {
         return Collections.unmodifiableSet(records.keySet());
     }
+
+
 
     @Override
     public Iterator<ConsumerRecord<K, V>> iterator() {

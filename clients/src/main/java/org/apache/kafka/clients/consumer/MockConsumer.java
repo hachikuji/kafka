@@ -158,8 +158,8 @@ public class MockConsumer<K, V> implements Consumer<K, V> {
             }
         }
 
-        ConsumerRecords<K, V> copy = new ConsumerRecords<K, V>(this.records);
-        this.records = new HashMap<TopicPartition, List<ConsumerRecord<K, V>>>();
+        ConsumerRecords<K, V> copy = new ConsumerRecords<>(this.records, Collections.EMPTY_MAP);
+        this.records = new HashMap<>();
         return copy;
     }
 

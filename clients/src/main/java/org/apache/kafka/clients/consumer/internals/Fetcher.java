@@ -16,6 +16,7 @@ package org.apache.kafka.clients.consumer.internals;
 import org.apache.kafka.clients.ClientResponse;
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.NoOffsetForPartitionException;
 import org.apache.kafka.clients.consumer.OffsetOutOfRangeException;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
@@ -346,11 +347,12 @@ public class Fetcher<K, V> {
      * @throws OffsetOutOfRangeException If there is OffsetOutOfRange error in fetchResponse and
      *         the defaultResetPolicy is NONE
      */
-    public Map<TopicPartition, List<ConsumerRecord<K, V>>> fetchedRecords() {
+    public ConsumerRecords<K, V> fetchedRecords() {
         if (this.subscriptions.partitionAssignmentNeeded()) {
-            return Collections.emptyMap();
+            return ConsumerRecords.empty();
         } else {
             Map<TopicPartition, List<ConsumerRecord<K, V>>> drained = new HashMap<>();
+            Map<TopicPartition, Long> highWatermarks = new HashMap<>();
             throwIfOffsetOutOfRange();
             throwIfUnauthorizedTopics();
             throwIfRecordTooLarge();
@@ -384,6 +386,8 @@ public class Fetcher<K, V> {
                     } else {
                         records.addAll(part.records);
                     }
+
+                    highWatermarks.put(part.partition, part.highWatermark);
                     subscriptions.consumed(part.partition, nextOffset);
                 } else {
                     // these records aren't next in line based on the last consumed position, ignore them
@@ -392,7 +396,7 @@ public class Fetcher<K, V> {
                 }
             }
             this.records.clear();
-            return drained;
+            return new ConsumerRecords<>(drained, highWatermarks);
         }
     }
 
@@ -536,7 +540,7 @@ public class Fetcher<K, V> {
                     int bytes = 0;
                     ByteBuffer buffer = partition.recordSet;
                     MemoryRecords records = MemoryRecords.readableRecords(buffer);
-                    List<ConsumerRecord<K, V>> parsed = new ArrayList<ConsumerRecord<K, V>>();
+                    List<ConsumerRecord<K, V>> parsed = new ArrayList<>();
                     for (LogEntry logEntry : records) {
                         parsed.add(parseRecord(tp, logEntry));
                         bytes += logEntry.size();
@@ -545,7 +549,7 @@ public class Fetcher<K, V> {
                     if (!parsed.isEmpty()) {
                         ConsumerRecord<K, V> record = parsed.get(parsed.size() - 1);
                         this.subscriptions.fetched(tp, record.offset() + 1);
-                        this.records.add(new PartitionRecords<>(fetchOffset, tp, parsed));
+                        this.records.add(new PartitionRecords<>(fetchOffset, partition.highWatermark, tp, parsed));
                         this.sensors.recordsFetchLag.record(partition.highWatermark - record.offset());
                     } else if (buffer.limit() > 0) {
                         // we did not read a single message from a non-empty buffer
@@ -605,12 +609,14 @@ public class Fetcher<K, V> {
     }
 
     private static class PartitionRecords<K, V> {
-        public long fetchOffset;
-        public TopicPartition partition;
-        public List<ConsumerRecord<K, V>> records;
+        public final long fetchOffset;
+        public final long highWatermark;
+        public final TopicPartition partition;
+        public final List<ConsumerRecord<K, V>> records;
 
-        public PartitionRecords(long fetchOffset, TopicPartition partition, List<ConsumerRecord<K, V>> records) {
+        public PartitionRecords(long fetchOffset, long highWatermark, TopicPartition partition, List<ConsumerRecord<K, V>> records) {
             this.fetchOffset = fetchOffset;
+            this.highWatermark = highWatermark;
             this.partition = partition;
             this.records = records;
         }

@@ -59,7 +59,6 @@ import java.util.Random;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -117,7 +116,7 @@ public class FetcherTest {
         fetcher.initFetches(cluster);
         client.prepareResponse(fetchResponse(this.records.buffer(), Errors.NONE.code(), 100L, 0));
         consumerClient.poll(0);
-        records = fetcher.fetchedRecords().get(tp);
+        records = fetcher.fetchedRecords().records(tp);
         assertEquals(3, records.size());
         assertEquals(4L, (long) subscriptions.fetched(tp)); // this is the next fetching position
         assertEquals(4L, (long) subscriptions.consumed(tp));
@@ -147,7 +146,7 @@ public class FetcherTest {
         fetcher.initFetches(cluster);
         client.prepareResponse(fetchResponse(records.buffer(), Errors.NONE.code(), 100L, 0));
         consumerClient.poll(0);
-        consumerRecords = fetcher.fetchedRecords().get(tp);
+        consumerRecords = fetcher.fetchedRecords().records(tp);
         assertEquals(3, consumerRecords.size());
         assertEquals(31L, (long) subscriptions.fetched(tp)); // this is the next fetching position
         assertEquals(31L, (long) subscriptions.consumed(tp));
@@ -220,7 +219,7 @@ public class FetcherTest {
 
         client.prepareResponse(fetchResponse(this.records.buffer(), Errors.NONE.code(), 100L, 0));
         consumerClient.poll(0);
-        assertNull(fetcher.fetchedRecords().get(tp));
+        assertTrue(fetcher.fetchedRecords().records(tp).isEmpty());
     }
 
     @Test
@@ -241,7 +240,7 @@ public class FetcherTest {
         fetcher.initFetches(cluster);
         client.prepareResponse(fetchResponse(this.records.buffer(), Errors.NOT_LEADER_FOR_PARTITION.code(), 100L, 0));
         consumerClient.poll(0);
-        assertEquals(0, fetcher.fetchedRecords().size());
+        assertTrue(fetcher.fetchedRecords().isEmpty());
         assertEquals(0L, metadata.timeToNextUpdate(time.milliseconds()));
     }
 
@@ -253,7 +252,7 @@ public class FetcherTest {
         fetcher.initFetches(cluster);
         client.prepareResponse(fetchResponse(this.records.buffer(), Errors.UNKNOWN_TOPIC_OR_PARTITION.code(), 100L, 0));
         consumerClient.poll(0);
-        assertEquals(0, fetcher.fetchedRecords().size());
+        assertTrue(fetcher.fetchedRecords().isEmpty());
         assertEquals(0L, metadata.timeToNextUpdate(time.milliseconds()));
     }
 
@@ -266,7 +265,7 @@ public class FetcherTest {
         client.prepareResponse(fetchResponse(this.records.buffer(), Errors.OFFSET_OUT_OF_RANGE.code(), 100L, 0));
         consumerClient.poll(0);
         assertTrue(subscriptions.isOffsetResetNeeded(tp));
-        assertEquals(0, fetcher.fetchedRecords().size());
+        assertTrue(fetcherNoAutoReset.fetchedRecords().isEmpty());
         assertEquals(null, subscriptions.fetched(tp));
         assertEquals(null, subscriptions.consumed(tp));
     }
@@ -281,7 +280,7 @@ public class FetcherTest {
         consumerClient.poll(0);
         assertFalse(subscriptionsNoAutoReset.isOffsetResetNeeded(tp));
         subscriptionsNoAutoReset.seek(tp, 2);
-        assertEquals(0, fetcherNoAutoReset.fetchedRecords().size());
+        assertTrue(fetcherNoAutoReset.fetchedRecords().isEmpty());
     }
 
     @Test
@@ -300,7 +299,7 @@ public class FetcherTest {
             assertTrue(e.offsetOutOfRangePartitions().containsKey(tp));
             assertEquals(e.offsetOutOfRangePartitions().size(), 1);
         }
-        assertEquals(0, fetcherNoAutoReset.fetchedRecords().size());
+        assertTrue(fetcherNoAutoReset.fetchedRecords().isEmpty());
     }
 
     @Test
@@ -311,7 +310,7 @@ public class FetcherTest {
         fetcher.initFetches(cluster);
         client.prepareResponse(fetchResponse(this.records.buffer(), Errors.NONE.code(), 100L, 0), true);
         consumerClient.poll(0);
-        assertEquals(0, fetcher.fetchedRecords().size());
+        assertTrue(fetcher.fetchedRecords().isEmpty());
 
         // disconnects should have no affect on subscription state
         assertFalse(subscriptions.isOffsetResetNeeded(tp));
@@ -420,7 +419,7 @@ public class FetcherTest {
 
             client.prepareResponse(fetchResponse(this.records.buffer(), Errors.NONE.code(), 100L, 100 * i));
             consumerClient.poll(0);
-            records = fetcher.fetchedRecords().get(tp);
+            records = fetcher.fetchedRecords().records(tp);
             assertEquals(3, records.size());
         }
 
