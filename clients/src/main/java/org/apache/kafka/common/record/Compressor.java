@@ -263,24 +263,22 @@ public class Compressor {
         }
     }
 
-    static public DataInputStream wrapForInput(ByteBufferInputStream buffer, CompressionType type) {
+    static public InputStream wrapForInput(ByteBufferInputStream buffer, CompressionType type) {
         try {
             switch (type) {
                 case NONE:
-                    return new DataInputStream(buffer);
+                    return buffer;
                 case GZIP:
-                    return new DataInputStream(new GZIPInputStream(buffer));
+                    return new GZIPInputStream(buffer);
                 case SNAPPY:
                     try {
-                        InputStream stream = (InputStream) snappyInputStreamSupplier.get().newInstance(buffer);
-                        return new DataInputStream(stream);
+                        return (InputStream) snappyInputStreamSupplier.get().newInstance(buffer);
                     } catch (Exception e) {
                         throw new KafkaException(e);
                     }
                 case LZ4:
                     try {
-                        InputStream stream = (InputStream) lz4InputStreamSupplier.get().newInstance(buffer);
-                        return new DataInputStream(stream);
+                        return (InputStream) lz4InputStreamSupplier.get().newInstance(buffer);
                     } catch (Exception e) {
                         throw new KafkaException(e);
                     }

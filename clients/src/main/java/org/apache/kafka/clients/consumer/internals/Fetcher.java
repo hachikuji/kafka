@@ -556,6 +556,11 @@ public class Fetcher<K, V> {
 
                 int bytes = 0;
                 ByteBuffer buffer = partition.recordSet;
+
+                // skip parsing if there is no data to read
+                if (!buffer.hasRemaining())
+                    continue;
+
                 MemoryRecords records = MemoryRecords.readableRecords(buffer);
                 List<ConsumerRecord<K, V>> parsed = new ArrayList<>();
                 for (LogEntry logEntry : records) {

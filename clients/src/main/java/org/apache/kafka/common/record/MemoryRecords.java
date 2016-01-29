@@ -15,6 +15,7 @@ package org.apache.kafka.common.record;
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.Iterator;
 
@@ -207,9 +208,54 @@ public class MemoryRecords implements Records {
         return builder.toString();
     }
 
+    private static class DInputStream extends DataInputStream {
+
+        public DInputStream(InputStream in) {
+            super(in);
+        }
+
+        public long readOffset() throws IOException {
+            byte[] bytes = new byte[8];
+            int n = super.read(bytes);
+            if (n != 8)
+                return -1;
+
+            long offset = (((long)bytes[0] << 56) +
+                    ((long)(bytes[1] & 255) << 48) +
+                    ((long)(bytes[2] & 255) << 40) +
+                    ((long)(bytes[3] & 255) << 32) +
+                    ((long)(bytes[4] & 255) << 24) +
+                    ((bytes[5] & 255) << 16) +
+                    ((bytes[6] & 255) <<  8) +
+                    ((bytes[7] & 255) <<  0));
+
+            if (offset < 0)
+                throw new IllegalStateException("Record with invalid offset " + offset);
+
+            return offset;
+        }
+
+        public int readSize() throws IOException {
+            byte[] bytes = new byte[4];
+            int n = super.read(bytes);
+            if (n != 4)
+                return -1;
+
+            int size = (((bytes[0] & 255) << 24) +
+                    ((bytes[1] & 255) << 16) +
+                    ((bytes[2] & 255) <<  8) +
+                    ((bytes[3] & 255) <<  0));
+            if (size < 0)
+                throw new IllegalStateException("Record with invalid size " + size);
+
+            return size;
+        }
+
+    }
+
     public static class RecordsIterator extends AbstractIterator<LogEntry> {
         private final ByteBuffer buffer;
-        private final DataInputStream stream;
+        private final DInputStream stream;
         private final CompressionType type;
         private final boolean shallow;
         private RecordsIterator innerIter;
@@ -218,7 +264,7 @@ public class MemoryRecords implements Records {
             this.type = type;
             this.buffer = buffer;
             this.shallow = shallow;
-            this.stream = Compressor.wrapForInput(new ByteBufferInputStream(this.buffer), type);
+            this.stream = new DInputStream(Compressor.wrapForInput(new ByteBufferInputStream(this.buffer), type));
         }
 
         /*
@@ -233,11 +279,15 @@ public class MemoryRecords implements Records {
             if (innerDone()) {
                 try {
                     // read the offset
-                    long offset = stream.readLong();
+                    long offset = stream.readOffset();
+                    if (offset < 0)
+                        return allDone();
+
                     // read record size
-                    int size = stream.readInt();
+                    int size = stream.readSize();
                     if (size < 0)
-                        throw new IllegalStateException("Record with size " + size);
+                        return allDone();
+
                     // read the record, if compression is used we cannot depend on size
                     // and hence has to do extra copy
                     ByteBuffer rec;
