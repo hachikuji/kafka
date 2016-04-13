@@ -369,7 +369,7 @@ public final class RecordAccumulator {
                 TopicPartition tp = new TopicPartition(part.topic(), part.partition());
                 // Only proceed if the partition has no in-flight batches.
                 if (!muted.contains(tp)) {
-                    Deque<RecordBatch> deque = dequeFor(new TopicPartition(part.topic(), part.partition()));
+                    Deque<RecordBatch> deque = this.batches.get(new TopicPartition(part.topic(), part.partition()));
                     if (deque != null) {
                         synchronized (deque) {
                             RecordBatch first = deque.peekFirst();
