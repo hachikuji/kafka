@@ -13,13 +13,10 @@
 
 package kafka.api
 
-import java.util
-
 import kafka.server.KafkaConfig
 import kafka.utils.{Logging, ShutdownableThread, TestUtils}
 import org.apache.kafka.clients.consumer._
 import org.apache.kafka.clients.producer.{ProducerConfig, ProducerRecord}
-import org.apache.kafka.common.errors.{IllegalGenerationException, UnknownMemberIdException}
 import org.apache.kafka.common.TopicPartition
 import org.junit.Assert._
 import org.junit.{Test, Before}
@@ -49,8 +46,8 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
   this.producerConfig.setProperty(ProducerConfig.ACKS_CONFIG, "all")
   this.consumerConfig.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "my-test")
   this.consumerConfig.setProperty(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, 4096.toString)
-  this.consumerConfig.setProperty(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "100")
-  this.consumerConfig.setProperty(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "30")
+  this.consumerConfig.setProperty(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "5000")
+  this.consumerConfig.setProperty(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "1000")
   this.consumerConfig.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
 
   override def generateConfigs() = {
@@ -81,14 +78,7 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
     var consumed = 0L
     val consumer = this.consumers(0)
 
-    consumer.subscribe(List(topic), new ConsumerRebalanceListener {
-      override def onPartitionsAssigned(partitions: util.Collection[TopicPartition]) {
-        // TODO: until KAFKA-2017 is merged, we have to handle the case in which the
-        // the commit fails on prior to rebalancing on coordinator fail-over.
-        consumer.seek(tp, consumed)
-      }
-      override def onPartitionsRevoked(partitions: util.Collection[TopicPartition]) {}
-    })
+    consumer.subscribe(List(topic))
 
     val scheduler = new BounceBrokerScheduler(numIters)
     scheduler.start()
@@ -99,18 +89,12 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
         consumed += 1
       }
 
-      try {
-        consumer.commitSync()
-        assertEquals(consumer.position(tp), consumer.committed(tp).offset)
+      consumer.commitSync()
+      assertEquals(consumer.position(tp), consumer.committed(tp).offset)
 
-        if (consumer.position(tp) == numRecords) {
-          consumer.seekToBeginning(List[TopicPartition]())
-          consumed = 0
-        }
-      } catch {
-        // TODO: should be no need to catch these exceptions once KAFKA-2017 is
-        // merged since coordinator fail-over will not cause a rebalance
-        case _: CommitFailedException =>
+      if (consumer.position(tp) == numRecords) {
+        consumer.seekToBeginning(List[TopicPartition]())
+        consumed = 0
       }
     }
     scheduler.shutdown()
