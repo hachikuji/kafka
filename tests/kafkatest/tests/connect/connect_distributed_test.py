@@ -96,7 +96,7 @@ class ConnectDistributedTest(Test):
         if len(tasks) != task_count:
             return False
 
-        return reduce(operator._and, [task['state'] == state for task in tasks], True)
+        return reduce(operator.and_, [task['state'] == state for task in tasks], True)
 
     def is_running(self, connector, task_count, node=None):
         status = self._connector_status(connector, node)
