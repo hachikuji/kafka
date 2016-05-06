@@ -17,7 +17,7 @@ from ducktape.tests.test import Test
 
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.services.kafka import KafkaService
-from kafkatest.services.connect import ConnectDistributedService, VerifiableSource, VerifiableSink
+from kafkatest.services.connect import ConnectDistributedService, VerifiableSource, VerifiableSink, ConnectRestError
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.security.security_config import SecurityConfig
 from ducktape.utils.util import wait_until
@@ -73,6 +73,30 @@ class ConnectDistributedTest(Test):
         self.zk.start()
         self.kafka.start()
 
+    def _start_connector(self, config_file):
+        connector_props = self.render(config_file)
+        connector_config = dict([line.strip().split('=', 1) for line in connector_props.split('\n') if line.strip() and not line.strip().startswith('#')])
+        self.cc.create_connector(connector_config)
+            
+    def test_basic_connector_status(self):
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        self.logger.info("Creating connectors")
+        self._start_connector("connect-file-source.properties")
+        self._start_connector("connect-file-sink.properties")
+
+        def is_running(connector):
+            try:
+                status = self.cc.get_connector_status(connector)
+                return status['connector']['state'] == 'RUNNING'
+            except ConnectRestError:
+                return False
+
+        wait_until(lambda: is_running('local-file-source') and is_running('local-file-sink'),
+                   timeout_sec=30, err_msg="Failed to see connectors transition to the RUNNING state")
+
 
     @matrix(security_protocol=[SecurityConfig.PLAINTEXT, SecurityConfig.SASL_SSL])
     def test_file_source_and_sink(self, security_protocol):
@@ -87,10 +111,9 @@ class ConnectDistributedTest(Test):
         self.cc.start()
 
         self.logger.info("Creating connectors")
-        for connector_props in [self.render("connect-file-source.properties"), self.render("connect-file-sink.properties")]:
-            connector_config = dict([line.strip().split('=', 1) for line in connector_props.split('\n') if line.strip() and not line.strip().startswith('#')])
-            self.cc.create_connector(connector_config)
-
+        self._start_connector("connect-file-source.properties")
+        self._start_connector("connect-file-sink.properties")
+        
         # Generating data on the source node should generate new records and create new output on the sink node. Timeouts
         # here need to be more generous than they are for standalone mode because a) it takes longer to write configs,
         # do rebalancing of the group, etc, and b) without explicit leave group support, rebalancing takes awhile
