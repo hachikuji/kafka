@@ -24,6 +24,7 @@ from ducktape.utils.util import wait_until
 from ducktape.mark import matrix
 import subprocess, itertools, time
 from collections import Counter
+import operator
 
 class ConnectDistributedTest(Test):
     """
