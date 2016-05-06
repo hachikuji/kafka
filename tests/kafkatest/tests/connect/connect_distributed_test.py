@@ -122,8 +122,13 @@ class ConnectDistributedTest(Test):
 
         for node in self.cc.nodes:
             wait_until(lambda: self.is_paused(connector, node), timeout_sec=30,
-                       err_msg="Failed to see connector transition to the RUNNING state")
+                       err_msg="Failed to see connector transition to the PAUSED state")
 
+        self.cc.resume_connector(connector)
+
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_running(connector, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the RUNNINGx state")
 
     @matrix(security_protocol=[SecurityConfig.PLAINTEXT, SecurityConfig.SASL_SSL])
     def test_file_source_and_sink(self, security_protocol):
