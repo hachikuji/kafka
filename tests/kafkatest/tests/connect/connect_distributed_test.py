@@ -78,6 +78,20 @@ class ConnectDistributedTest(Test):
         connector_config = dict([line.strip().split('=', 1) for line in connector_props.split('\n') if line.strip() and not line.strip().startswith('#')])
         self.cc.create_connector(connector_config)
             
+    def is_running(self, connector, node=None):
+        try:
+            status = self.cc.get_connector_status(connector, node)
+            return status['connector']['state'] == 'RUNNING'
+        except ConnectRestError:
+            return False
+
+    def is_paused(self, connector, node=None):
+        try:
+            status = self.cc.get_connector_status(connector, node)
+            return status['connector']['state'] == 'PAUSED'
+        except ConnectRestError:
+            return False
+
     def test_basic_connector_status(self):
         self.setup_services()
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
@@ -85,19 +99,30 @@ class ConnectDistributedTest(Test):
 
         self.logger.info("Creating connectors")
         self._start_connector("connect-file-source.properties")
-        self._start_connector("connect-file-sink.properties")
-
-        def is_running(connector, node=None):
-            try:
-                status = self.cc.get_connector_status(connector, node)
-                return status['connector']['state'] == 'RUNNING'
-            except ConnectRestError:
-                return False
-
+        connector = 'local-file-source'
+        
         # all nodes should see the transition to the RUNNING state
         for node in self.cc.nodes:
-            wait_until(lambda: is_running('local-file-source', node) and is_running('local-file-sink', node),
-                       timeout_sec=30, err_msg="Failed to see connectors transition to the RUNNING state")
+            wait_until(lambda: self.is_running(connector, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the RUNNING state")
+
+    def test_pause_and_resume(self):
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        self.logger.info("Creating connectors")
+        self._start_connector("connect-file-source.properties")
+        connector = 'local-file-source'
+
+        wait_until(lambda: self.is_running(connector), timeout_sec=30,
+                   err_msg="Failed to see connector transition to the RUNNING state")
+        
+        self.cc.pause_connector(connector)
+
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_paused(connector, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the RUNNING state")
 
 
     @matrix(security_protocol=[SecurityConfig.PLAINTEXT, SecurityConfig.SASL_SSL])

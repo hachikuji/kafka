@@ -131,6 +131,9 @@ class ConnectServiceBase(KafkaPathResolverMixin, Service):
     def get_connector_status(self, name, node=None):
         return self._rest('/connectors/' + name + '/status', node=node)
 
+    def pause_connector(self, name, node=None):
+        return self._rest('/connectors/' + name + '/pause', method="PUT")
+
     def delete_connector(self, name, node=None):
         return self._rest('/connectors/' + name, node=node, method="DELETE")
 
