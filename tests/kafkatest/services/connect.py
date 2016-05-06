@@ -148,7 +148,7 @@ class ConnectServiceBase(KafkaPathResolverMixin, Service):
         self.logger.debug("%s %s response: %d", url, method, resp.status_code)
         if resp.status_code > 400:
             raise ConnectRestError(resp.status_code, resp.text, resp.url)
-        if resp.status_code == 204:
+        if resp.status_code == 204 or resp.status_code == 202:
             return None
         else:
             return resp.json()
