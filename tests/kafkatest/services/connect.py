@@ -87,12 +87,15 @@ class ConnectServiceBase(KafkaPathResolverMixin, Service):
 
         node.account.ssh("rm -f " + self.PID_FILE, allow_fail=False)
 
-    def restart(self):
+    def restart(self, clean_shutdown=True):
         # We don't want to do any clean up here, just restart the process.
         for node in self.nodes:
             self.logger.info("Restarting Kafka Connect on " + str(node.account))
-            self.stop_node(node)
-            self.start_node(node)
+            self.restart_node(node, clean_shutdown)
+
+    def restart_node(self, node, clean_shutdown=True):
+        self.stop_node(node, clean_shutdown)
+        self.start_node(node)
 
     def clean_node(self, node):
         node.account.kill_process("connect", clean_shutdown=False, allow_fail=True)

@@ -87,15 +87,17 @@ class ConnectDistributedTest(Test):
         self._start_connector("connect-file-source.properties")
         self._start_connector("connect-file-sink.properties")
 
-        def is_running(connector):
+        def is_running(connector, node=None):
             try:
-                status = self.cc.get_connector_status(connector)
+                status = self.cc.get_connector_status(connector, node)
                 return status['connector']['state'] == 'RUNNING'
             except ConnectRestError:
                 return False
 
-        wait_until(lambda: is_running('local-file-source') and is_running('local-file-sink'),
-                   timeout_sec=30, err_msg="Failed to see connectors transition to the RUNNING state")
+        # all nodes should see the transition to the RUNNING state
+        for node in self.cc.nodes:
+            wait_until(lambda: is_running('local-file-source', node) and is_running('local-file-sink', node),
+                       timeout_sec=30, err_msg="Failed to see connectors transition to the RUNNING state")
 
 
     @matrix(security_protocol=[SecurityConfig.PLAINTEXT, SecurityConfig.SASL_SSL])
