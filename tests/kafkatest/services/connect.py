@@ -188,7 +188,7 @@ class ConnectStandaloneService(ConnectServiceBase):
         self.logger.info("Starting Kafka Connect standalone process on " + str(node.account))
         with node.account.monitor_log(self.LOG_FILE) as monitor:
             node.account.ssh(self.start_cmd(node, remote_connector_configs))
-            monitor.wait_until('Kafka Connect started', timeout_sec=15, err_msg="Never saw message indicating Kafka Connect finished startup on " + str(node.account))
+            monitor.wait_until('Kafka Connect started', timeout_sec=30, err_msg="Never saw message indicating Kafka Connect finished startup on " + str(node.account))
 
         if len(self.pids(node)) == 0:
             raise RuntimeError("No process ids recorded")
