@@ -154,13 +154,14 @@ class ConnectDistributedTest(Test):
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
 
-        # for convenience, use the verifiable source to produce a steady stream of messages
+        # use the verifiable source to produce a steady stream of messages
         self.source = VerifiableSource(self.cc)
         self.source.start()
 
         self.sink = VerifiableSink(self.cc)
         self.sink.start()
 
+        # wait until all nodes report the paused transition
         wait_until(lambda: self.is_running(self.sink), timeout_sec=30,
                    err_msg="Failed to see connector transition to the RUNNING state")
         
@@ -173,7 +174,7 @@ class ConnectDistributedTest(Test):
         # verify that we do not consume new messages while paused
         num_messages = len(self.sink.messages())
         time.sleep(10)
-        assert num_messages == len(self.sink.messages()), "Paused source connector should not produce any messages"
+        assert num_messages == len(self.sink.messages()), "Paused sink connector should not consume any messages"
 
         self.cc.resume_connector(self.sink.name)
 
@@ -183,10 +184,14 @@ class ConnectDistributedTest(Test):
 
         # after resuming, we should see records consumed again
         wait_until(lambda: len(self.sink.messages()) > num_messages, timeout_sec=30,
-                   err_msg="Failed to produce messages after resuming source connector")
+                   err_msg="Failed to consume messages after resuming source connector")
 
 
     def test_pause_state_persistent(self):
+        """
+        Verify that paused state is preserved after a cluster restart.
+        """
+
         self.setup_services()
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
