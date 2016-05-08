@@ -140,7 +140,7 @@ class ConnectDistributedTest(Test):
             wait_until(lambda: self.is_running(self.source, node), timeout_sec=30,
                        err_msg="Failed to see connector transition to the RUNNING state")
 
-        # after resuming, we should see records being produced again
+        # after resuming, we should see records produced again
         wait_until(lambda: len(self.source.messages()) > num_messages, timeout_sec=30,
                    err_msg="Failed to produce messages after resuming source connector")
 
@@ -154,6 +154,10 @@ class ConnectDistributedTest(Test):
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
 
+        # for convenience, use the verifiable source to produce a steady stream of messages
+        self.source = VerifiableSource(self.cc)
+        self.source.start()
+
         self.sink = VerifiableSink(self.cc)
         self.sink.start()
 
@@ -166,11 +170,21 @@ class ConnectDistributedTest(Test):
             wait_until(lambda: self.is_paused(self.sink, node), timeout_sec=30,
                        err_msg="Failed to see connector transition to the PAUSED state")
 
+        # verify that we do not consume new messages while paused
+        num_messages = len(self.sink.messages())
+        time.sleep(10)
+        assert num_messages == len(self.sink.messages()), "Paused source connector should not produce any messages"
+
         self.cc.resume_connector(self.sink.name)
 
         for node in self.cc.nodes:
             wait_until(lambda: self.is_running(self.sink, node), timeout_sec=30,
                        err_msg="Failed to see connector transition to the RUNNING state")
+
+        # after resuming, we should see records consumed again
+        wait_until(lambda: len(self.sink.messages()) > num_messages, timeout_sec=30,
+                   err_msg="Failed to produce messages after resuming source connector")
+
 
     def test_pause_state_persistent(self):
         self.setup_services()
