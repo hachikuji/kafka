@@ -106,12 +106,35 @@ class ConnectDistributedTest(Test):
         status = self._connector_status(connector.name, node)
         return self._has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
 
-    def test_pause_and_resume(self):
+    def test_pause_and_resume_source(self):
         self.setup_services()
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
 
         self.source = VerifiableSource(self.cc)
+        self.source.start()
+
+        wait_until(lambda: self.is_running(self.source), timeout_sec=30,
+                   err_msg="Failed to see connector transition to the RUNNING state")
+        
+        self.cc.pause_connector(self.source.name)
+
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_paused(self.source, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the PAUSED state")
+
+        self.cc.resume_connector(self.source.name)
+
+        for node in self.cc.nodes:
+            wait_until(lambda: self.is_running(self.source, node), timeout_sec=30,
+                       err_msg="Failed to see connector transition to the RUNNING state")
+
+    def test_pause_and_resume_sink(self):
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        self.source = VerifiableSink(self.cc)
         self.source.start()
 
         wait_until(lambda: self.is_running(self.source), timeout_sec=30,
