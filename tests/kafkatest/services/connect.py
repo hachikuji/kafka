@@ -308,6 +308,12 @@ class VerifiableSink(VerifiableConnector):
         self.tasks = tasks
         self.topics = topics
 
+    def flushed_messages(self):
+        return filter(lambda m: 'flushed' in m and m['flushed'], self.messages())
+
+    def received_messages(self):
+        return filter(lambda m: 'flushed' not in m or not m['flushed'], self.messages())
+
     def start(self):
         self.logger.info("Creating connector VerifiableSinkConnector %s", self.name)
         self.cc.create_connector({

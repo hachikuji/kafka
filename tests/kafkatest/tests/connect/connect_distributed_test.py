@@ -172,9 +172,9 @@ class ConnectDistributedTest(Test):
                        err_msg="Failed to see connector transition to the PAUSED state")
 
         # verify that we do not consume new messages while paused
-        num_messages = len(self.sink.messages())
+        num_messages = len(self.sink.received_messages())
         time.sleep(10)
-        assert num_messages == len(self.sink.messages()), "Paused sink connector should not consume any messages"
+        assert num_messages == len(self.sink.received_messages()), "Paused sink connector should not consume any messages"
 
         self.cc.resume_connector(self.sink.name)
 
@@ -183,7 +183,7 @@ class ConnectDistributedTest(Test):
                        err_msg="Failed to see connector transition to the RUNNING state")
 
         # after resuming, we should see records consumed again
-        wait_until(lambda: len(self.sink.messages()) > num_messages, timeout_sec=30,
+        wait_until(lambda: len(self.sink.received_messages()) > num_messages, timeout_sec=30,
                    err_msg="Failed to consume messages after resuming source connector")
 
 
