@@ -107,6 +107,11 @@ class ConnectDistributedTest(Test):
         return self._has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
 
     def test_pause_and_resume_source(self):
+        """
+        Verify that source connectors stop producing records when paused and begin again after
+        being resumed.
+        """
+
         self.setup_services()
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
@@ -119,9 +124,15 @@ class ConnectDistributedTest(Test):
         
         self.cc.pause_connector(self.source.name)
 
+        # wait until all nodes report the paused transition
         for node in self.cc.nodes:
             wait_until(lambda: self.is_paused(self.source, node), timeout_sec=30,
                        err_msg="Failed to see connector transition to the PAUSED state")
+
+        # verify that we do not produce new messages while paused
+        num_messages = len(self.source.messages())
+        time.sleep(10)
+        assert num_messages == len(self.source.messages()), "Paused source connector should not produce any messages"
 
         self.cc.resume_connector(self.source.name)
 
@@ -129,27 +140,36 @@ class ConnectDistributedTest(Test):
             wait_until(lambda: self.is_running(self.source, node), timeout_sec=30,
                        err_msg="Failed to see connector transition to the RUNNING state")
 
+        # after resuming, we should see records being produced again
+        wait_until(lambda: len(self.source.messages()) > num_messages, timeout_sec=30,
+                   err_msg="Failed to produce messages after resuming source connector")
+
     def test_pause_and_resume_sink(self):
+        """
+        Verify that sink connectors stop consuming records when paused and begin again after
+        being resumed.
+        """
+
         self.setup_services()
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
 
-        self.source = VerifiableSink(self.cc)
-        self.source.start()
+        self.sink = VerifiableSink(self.cc)
+        self.sink.start()
 
-        wait_until(lambda: self.is_running(self.source), timeout_sec=30,
+        wait_until(lambda: self.is_running(self.sink), timeout_sec=30,
                    err_msg="Failed to see connector transition to the RUNNING state")
         
-        self.cc.pause_connector(self.source.name)
+        self.cc.pause_connector(self.sink.name)
 
         for node in self.cc.nodes:
-            wait_until(lambda: self.is_paused(self.source, node), timeout_sec=30,
+            wait_until(lambda: self.is_paused(self.sink, node), timeout_sec=30,
                        err_msg="Failed to see connector transition to the PAUSED state")
 
-        self.cc.resume_connector(self.source.name)
+        self.cc.resume_connector(self.sink.name)
 
         for node in self.cc.nodes:
-            wait_until(lambda: self.is_running(self.source, node), timeout_sec=30,
+            wait_until(lambda: self.is_running(self.sink, node), timeout_sec=30,
                        err_msg="Failed to see connector transition to the RUNNING state")
 
     def test_pause_state_persistent(self):
