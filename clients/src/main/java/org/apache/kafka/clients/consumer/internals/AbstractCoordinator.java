@@ -572,6 +572,8 @@ public abstract class AbstractCoordinator implements Closeable {
     }
 
     private void sendLeaveGroupRequest() {
+        log.info("Sending LeaveGroup for member {} from group {}", memberId, groupId);
+
         LeaveGroupRequest request = new LeaveGroupRequest(groupId, memberId);
         RequestFuture<Void> future = client.send(coordinator, ApiKeys.LEAVE_GROUP, request)
                 .compose(new LeaveGroupResponseHandler());

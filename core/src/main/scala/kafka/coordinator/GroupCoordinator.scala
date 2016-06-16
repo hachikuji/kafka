@@ -299,7 +299,7 @@ class GroupCoordinator(val brokerId: Int,
     delayedGroupStore.foreach(groupManager.store)
   }
 
-  def handleLeaveGroup(groupId: String, consumerId: String, responseCallback: Short => Unit) {
+  def handleLeaveGroup(groupId: String, memberId: String, responseCallback: Short => Unit) {
     if (!isActive.get) {
       responseCallback(Errors.GROUP_COORDINATOR_NOT_AVAILABLE.code)
     } else if (!isCoordinatorForGroup(groupId)) {
@@ -317,10 +317,11 @@ class GroupCoordinator(val brokerId: Int,
 
         case Some(group) =>
           group synchronized {
-            if (group.is(Dead) || !group.has(consumerId)) {
+            if (group.is(Dead) || !group.has(memberId)) {
               responseCallback(Errors.UNKNOWN_MEMBER_ID.code)
             } else {
-              val member = group.get(consumerId)
+              val member = group.get(memberId)
+              info(s"Removing member ${memberId} from group ${groupId}")
               removeHeartbeatForLeavingMember(group, member)
               onMemberFailure(group, member)
               responseCallback(Errors.NONE.code)
