@@ -135,6 +135,9 @@ class ConnectServiceBase(KafkaPathResolverMixin, Service):
     def get_connector_status(self, name, node=None):
         return self._rest('/connectors/' + name + '/status', node=node)
 
+    def restart_connector(self, name, node=None):
+        return self._rest('/connectors/' + name + '/restart', method="POST")        
+
     def pause_connector(self, name, node=None):
         return self._rest('/connectors/' + name + '/pause', method="PUT")
 
@@ -330,4 +333,23 @@ class VerifiableSink(VerifiableConnector):
             'connector.class': 'org.apache.kafka.connect.tools.VerifiableSinkConnector',
             'tasks.max': self.tasks,
             'topics': ",".join(self.topics)
+        })
+
+
+class MockSink(object):
+
+    def __init__(self, cc, topics, mode=None, name="mock-sink"):
+        self.cc = cc
+        self.name = name
+        self.mode = mode
+        self.topics = topics
+
+    def start(self):
+        self.logger.info("Creating connector MockSinkConnector %s", self.name)
+        self.cc.create_connector({
+            'name': self.name,
+            'connector.class': 'org.apache.kafka.connect.tools.MockSinkConnector',
+            'tasks.max': 1,
+            'topics': ",".join(self.topics),
+            'mode': self.mode
         })

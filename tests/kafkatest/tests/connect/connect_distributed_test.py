@@ -17,7 +17,7 @@ from ducktape.tests.test import Test
 
 from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.services.kafka import KafkaService
-from kafkatest.services.connect import ConnectDistributedService, VerifiableSource, VerifiableSink, ConnectRestError
+from kafkatest.services.connect import ConnectDistributedService, VerifiableSource, VerifiableSink, ConnectRestError, MockSink
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.security.security_config import SecurityConfig
 from ducktape.utils.util import wait_until
@@ -108,6 +108,26 @@ class ConnectDistributedTest(Test):
     def is_paused(self, connector, node=None):
         status = self._connector_status(connector.name, node)
         return self._has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
+
+    def is_failed(self, connector, node=None):
+        status = self._connector_status(connector.name, node)
+        return self._has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
+
+    def test_restart_failed_connector(self):
+        self.setup_services()
+        self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
+        self.cc.start()
+
+        self.sink = MockSink(self.cc, self.topics.keys(), mode='connector-failure')
+        self.sink.start()
+
+        wait_until(lambda: self.is_failed(self.sink), timeout_sec=30,
+                   err_msg="Failed to see connector transition to the RUNNING state")
+
+        self.cc.restart_connector(self.sink.name)
+        
+        wait_until(lambda: self.is_running(self.sink), timeout_sec=30,
+                   err_msg="Failed to see connector transition to the RUNNING state")
 
     def test_pause_and_resume_source(self):
         """
