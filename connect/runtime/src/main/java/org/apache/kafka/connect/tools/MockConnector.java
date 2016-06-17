@@ -43,8 +43,8 @@ import java.util.concurrent.TimeUnit;
  */
 public class MockConnector extends Connector {
 
-    public static final String MOCK_MODE_KEY = "mock-mode";
-    public static final String DELAY_MS_KEY = "delay";
+    public static final String MOCK_MODE_KEY = "mock_mode";
+    public static final String DELAY_MS_KEY = "delay_ms";
 
     public static final String CONNECTOR_FAILURE = "connector-failure";
     public static final String TASK_FAILURE = "task-failure";

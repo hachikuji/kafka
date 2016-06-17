@@ -144,15 +144,15 @@ class ConnectDistributedTest(Test):
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
 
-        self.sink = MockSink(self.cc, self.topics.keys(), mode='connector-failure')
+        self.sink = MockSink(self.cc, self.topics.keys(), mode='connector-failure', delay_sec=5)
         self.sink.start()
 
-        wait_until(lambda: self.connector_is_failed(self.sink), timeout_sec=30,
+        wait_until(lambda: self.connector_is_failed(self.sink), timeout_sec=15,
                    err_msg="Failed to see connector transition to the FAILED state")
 
         self.cc.restart_connector(self.sink.name)
         
-        wait_until(lambda: self.connector_is_running(self.sink), timeout_sec=30,
+        wait_until(lambda: self.connector_is_running(self.sink), timeout_sec=10,
                    err_msg="Failed to see connector transition to the RUNNING state")
 
     
@@ -164,19 +164,19 @@ class ConnectDistributedTest(Test):
 
         connector = None
         if connector_type == "sink":
-            connector = MockSink(self.cc, self.topics.keys(), mode='task-failure')
+            connector = MockSink(self.cc, self.topics.keys(), mode='task-failure', delay_sec=5)
         else:
-            connector = MockSource(self.cc, self.topics.keys(), mode='task-failure')
+            connector = MockSource(self.cc, self.topics.keys(), mode='task-failure', delay_sec=5)
             
         connector.start()
 
         task_id = 0
-        wait_until(lambda: self.task_is_failed(connector, task_id), timeout_sec=30,
+        wait_until(lambda: self.task_is_failed(connector, task_id), timeout_sec=15,
                    err_msg="Failed to see task transition to the FAILED state")
 
         self.cc.restart_task(connector.name, task_id)
         
-        wait_until(lambda: self.task_is_running(connector, task_id), timeout_sec=30,
+        wait_until(lambda: self.task_is_running(connector, task_id), timeout_sec=10,
                    err_msg="Failed to see task transition to the RUNNING state")
 
 

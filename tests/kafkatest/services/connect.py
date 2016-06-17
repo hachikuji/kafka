@@ -338,14 +338,14 @@ class VerifiableSink(VerifiableConnector):
             'topics': ",".join(self.topics)
         })
 
-
 class MockSink(object):
 
-    def __init__(self, cc, topics, mode=None, name="mock-sink"):
+    def __init__(self, cc, topics, mode=None, delay_sec=10, name="mock-sink"):
         self.cc = cc
         self.logger = self.cc.logger
         self.name = name
         self.mode = mode
+        self.delay_sec = delay_sec
         self.topics = topics
 
     def start(self):
@@ -355,16 +355,18 @@ class MockSink(object):
             'connector.class': 'org.apache.kafka.connect.tools.MockSinkConnector',
             'tasks.max': 1,
             'topics': ",".join(self.topics),
-            'mock-mode': self.mode
+            'mock_mode': self.mode,
+            'delay_ms': self.delay_sec * 1000
         })
 
 class MockSource(object):
 
-    def __init__(self, cc, topics, mode=None, name="mock-source"):
+    def __init__(self, cc, topics, mode=None, delay_ms=10000, name="mock-source"):
         self.cc = cc
         self.logger = self.cc.logger
         self.name = name
         self.mode = mode
+        self.delay_ms = delay_ms
         self.topics = topics
 
     def start(self):
@@ -374,6 +376,7 @@ class MockSource(object):
             'connector.class': 'org.apache.kafka.connect.tools.MockSourceConnector',
             'tasks.max': 1,
             'topics': ",".join(self.topics),
-            'mock-mode': self.mode
+            'mock_mode': self.mode,
+            'delay_ms': self.delay_sec * 1000
         })
         
