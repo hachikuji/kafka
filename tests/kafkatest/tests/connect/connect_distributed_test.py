@@ -155,22 +155,28 @@ class ConnectDistributedTest(Test):
         wait_until(lambda: self.connector_is_running(self.sink), timeout_sec=30,
                    err_msg="Failed to see connector transition to the RUNNING state")
 
-    def test_restart_failed_task(self):
+    
+    @matrix(connector_type=["source", "sink"])
+    def test_restart_failed_task(self, connector_type):
         self.setup_services()
         self.cc.set_configs(lambda node: self.render("connect-distributed.properties", node=node))
         self.cc.start()
 
-        self.sink = MockSink(self.cc, self.topics.keys(), mode='task-failure')
-        self.sink.start()
+        connector = None
+        if connector_type == "sink":
+            connector = MockSink(self.cc, self.topics.keys(), mode='task-failure')
+        else:
+            connector = MockSource(self.cc, self.topics.keys(), mode='task-failure')
+            
+        connector.start()
 
         task_id = 0
-
-        wait_until(lambda: self.task_is_failed(self.sink, task_id), timeout_sec=30,
+        wait_until(lambda: self.task_is_failed(connector, task_id), timeout_sec=30,
                    err_msg="Failed to see task transition to the FAILED state")
 
-        self.cc.restart_task(self.sink.name, task_id)
+        self.cc.restart_task(connector.name, task_id)
         
-        wait_until(lambda: self.task_is_running(self.sink, task_id), timeout_sec=30,
+        wait_until(lambda: self.task_is_running(connector, task_id), timeout_sec=30,
                    err_msg="Failed to see task transition to the RUNNING state")
 
 

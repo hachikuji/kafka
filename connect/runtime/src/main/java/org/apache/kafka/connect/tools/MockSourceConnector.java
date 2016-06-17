@@ -18,15 +18,15 @@ package org.apache.kafka.connect.tools;
 
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.connect.connector.Task;
-import org.apache.kafka.connect.sink.SinkConnector;
+import org.apache.kafka.connect.source.SourceConnector;
 
 import java.util.List;
 import java.util.Map;
 
 /**
- * Mock sink implementation which deletates to {@link MockConnector}.
+ * Mock source implementation which deletates to {@link MockConnector}.
  */
-public class MockSinkConnector extends SinkConnector {
+public class MockSourceConnector extends SourceConnector {
 
     private MockConnector delegate = new MockConnector();
 
@@ -42,7 +42,7 @@ public class MockSinkConnector extends SinkConnector {
 
     @Override
     public Class<? extends Task> taskClass() {
-        return MockSinkTask.class;
+        return MockSourceTask.class;
     }
 
     @Override

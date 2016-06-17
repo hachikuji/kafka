@@ -16,16 +16,15 @@
  **/
 package org.apache.kafka.connect.tools;
 
-import org.apache.kafka.clients.consumer.OffsetAndMetadata;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.AppInfoParser;
-import org.apache.kafka.connect.sink.SinkRecord;
-import org.apache.kafka.connect.sink.SinkTask;
+import org.apache.kafka.connect.source.SourceRecord;
+import org.apache.kafka.connect.source.SourceTask;
 
-import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
-public class MockSinkTask extends SinkTask {
+public class MockSourceTask extends SourceTask {
 
     private String mockMode;
     private long startTimeMs;
@@ -51,17 +50,13 @@ public class MockSinkTask extends SinkTask {
     }
 
     @Override
-    public void put(Collection<SinkRecord> records) {
+    public List<SourceRecord> poll() throws InterruptedException {
         if (MockConnector.TASK_FAILURE.equals(mockMode)) {
             long now = System.currentTimeMillis();
             if (now > startTimeMs + failureDelayMs)
                 throw new RuntimeException();
         }
-    }
-
-    @Override
-    public void flush(Map<TopicPartition, OffsetAndMetadata> offsets) {
-
+        return Collections.emptyList();
     }
 
     @Override
