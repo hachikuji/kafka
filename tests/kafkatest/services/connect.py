@@ -340,6 +340,7 @@ class MockSink(object):
 
     def __init__(self, cc, topics, mode=None, name="mock-sink"):
         self.cc = cc
+        self.logger = self.cc.logger
         self.name = name
         self.mode = mode
         self.topics = topics
