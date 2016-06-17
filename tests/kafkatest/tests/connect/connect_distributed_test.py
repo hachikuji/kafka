@@ -111,7 +111,7 @@ class ConnectDistributedTest(Test):
 
     def is_failed(self, connector, node=None):
         status = self._connector_status(connector.name, node)
-        return self._has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
+        return self._has_state(status, 'FAILED')
 
     def test_restart_failed_connector(self):
         self.setup_services()
