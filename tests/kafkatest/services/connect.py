@@ -139,7 +139,7 @@ class ConnectServiceBase(KafkaPathResolverMixin, Service):
         return self._rest('/connectors/' + name + '/restart', method="POST")        
 
     def restart_task(self, connector_name, task_id, node=None):
-        return self._rest('/connectors/' + connector_name + '/tasks/' + task_id + '/restart', method="POST")        
+        return self._rest('/connectors/' + connector_name + '/tasks/' + str(task_id) + '/restart', method="POST")        
 
     def pause_connector(self, name, node=None):
         return self._rest('/connectors/' + name + '/pause', method="PUT")

@@ -88,7 +88,7 @@ class ConnectDistributedTest(Test):
         except ConnectRestError:
             return None
 
-    def _has_state(self, status, state):
+    def _connector_has_state(self, status, state):
         return status is not None and status['connector']['state'] == state
 
     def _task_has_state(self, task_id, status, state):
@@ -117,19 +117,19 @@ class ConnectDistributedTest(Test):
 
     def is_running(self, connector, node=None):
         status = self._connector_status(connector.name, node)
-        return self._has_state(status, 'RUNNING') and self._all_tasks_have_state(status, connector.tasks, 'RUNNING')
+        return self._connector_has_state(status, 'RUNNING') and self._all_tasks_have_state(status, connector.tasks, 'RUNNING')
 
     def is_paused(self, connector, node=None):
         status = self._connector_status(connector.name, node)
-        return self._has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
+        return self._connector_has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
 
     def connector_is_running(self, connector, node=None):
         status = self._connector_status(connector.name, node)
-        return self._has_state(status, 'RUNNING')
+        return self._connector_has_state(status, 'RUNNING')
 
     def connector_is_failed(self, connector, node=None):
         status = self._connector_status(connector.name, node)
-        return self._has_state(status, 'FAILED')
+        return self._connector_has_state(status, 'FAILED')
 
     def task_is_failed(self, connector, task_id, node=None):
         status = self._connector_status(connector.name, node)
@@ -138,7 +138,6 @@ class ConnectDistributedTest(Test):
     def task_is_running(self, connector, task_id, node=None):
         status = self._connector_status(connector.name, node)
         return self._task_has_state(task_id, status, 'RUNNING')
-
 
     def test_restart_failed_connector(self):
         self.setup_services()
