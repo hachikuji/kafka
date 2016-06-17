@@ -121,8 +121,8 @@ class ConnectDistributedTest(Test):
         self.sink = MockSink(self.cc, self.topics.keys(), mode='connector-failure')
         self.sink.start()
 
-        wait_until(lambda: self.is_failed(self.sink), timeout_sec=30,
-                   err_msg="Failed to see connector transition to the RUNNING state")
+        wait_until(lambda: self.is_failed(self.sink), timeout_sec=60,
+                   err_msg="Failed to see connector transition to the FAILED state")
 
         self.cc.restart_connector(self.sink.name)
         
