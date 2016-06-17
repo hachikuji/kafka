@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 
 public class MockSinkConnector extends SinkConnector {
 
-    public static final String MODE_KEY = "mode";
+    public static final String MOCK_MODE_KEY = "mock-mode";
     public static final String DELAY_MS_KEY = "delay";
 
     public static final String CONNECTOR_FAILURE = "connector-failure";
@@ -50,7 +50,7 @@ public class MockSinkConnector extends SinkConnector {
     public void start(Map<String, String> config) {
         this.config = config;
 
-        if (CONNECTOR_FAILURE.equals(config.get(MODE_KEY))) {
+        if (CONNECTOR_FAILURE.equals(config.get(MOCK_MODE_KEY))) {
             String delayMsString = config.get(DELAY_MS_KEY);
             long delayMs = DEFAULT_FAILURE_DELAY_MS;
             if (delayMsString != null)
@@ -86,4 +86,5 @@ public class MockSinkConnector extends SinkConnector {
     public ConfigDef config() {
         return new ConfigDef();
     }
+
 }

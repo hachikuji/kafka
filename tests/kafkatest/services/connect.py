@@ -138,6 +138,9 @@ class ConnectServiceBase(KafkaPathResolverMixin, Service):
     def restart_connector(self, name, node=None):
         return self._rest('/connectors/' + name + '/restart', method="POST")        
 
+    def restart_task(self, connector_name, task_id, node=None):
+        return self._rest('/connectors/' + connector_name + '/tasks/' + task_id + '/restart', method="POST")        
+
     def pause_connector(self, name, node=None):
         return self._rest('/connectors/' + name + '/pause', method="PUT")
 
@@ -352,5 +355,5 @@ class MockSink(object):
             'connector.class': 'org.apache.kafka.connect.tools.MockSinkConnector',
             'tasks.max': 1,
             'topics': ",".join(self.topics),
-            'mode': self.mode
+            'mock-mode': self.mode
         })

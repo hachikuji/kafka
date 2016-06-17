@@ -27,19 +27,36 @@ import java.util.Map;
 
 public class MockSinkTask extends SinkTask {
 
+    private String mockMode;
+    private long startTimeMs;
+    private long failureDelayMs;
+
     @Override
     public String version() {
         return AppInfoParser.getVersion();
     }
 
     @Override
-    public void start(Map<String, String> props) {
+    public void start(Map<String, String> config) {
+        this.mockMode = config.get(MockSinkConnector.MOCK_MODE_KEY);
 
+        if (MockSinkConnector.TASK_FAILURE.equals(mockMode)) {
+            this.startTimeMs = System.currentTimeMillis();
+
+            String delayMsString = config.get(MockSinkConnector.DELAY_MS_KEY);
+            this.failureDelayMs = MockSinkConnector.DEFAULT_FAILURE_DELAY_MS;
+            if (delayMsString != null)
+                failureDelayMs = Long.parseLong(delayMsString);
+        }
     }
 
     @Override
     public void put(Collection<SinkRecord> records) {
-
+        if (MockSinkConnector.TASK_FAILURE.equals(mockMode)) {
+            long now = System.currentTimeMillis();
+            if (now > startTimeMs + failureDelayMs)
+                throw new RuntimeException();
+        }
     }
 
     @Override
