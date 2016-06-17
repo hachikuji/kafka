@@ -109,7 +109,11 @@ class ConnectDistributedTest(Test):
         status = self._connector_status(connector.name, node)
         return self._has_state(status, 'PAUSED') and self._all_tasks_have_state(status, connector.tasks, 'PAUSED')
 
-    def is_failed(self, connector, node=None):
+    def connector_is_running(self, connector, node=None):
+        status = self._connector_status(connector.name, node)
+        return self._has_state(status, 'RUNNING')
+
+    def connector_is_failed(self, connector, node=None):
         status = self._connector_status(connector.name, node)
         return self._has_state(status, 'FAILED')
 
@@ -121,12 +125,12 @@ class ConnectDistributedTest(Test):
         self.sink = MockSink(self.cc, self.topics.keys(), mode='connector-failure')
         self.sink.start()
 
-        wait_until(lambda: self.is_failed(self.sink), timeout_sec=60,
+        wait_until(lambda: self.connector_is_failed(self.sink), timeout_sec=60,
                    err_msg="Failed to see connector transition to the FAILED state")
 
         self.cc.restart_connector(self.sink.name)
         
-        wait_until(lambda: self.is_running(self.sink), timeout_sec=30,
+        wait_until(lambda: self.connector_is_running(self.sink), timeout_sec=30,
                    err_msg="Failed to see connector transition to the RUNNING state")
 
     def test_pause_and_resume_source(self):
