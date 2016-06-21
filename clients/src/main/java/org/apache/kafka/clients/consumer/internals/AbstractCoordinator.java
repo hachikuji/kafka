@@ -248,15 +248,16 @@ public abstract class AbstractCoordinator implements Closeable {
                 });
             }
 
-            client.poll(joinFuture);
+            RequestFuture<ByteBuffer> future = joinFuture;
+            client.poll(future);
 
-            if (joinFuture.failed()) {
-                RuntimeException exception = joinFuture.exception();
+            if (future.failed()) {
+                RuntimeException exception = future.exception();
                 if (exception instanceof UnknownMemberIdException ||
                         exception instanceof RebalanceInProgressException ||
                         exception instanceof IllegalGenerationException)
                     continue;
-                else if (!joinFuture.isRetriable())
+                else if (!future.isRetriable())
                     throw exception;
                 time.sleep(retryBackoffMs);
             }
