@@ -98,6 +98,8 @@ public abstract class AbstractCoordinator implements Closeable {
     protected String protocol;
     protected int generation;
 
+    private RequestFuture<ByteBuffer> joinFuture = null;
+
     /**
      * Initialize the coordination manager.
      */
@@ -223,32 +225,38 @@ public abstract class AbstractCoordinator implements Closeable {
                 continue;
             }
 
-            RequestFuture<ByteBuffer> future = sendJoinGroupRequest();
-            future.addListener(new RequestFutureListener<ByteBuffer>() {
-                @Override
-                public void onSuccess(ByteBuffer value) {
-                    // handle join completion in the callback so that the callback will be invoked
-                    // even if the consumer is woken up before finishing the rebalance
-                    onJoinComplete(generation, memberId, protocol, value);
-                    needsJoinPrepare = true;
-                    heartbeatTask.reset();
-                }
+            if (joinFuture == null) {
+                joinFuture = sendJoinGroupRequest();
+                joinFuture.addListener(new RequestFutureListener<ByteBuffer>() {
+                    @Override
+                    public void onSuccess(ByteBuffer value) {
+                        // handle join completion in the callback so that the callback will be invoked
+                        // even if the consumer is woken up before finishing the rebalance
+                        onJoinComplete(generation, memberId, protocol, value);
+                        needsJoinPrepare = true;
+                        heartbeatTask.reset();
+                        joinFuture = null;
+                    }
 
-                @Override
-                public void onFailure(RuntimeException e) {
-                    // we handle failures below after the request finishes. if the join completes
-                    // after having been woken up, the exception is ignored and we will rejoin
-                }
-            });
-            client.poll(future);
+                    @Override
+                    public void onFailure(RuntimeException e) {
+                        // we handle failures below after the request finishes. if the join completes
+                        // after having been woken up, the exception is ignored and we will rejoin
+                        joinFuture = null;
+                        log.warn("JoinGroup for group {} failed with exception", groupId, e);
+                    }
+                });
+            }
 
-            if (future.failed()) {
-                RuntimeException exception = future.exception();
+            client.poll(joinFuture);
+
+            if (joinFuture.failed()) {
+                RuntimeException exception = joinFuture.exception();
                 if (exception instanceof UnknownMemberIdException ||
                         exception instanceof RebalanceInProgressException ||
                         exception instanceof IllegalGenerationException)
                     continue;
-                else if (!future.isRetriable())
+                else if (!joinFuture.isRetriable())
                     throw exception;
                 time.sleep(retryBackoffMs);
             }
