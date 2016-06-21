@@ -260,7 +260,7 @@ class GroupCoordinator(val brokerId: Int,
 
             // if this is the leader, then we can attempt to persist state and transition to stable
             if (memberId == group.leaderId) {
-              info(s"Assignment received from leader for group ${group.groupId} for generation ${group.generationId}")
+              info(s"Assignment received from leader ${memberId} for group ${group.groupId} for generation ${group.generationId}")
 
               // fill any missing members with an empty assignment
               val missing = group.allMembers -- groupAssignment.keySet
@@ -633,7 +633,7 @@ class GroupCoordinator(val brokerId: Int,
   }
 
   private def onMemberFailure(group: GroupMetadata, member: MemberMetadata) {
-    trace("Member %s in group %s has failed".format(member.memberId, group.groupId))
+    info(s"Member ${member.memberId} in group ${group.groupId} has failed")
     group.remove(member.memberId)
     group.currentState match {
       case Dead | Empty =>
@@ -677,7 +677,7 @@ class GroupCoordinator(val brokerId: Int,
             }
           }))
         } else {
-          info(s"Stabilized group ${group.groupId} generation ${group.generationId}")
+          info(s"Stabilized group ${group.groupId} generation ${group.generationId}: ${group.allMembers}")
 
           // trigger the awaiting join group response callback for all the members after rebalancing
           for (member <- group.allMemberMetadata) {
