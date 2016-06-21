@@ -320,8 +320,8 @@ class GroupCoordinator(val brokerId: Int,
             if (group.is(Dead) || !group.has(memberId)) {
               responseCallback(Errors.UNKNOWN_MEMBER_ID.code)
             } else {
+              info(s"LeaveGroup received from ${memberId} in group ${groupId}")
               val member = group.get(memberId)
-              info(s"Removing member ${memberId} from group ${groupId}")
               removeHeartbeatForLeavingMember(group, member)
               onMemberFailure(group, member)
               responseCallback(Errors.NONE.code)

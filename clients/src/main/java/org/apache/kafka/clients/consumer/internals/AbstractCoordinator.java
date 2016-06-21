@@ -580,15 +580,17 @@ public abstract class AbstractCoordinator implements Closeable {
 
         future.addListener(new RequestFutureListener<Void>() {
             @Override
-            public void onSuccess(Void value) {}
+            public void onSuccess(Void value) {
+                log.info("LeaveGroup request for group {} for member {} succeeded", groupId, memberId);
+            }
 
             @Override
             public void onFailure(RuntimeException e) {
-                log.debug("LeaveGroup request for group {} failed with error", groupId, e);
+                log.info("LeaveGroup request for group {} for member {} failed with error", groupId, memberId, e);
             }
         });
 
-        client.poll(future, 0);
+        client.poll(future);
     }
 
     private class LeaveGroupResponseHandler extends CoordinatorResponseHandler<LeaveGroupResponse, Void> {
