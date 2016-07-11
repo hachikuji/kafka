@@ -341,8 +341,12 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
      * Ensure that we have a valid partition assignment from the coordinator.
      */
     public void ensurePartitionAssignment() {
-        if (subscriptions.partitionsAutoAssigned())
+        if (subscriptions.partitionsAutoAssigned()) {
+            if (subscriptions.hasPatternSubscription())
+                client.ensureFreshMetadata();
             ensureActiveGroup();
+        }
+
     }
 
     @Override
