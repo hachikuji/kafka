@@ -241,11 +241,11 @@ object DumpLogSegments {
     }
 
     private def parseOffsets(offsetKey: OffsetKey, payload: ByteBuffer) = {
-      val group = offsetKey.key.group
+      val groupId = offsetKey.key.group
       val topicPartition = offsetKey.key.topicPartition
       val offset = GroupMetadataManager.readOffsetMessageValue(payload)
 
-      val keyString = s"offset::${group}:${topicPartition.topic}:${topicPartition.partition}"
+      val keyString = s"offset::${groupId}:${topicPartition.topic}:${topicPartition.partition}"
       val valueString = if (offset.metadata.isEmpty)
         String.valueOf(offset.offset)
       else
@@ -256,10 +256,10 @@ object DumpLogSegments {
 
     private def parseGroupMetadata(groupMetadataKey: GroupMetadataKey, payload: ByteBuffer) = {
       val groupId = groupMetadataKey.key
-      val group = GroupMetadataManager.readGroupMessageValue(groupId, payload)
-      val protocolType = group.protocolType.getOrElse("")
+      val groupMetadata = GroupMetadataManager.readGroupMessageValue(groupId, payload)
+      val protocolType = groupMetadata.protocolType.getOrElse("")
 
-      val assignment = group.allMemberMetadata.map { member =>
+      val assignment = groupMetadata.allMemberMetadata.map { member =>
         if (protocolType == ConsumerProtocol.PROTOCOL_TYPE) {
           val partitionAssignment = ConsumerProtocol.deserializeAssignment(ByteBuffer.wrap(member.assignment))
           val userData = hex(Utils.toArray(partitionAssignment.userData()))
@@ -274,7 +274,7 @@ object DumpLogSegments {
       }.mkString("{", ",", "}")
 
       val keyString = s"metadata::${groupId}"
-      val valueString = s"${protocolType}:${group.protocol}:${group.generationId}:${assignment}"
+      val valueString = s"${protocolType}:${groupMetadata.protocol}:${groupMetadata.generationId}:${assignment}"
 
       (Some(keyString), Some(valueString))
     }
