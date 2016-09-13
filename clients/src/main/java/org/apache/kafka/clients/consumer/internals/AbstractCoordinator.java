@@ -54,6 +54,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -106,7 +107,7 @@ public abstract class AbstractCoordinator implements Closeable {
 
     private HeartbeatThread heartbeatThread = null;
     private boolean rejoinNeeded = true;
-    private boolean needsJoinPrepare = true;
+    private AtomicBoolean needsJoinPrepare = new AtomicBoolean(true);
     private MemberState state = MemberState.UNJOINED;
     private RequestFuture<ByteBuffer> joinFuture = null;
     private Node coordinator = null;
@@ -265,7 +266,7 @@ public abstract class AbstractCoordinator implements Closeable {
     /**
      * Ensure that the group is active (i.e. joined and synced)
      */
-    public synchronized void ensureActiveGroup() {
+    public void ensureActiveGroup() {
         // always ensure that the coordinator is ready because we may have been disconnected
         // when sending heartbeats and does not necessarily require us to rejoin the group.
         ensureCoordinatorReady();
@@ -279,7 +280,7 @@ public abstract class AbstractCoordinator implements Closeable {
     }
 
     // visible for testing. Joins the group without starting the heartbeat thread.
-    synchronized void doJoinGroup() {
+    void doJoinGroup() {
         while (needRejoin()) {
             ensureCoordinatorReady();
 
@@ -288,10 +289,8 @@ public abstract class AbstractCoordinator implements Closeable {
             // on each iteration of the loop because an event requiring a rebalance (such as a metadata
             // refresh which changes the matched subscription set) can occur while another rebalance is
             // still in progress.
-            if (needsJoinPrepare) {
+            if (needsJoinPrepare.compareAndSet(true, false))
                 onJoinPrepare(generation.generationId, generation.memberId);
-                needsJoinPrepare = false;
-            }
 
             // ensure that there are no pending requests to the coordinator. This is important
             // in particular to avoid resending a pending JoinGroup request.
@@ -300,43 +299,7 @@ public abstract class AbstractCoordinator implements Closeable {
                 continue;
             }
 
-            // we store the join future in case we are woken up by the user after beginning the
-            // rebalance in the call to poll below. This ensures that we do not mistakenly attempt
-            // to rejoin before the pending rebalance has completed.
-            if (joinFuture == null) {
-                state = MemberState.REBALANCING;
-                joinFuture = sendJoinGroupRequest();
-                joinFuture.addListener(new RequestFutureListener<ByteBuffer>() {
-                    @Override
-                    public void onSuccess(ByteBuffer value) {
-                        // handle join completion in the callback so that the callback will be invoked
-                        // even if the consumer is woken up before finishing the rebalance
-                        synchronized (AbstractCoordinator.this) {
-                            log.info("Successfully joined group {} with generation {}", groupId, generation.generationId);
-                            joinFuture = null;
-                            state = MemberState.STABLE;
-                            needsJoinPrepare = true;
-
-                            if (heartbeatThread != null)
-                                heartbeatThread.enable();
-                        }
-
-                        onJoinComplete(generation.generationId, generation.memberId, generation.protocol, value);
-                    }
-
-                    @Override
-                    public void onFailure(RuntimeException e) {
-                        // we handle failures below after the request finishes. if the join completes
-                        // after having been woken up, the exception is ignored and we will rejoin
-                        synchronized (AbstractCoordinator.this) {
-                            joinFuture = null;
-                            state = MemberState.UNJOINED;
-                        }
-                    }
-                });
-            }
-
-            RequestFuture<ByteBuffer> future = joinFuture;
+            RequestFuture<ByteBuffer> future = doSendJoinGroupRequest();
             client.poll(future);
 
             if (future.failed()) {
@@ -350,6 +313,45 @@ public abstract class AbstractCoordinator implements Closeable {
                 time.sleep(retryBackoffMs);
             }
         }
+    }
+
+    private synchronized RequestFuture<ByteBuffer> doSendJoinGroupRequest() {
+        // we store the join future in case we are woken up by the user after beginning the
+        // rebalance in the call to poll below. This ensures that we do not mistakenly attempt
+        // to rejoin before the pending rebalance has completed.
+        if (needRejoin() && joinFuture == null) {
+            state = MemberState.REBALANCING;
+            joinFuture = sendJoinGroupRequest();
+            joinFuture.addListener(new RequestFutureListener<ByteBuffer>() {
+                @Override
+                public void onSuccess(ByteBuffer value) {
+                    // handle join completion in the callback so that the callback will be invoked
+                    // even if the consumer is woken up before finishing the rebalance
+                    synchronized (AbstractCoordinator.this) {
+                        log.info("Successfully joined group {} with generation {}", groupId, generation.generationId);
+                        joinFuture = null;
+                        state = MemberState.STABLE;
+                        needsJoinPrepare.set(true);
+
+                        if (heartbeatThread != null)
+                            heartbeatThread.enable();
+                    }
+
+                    onJoinComplete(generation.generationId, generation.memberId, generation.protocol, value);
+                }
+
+                @Override
+                public void onFailure(RuntimeException e) {
+                    // we handle failures below after the request finishes. if the join completes
+                    // after having been woken up, the exception is ignored and we will rejoin
+                    synchronized (AbstractCoordinator.this) {
+                        joinFuture = null;
+                        state = MemberState.UNJOINED;
+                    }
+                }
+            });
+        }
+        return joinFuture;
     }
 
     /**
