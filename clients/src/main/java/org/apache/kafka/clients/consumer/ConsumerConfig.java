@@ -293,15 +293,15 @@ public class ConsumerConfig extends AbstractConfig {
                                         Importance.LOW,
                                         FETCH_MAX_WAIT_MS_DOC)
                                 .define(RECONNECT_BACKOFF_MS_CONFIG,
-                                        Type.LONG,
-                                        50L,
-                                        atLeast(0L),
+                                        Type.INT,
+                                        50,
+                                        atLeast(0),
                                         Importance.LOW,
                                         CommonClientConfigs.RECONNECT_BACKOFF_MS_DOC)
                                 .define(RETRY_BACKOFF_MS_CONFIG,
-                                        Type.LONG,
-                                        100L,
-                                        atLeast(0L),
+                                        Type.INT,
+                                        100,
+                                        atLeast(0),
                                         Importance.LOW,
                                         CommonClientConfigs.RETRY_BACKOFF_MS_DOC)
                                 .define(AUTO_OFFSET_RESET_CONFIG,

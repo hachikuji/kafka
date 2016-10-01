@@ -62,7 +62,7 @@ public class WorkerGroupMember {
     private final ConsumerNetworkClient client;
     private final Metrics metrics;
     private final Metadata metadata;
-    private final long retryBackoffMs;
+    private final int retryBackoffMs;
     private final WorkerCoordinator coordinator;
 
     private boolean stopped = false;
@@ -85,7 +85,7 @@ public class WorkerGroupMember {
             List<MetricsReporter> reporters = config.getConfiguredInstances(CommonClientConfigs.METRIC_REPORTER_CLASSES_CONFIG, MetricsReporter.class);
             reporters.add(new JmxReporter(JMX_PREFIX));
             this.metrics = new Metrics(metricConfig, reporters, time);
-            this.retryBackoffMs = config.getLong(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG);
+            this.retryBackoffMs = config.getInt(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG);
             this.metadata = new Metadata(retryBackoffMs, config.getLong(CommonClientConfigs.METADATA_MAX_AGE_CONFIG));
             List<InetSocketAddress> addresses = ClientUtils.parseAndValidateAddresses(config.getList(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG));
             this.metadata.update(Cluster.bootstrap(addresses), 0);
@@ -96,7 +96,7 @@ public class WorkerGroupMember {
                     this.metadata,
                     clientId,
                     100, // a fixed large enough value will suffice
-                    config.getLong(CommonClientConfigs.RECONNECT_BACKOFF_MS_CONFIG),
+                    config.getInt(CommonClientConfigs.RECONNECT_BACKOFF_MS_CONFIG),
                     config.getInt(CommonClientConfigs.SEND_BUFFER_CONFIG),
                     config.getInt(CommonClientConfigs.RECEIVE_BUFFER_CONFIG),
                     config.getInt(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG), time);

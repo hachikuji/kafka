@@ -139,7 +139,7 @@ public class ConsumerNetworkClientTest {
 
     @Test
     public void sendExpiry() throws InterruptedException {
-        long unsentExpiryMs = 10;
+        int unsentExpiryMs = 10;
         final AtomicBoolean isReady = new AtomicBoolean();
         final AtomicBoolean disconnected = new AtomicBoolean();
         client = new MockClient(time) {

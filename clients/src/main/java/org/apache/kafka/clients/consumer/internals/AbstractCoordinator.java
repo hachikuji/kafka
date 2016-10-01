@@ -102,7 +102,7 @@ public abstract class AbstractCoordinator implements Closeable {
     protected final String groupId;
     protected final ConsumerNetworkClient client;
     protected final Time time;
-    protected final long retryBackoffMs;
+    protected final int retryBackoffMs;
 
     private HeartbeatThread heartbeatThread = null;
     private boolean rejoinNeeded = true;
@@ -125,7 +125,7 @@ public abstract class AbstractCoordinator implements Closeable {
                                Metrics metrics,
                                String metricGrpPrefix,
                                Time time,
-                               long retryBackoffMs) {
+                               int retryBackoffMs) {
         this.client = client;
         this.time = time;
         this.groupId = groupId;

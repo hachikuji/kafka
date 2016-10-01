@@ -98,7 +98,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                                Metrics metrics,
                                String metricGrpPrefix,
                                Time time,
-                               long retryBackoffMs,
+                               int retryBackoffMs,
                                OffsetCommitCallback defaultOffsetCommitCallback,
                                boolean autoCommitEnabled,
                                int autoCommitIntervalMs,

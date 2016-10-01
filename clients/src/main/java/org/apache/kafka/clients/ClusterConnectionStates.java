@@ -20,12 +20,12 @@ import java.util.Map;
  * 
  */
 final class ClusterConnectionStates {
-    private final long reconnectBackoffMs;
+    private final int reconnectBackoffMs;
     private final Map<String, NodeConnectionState> nodeState;
 
-    public ClusterConnectionStates(long reconnectBackoffMs) {
+    public ClusterConnectionStates(int reconnectBackoffMs) {
         this.reconnectBackoffMs = reconnectBackoffMs;
-        this.nodeState = new HashMap<String, NodeConnectionState>();
+        this.nodeState = new HashMap<>();
     }
 
     /**

@@ -50,7 +50,7 @@ public final class Metadata {
     public static final long TOPIC_EXPIRY_MS = 5 * 60 * 1000;
     private static final long TOPIC_EXPIRY_NEEDS_UPDATE = -1L;
 
-    private final long refreshBackoffMs;
+    private final int refreshBackoffMs;
     private final long metadataExpireMs;
     private int version;
     private long lastRefreshMs;
@@ -68,10 +68,10 @@ public final class Metadata {
      * Create a metadata instance with reasonable defaults
      */
     public Metadata() {
-        this(100L, 60 * 60 * 1000L);
+        this(100, 60 * 60 * 1000L);
     }
 
-    public Metadata(long refreshBackoffMs, long metadataExpireMs) {
+    public Metadata(int refreshBackoffMs, long metadataExpireMs) {
         this(refreshBackoffMs, metadataExpireMs, false, new ClusterResourceListeners());
     }
 
@@ -83,7 +83,7 @@ public final class Metadata {
      * @param topicExpiryEnabled If true, enable expiry of unused topics
      * @param clusterResourceListeners List of ClusterResourceListeners which will receive metadata updates.
      */
-    public Metadata(long refreshBackoffMs, long metadataExpireMs, boolean topicExpiryEnabled, ClusterResourceListeners clusterResourceListeners) {
+    public Metadata(int refreshBackoffMs, long metadataExpireMs, boolean topicExpiryEnabled, ClusterResourceListeners clusterResourceListeners) {
         this.refreshBackoffMs = refreshBackoffMs;
         this.metadataExpireMs = metadataExpireMs;
         this.topicExpiryEnabled = topicExpiryEnabled;

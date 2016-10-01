@@ -69,7 +69,7 @@ public class WorkerCoordinatorTest {
     private int sessionTimeoutMs = 10;
     private int rebalanceTimeoutMs = 60;
     private int heartbeatIntervalMs = 2;
-    private long retryBackoffMs = 100;
+    private int retryBackoffMs = 100;
     private MockTime time;
     private MockClient client;
     private Cluster cluster = TestUtils.singletonCluster("topic", 1);

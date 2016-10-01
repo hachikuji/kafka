@@ -145,15 +145,15 @@ public class DistributedConfig extends WorkerConfig {
                         ConfigDef.Importance.MEDIUM,
                         CommonClientConfigs.RECEIVE_BUFFER_DOC)
                 .define(CommonClientConfigs.RECONNECT_BACKOFF_MS_CONFIG,
-                        ConfigDef.Type.LONG,
-                        50L,
-                        atLeast(0L),
+                        ConfigDef.Type.INT,
+                        50,
+                        atLeast(0),
                         ConfigDef.Importance.LOW,
                         CommonClientConfigs.RECONNECT_BACKOFF_MS_DOC)
                 .define(CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG,
-                        ConfigDef.Type.LONG,
-                        100L,
-                        atLeast(0L),
+                        ConfigDef.Type.INT,
+                        100,
+                        atLeast(0),
                         ConfigDef.Importance.LOW,
                         CommonClientConfigs.RETRY_BACKOFF_MS_DOC)
                 .define(CommonClientConfigs.METRICS_SAMPLE_WINDOW_MS_CONFIG,

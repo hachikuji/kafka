@@ -70,7 +70,7 @@ public final class WorkerCoordinator extends AbstractCoordinator implements Clos
                              Metrics metrics,
                              String metricGrpPrefix,
                              Time time,
-                             long retryBackoffMs,
+                             int retryBackoffMs,
                              String restUrl,
                              ConfigBackingStore configStorage,
                              WorkerRebalanceListener listener) {

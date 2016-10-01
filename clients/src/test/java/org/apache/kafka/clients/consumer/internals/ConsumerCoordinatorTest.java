@@ -86,7 +86,7 @@ public class ConsumerCoordinatorTest {
     private int rebalanceTimeoutMs = 60000;
     private int sessionTimeoutMs = 10000;
     private int heartbeatIntervalMs = 5000;
-    private long retryBackoffMs = 100;
+    private int retryBackoffMs = 100;
     private boolean autoCommitEnabled = false;
     private int autoCommitIntervalMs = 2000;
     private MockPartitionAssignor partitionAssignor = new MockPartitionAssignor();

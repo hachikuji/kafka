@@ -54,8 +54,8 @@ public class ConsumerNetworkClient implements Closeable {
     private final Map<Node, List<ClientRequest>> unsent = new HashMap<>();
     private final Metadata metadata;
     private final Time time;
-    private final long retryBackoffMs;
-    private final long unsentExpiryMs;
+    private final int retryBackoffMs;
+    private final int unsentExpiryMs;
     private int wakeupDisabledCount = 0;
 
     // when requests complete, they are transferred to this queue prior to invocation. The purpose
@@ -69,8 +69,8 @@ public class ConsumerNetworkClient implements Closeable {
     public ConsumerNetworkClient(KafkaClient client,
                                  Metadata metadata,
                                  Time time,
-                                 long retryBackoffMs,
-                                 long requestTimeoutMs) {
+                                 int retryBackoffMs,
+                                 int requestTimeoutMs) {
         this.client = client;
         this.metadata = metadata;
         this.time = time;

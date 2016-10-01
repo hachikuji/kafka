@@ -65,7 +65,7 @@ public final class RecordAccumulator {
     private final int batchSize;
     private final CompressionType compression;
     private final long lingerMs;
-    private final long retryBackoffMs;
+    private final int retryBackoffMs;
     private final BufferPool free;
     private final Time time;
     private final ConcurrentMap<TopicPartition, Deque<RecordBatch>> batches;
@@ -92,7 +92,7 @@ public final class RecordAccumulator {
                              long totalSize,
                              CompressionType compression,
                              long lingerMs,
-                             long retryBackoffMs,
+                             int retryBackoffMs,
                              Metrics metrics,
                              Time time) {
         this.drainIndex = 0;

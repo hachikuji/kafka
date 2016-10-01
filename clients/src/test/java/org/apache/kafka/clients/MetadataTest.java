@@ -39,10 +39,10 @@ import static org.junit.Assert.fail;
 
 public class MetadataTest {
 
-    private long refreshBackoffMs = 100;
+    private int refreshBackoffMs = 100;
     private long metadataExpireMs = 1000;
     private Metadata metadata = new Metadata(refreshBackoffMs, metadataExpireMs);
-    private AtomicReference<String> backgroundError = new AtomicReference<String>();
+    private AtomicReference<String> backgroundError = new AtomicReference<>();
 
     @After
     public void tearDown() {
