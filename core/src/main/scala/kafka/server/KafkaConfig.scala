@@ -18,10 +18,12 @@
 package kafka.server
 
 import java.util.Properties
+
 import kafka.api.{ApiVersion, KAFKA_0_10_0_IV1}
 import kafka.cluster.EndPoint
 import kafka.consumer.ConsumerConfig
 import kafka.coordinator.OffsetConfig
+import kafka.log.LogConfig
 import kafka.message.{BrokerCompressionCodec, CompressionCodec, Message, MessageSet}
 import kafka.utils.CoreUtils
 import org.apache.kafka.clients.CommonClientConfigs
@@ -159,6 +161,7 @@ object Defaults {
 
   val CompressionType = "producer"
 
+  val MaxIdMapSnapshots = 1
   /** ********* Kafka Metrics Configuration ***********/
   val MetricNumSamples = 2
   val MetricSampleWindowMs = 30000
@@ -266,9 +269,10 @@ object KafkaConfig {
   val LogFlushIntervalMsProp = "log.flush.interval.ms"
   val LogFlushOffsetCheckpointIntervalMsProp = "log.flush.offset.checkpoint.interval.ms"
   val LogPreAllocateProp = "log.preallocate"
-  val LogMessageFormatVersionProp = LogConfigPrefix + "message.format.version"
-  val LogMessageTimestampTypeProp = LogConfigPrefix + "message.timestamp.type"
-  val LogMessageTimestampDifferenceMaxMsProp = LogConfigPrefix + "message.timestamp.difference.max.ms"
+  val LogMessageFormatVersionProp = LogConfigPrefix + LogConfig.MessageFormatVersionProp
+  val LogMessageTimestampTypeProp = LogConfigPrefix + LogConfig.MessageTimestampTypeProp
+  val LogMessageTimestampDifferenceMaxMsProp = LogConfigPrefix + LogConfig.MessageTimestampDifferenceMaxMsProp
+  val LogMaxIdMapSnapshotsProp = "log.num.id.mapping.snapshots"
   val NumRecoveryThreadsPerDataDirProp = "num.recovery.threads.per.data.dir"
   val AutoCreateTopicsEnableProp = "auto.create.topics.enable"
   val MinInSyncReplicasProp = "min.insync.replicas"
