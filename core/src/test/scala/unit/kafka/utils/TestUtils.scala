@@ -50,6 +50,7 @@ import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.network.{ListenerName, Mode}
 import org.apache.kafka.common.record._
+import org.apache.kafka.common.requests.InitPIDResponse
 import org.apache.kafka.common.serialization.{ByteArraySerializer, Serializer}
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.test.{TestUtils => JTestUtils}
@@ -321,7 +322,7 @@ object TestUtils extends Logging {
   def records(records: Iterable[(Array[Byte], Array[Byte], Long)],
               magicValue: Byte = LogEntry.CURRENT_MAGIC_VALUE,
               codec: CompressionType = CompressionType.NONE,
-              pid: Long = 0,
+              pid: Long = InitPIDResponse.INVALID_PID,
               epoch: Short = 0,
               sequence: Int = 0): MemoryRecords = {
     val kafkaRecords = records.map(record => new KafkaRecord(record._3, record._1, record._2))
@@ -333,7 +334,6 @@ object TestUtils extends Logging {
     }
     builder.build()
   }
-
 
   /**
    * Generate an array of random bytes
