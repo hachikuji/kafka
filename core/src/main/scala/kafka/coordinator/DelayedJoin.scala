@@ -35,6 +35,7 @@ private[coordinator] class DelayedJoin(coordinator: GroupCoordinator,
   extends DelayedOperation(sessionTimeout) {
 
   override def tryComplete(): Boolean = coordinator.tryCompleteJoin(group, forceComplete)
+  override def safeTryComplete(): Boolean = tryComplete()
   override def onExpiration() = coordinator.onExpireJoin()
   override def onComplete() = coordinator.onCompleteJoin(group)
 }
