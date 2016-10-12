@@ -455,102 +455,31 @@ private[log] class Cleaner(val id: Int,
       // read a chunk of messages and copy any that are to be retained to the write buffer to be written out
       readBuffer.clear()
       writeBuffer.clear()
-      var maxTimestamp = Message.NoTimestamp
-      var offsetOfMaxTimestamp = -1L
-      val messages = new ByteBufferMessageSet(source.log.readInto(readBuffer, position))
-      throttler.maybeThrottle(messages.sizeInBytes)
-      // check each message to see if it is to be retained
-      var messagesRead = 0
-      for (entry <- messages.shallowIterator) {
-        val size = MessageSet.entrySize(entry.message)
-        stats.readMessage(size)
-        if (entry.message.compressionCodec == NoCompressionCodec) {
-          if (shouldRetainMessage(source, map, retainDeletes, entry)) {
-            ByteBufferMessageSet.writeMessage(writeBuffer, entry.message, entry.offset)
-            stats.recopyMessage(size)
-            if (entry.message.timestamp > maxTimestamp) {
-              maxTimestamp = entry.message.timestamp
-              offsetOfMaxTimestamp = entry.offset
-            }
-          }
-          messagesRead += 1
-        } else {
-          // We use the absolute offset to decide whether to retain the message or not. This is handled by the
-          // deep iterator.
-          val messages = ByteBufferMessageSet.deepIterator(entry)
-          var writeOriginalMessageSet = true
-          val retainedMessages = new mutable.ArrayBuffer[MessageAndOffset]
-          messages.foreach { messageAndOffset =>
-            messagesRead += 1
-            if (shouldRetainMessage(source, map, retainDeletes, messageAndOffset)) {
-              retainedMessages += messageAndOffset
-              // We need the max timestamp and last offset for time index
-              if (messageAndOffset.message.timestamp > maxTimestamp)
-                maxTimestamp = messageAndOffset.message.timestamp
-            }
-            else writeOriginalMessageSet = false
-          }
-          offsetOfMaxTimestamp = if (retainedMessages.nonEmpty) retainedMessages.last.offset else -1L
-          // There are no messages compacted out and no message format conversion, write the original message set back
-          if (writeOriginalMessageSet)
-            ByteBufferMessageSet.writeMessage(writeBuffer, entry.message, entry.offset)
-          else
-            compressMessages(writeBuffer, entry.message.compressionCodec, messageFormatVersion, retainedMessages)
-        }
-      }
 
-      position += messages.validBytes
+      val result = source.log.filterInto(readBuffer, writeBuffer, position, messageFormatVersion, throttler = Some(throttler),
+        (messageAndOffset: MessageAndOffset) => {
+          shouldRetainMessage(source, map, retainDeletes, messageAndOffset)
+        })
+
+      stats.readMessages(result.messagesRead, result.bytesRead)
+      stats.recopyMessages(result.messagesRetained, result.bytesRetained)
+
+      position += result.bytesRead
+
       // if any messages are to be retained, write them out
       if (writeBuffer.position > 0) {
         writeBuffer.flip()
         val retained = new ByteBufferMessageSet(writeBuffer)
-        dest.append(firstOffset = retained.head.offset, largestTimestamp = maxTimestamp,
-          offsetOfLargestTimestamp = offsetOfMaxTimestamp, messages = retained)
+        dest.append(firstOffset = retained.head.offset, largestTimestamp = result.maxTimestamp,
+          offsetOfLargestTimestamp = result.offsetOfMaxTimestamp, messages = retained)
         throttler.maybeThrottle(writeBuffer.limit)
       }
       
       // if we read bytes but didn't get even one complete message, our I/O buffer is too small, grow it and try again
-      if (readBuffer.limit > 0 && messagesRead == 0)
+      if (readBuffer.limit > 0 && result.messagesRead == 0)
         growBuffers(maxLogMessageSize)
     }
     restoreBuffers()
-  }
-
-  private def compressMessages(buffer: ByteBuffer,
-                               compressionCodec: CompressionCodec,
-                               messageFormatVersion: Byte,
-                               messageAndOffsets: Seq[MessageAndOffset]) {
-    require(compressionCodec != NoCompressionCodec, s"compressionCodec must not be $NoCompressionCodec")
-    if (messageAndOffsets.nonEmpty) {
-      val messages = messageAndOffsets.map(_.message)
-      val magicAndTimestamp = MessageSet.magicAndLargestTimestamp(messages)
-      val firstMessageOffset = messageAndOffsets.head
-      val firstAbsoluteOffset = firstMessageOffset.offset
-      var offset = -1L
-      val timestampType = firstMessageOffset.message.timestampType
-      val messageWriter = new MessageWriter(math.min(math.max(MessageSet.messageSetSize(messages) / 2, 1024), 1 << 16))
-      messageWriter.write(codec = compressionCodec, timestamp = magicAndTimestamp.timestamp, timestampType = timestampType, magicValue = messageFormatVersion) { outputStream =>
-        val output = new DataOutputStream(CompressionFactory(compressionCodec, messageFormatVersion, outputStream))
-        try {
-          for (messageOffset <- messageAndOffsets) {
-            val message = messageOffset.message
-            offset = messageOffset.offset
-            if (messageFormatVersion > Message.MagicValue_V0) {
-              // The offset of the messages are absolute offset, compute the inner offset.
-              val innerOffset = messageOffset.offset - firstAbsoluteOffset
-              output.writeLong(innerOffset)
-            } else
-              output.writeLong(offset)
-            output.writeInt(message.size)
-            output.write(message.buffer.array, message.buffer.arrayOffset, message.buffer.limit)
-          }
-        } finally {
-          output.close()
-        }
-      }
-      ByteBufferMessageSet.writeMessage(buffer, messageWriter, offset)
-      stats.recopyMessage(messageWriter.size + MessageSet.LogOverhead)
-    }
   }
 
   private def shouldRetainMessage(source: kafka.log.LogSegment,
@@ -714,6 +643,11 @@ private case class CleanerStats(time: Time = SystemTime) {
     bytesRead += size
   }
 
+  def readMessages(messagesRead: Int, bytesRead: Int) {
+    this.messagesRead += messagesRead
+    this.bytesRead += bytesRead
+  }
+
   def invalidMessage() {
     invalidMessagesRead += 1
   }
@@ -721,6 +655,11 @@ private case class CleanerStats(time: Time = SystemTime) {
   def recopyMessage(size: Int) {
     messagesWritten += 1
     bytesWritten += size
+  }
+
+  def recopyMessages(messagesWritten: Int, bytesWritten: Int) {
+    this.messagesWritten += messagesWritten
+    this.bytesWritten += bytesWritten
   }
 
   def indexMessagesRead(size: Int) {
