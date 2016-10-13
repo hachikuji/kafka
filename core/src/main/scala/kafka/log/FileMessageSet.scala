@@ -443,27 +443,29 @@ class FileMessageSet private[kafka](@volatile var file: File,
     var messagesRetained = 0
     var bytesRetained = 0
 
-    for (entry <- messages.shallowIterator) {
-      val size = MessageSet.entrySize(entry.message)
+    for (messageAndOffset <- messages.shallowIterator) {
+      val message = messageAndOffset.message
+      val offset = messageAndOffset.offset
+      val size = MessageSet.entrySize(message)
       messagesRead += 1
       bytesRead += size
 
-      if (entry.message.compressionCodec == NoCompressionCodec) {
-        if (filter(entry)) {
-          ByteBufferMessageSet.writeMessage(writeBuffer, entry.message, entry.offset)
+      if (message.compressionCodec == NoCompressionCodec) {
+        if (filter(messageAndOffset)) {
+          ByteBufferMessageSet.writeMessage(writeBuffer, message, offset)
           messagesRetained += 1
           bytesRetained += size
 
-          if (entry.message.timestamp > maxTimestamp) {
-            maxTimestamp = entry.message.timestamp
-            offsetOfMaxTimestamp = entry.offset
+          if (message.timestamp > maxTimestamp) {
+            maxTimestamp = message.timestamp
+            offsetOfMaxTimestamp = offset
           }
         }
         messagesRead += 1
       } else {
         // We use the absolute offset to decide whether to retain the message or not. This is handled by the
         // deep iterator.
-        val messages = ByteBufferMessageSet.deepIterator(entry)
+        val messages = ByteBufferMessageSet.deepIterator(messageAndOffset)
         var writeOriginalMessageSet = true
         val retainedMessages = new scala.collection.mutable.ArrayBuffer[MessageAndOffset]
         messages.foreach { messageAndOffset =>
@@ -478,10 +480,11 @@ class FileMessageSet private[kafka](@volatile var file: File,
         }
         offsetOfMaxTimestamp = if (retainedMessages.nonEmpty) retainedMessages.last.offset else -1L
         // There are no messages compacted out and no message format conversion, write the original message set back
-        if (writeOriginalMessageSet)
-          ByteBufferMessageSet.writeMessage(writeBuffer, entry.message, entry.offset)
-        else if (retainedMessages.nonEmpty) {
-          val compressedSize = compressMessages(writeBuffer, entry.message.compressionCodec, messageFormatVersion, retainedMessages)
+        if (writeOriginalMessageSet) {
+          ByteBufferMessageSet.writeMessage(writeBuffer, message, offset)
+        } else if (retainedMessages.nonEmpty) {
+          val compressedSize = ByteBufferMessageSet.writeCompressedMessage(writeBuffer, message.compressionCodec,
+            messageFormatVersion, retainedMessages)
           messagesRetained += 1
           bytesRetained += compressedSize
         }
@@ -489,46 +492,6 @@ class FileMessageSet private[kafka](@volatile var file: File,
     }
 
     FilterResult(messagesRead, bytesRead, messagesRetained, bytesRetained, maxTimestamp, offsetOfMaxTimestamp)
-  }
-
-  private def compressMessages(buffer: ByteBuffer,
-                               compressionCodec: CompressionCodec,
-                               messageFormatVersion: Byte,
-                               messageAndOffsets: Seq[MessageAndOffset]): Int = {
-    require(compressionCodec != NoCompressionCodec, s"compressionCodec must not be $NoCompressionCodec")
-
-    if (messageAndOffsets.isEmpty)
-      0
-    else {
-      val messages = messageAndOffsets.map(_.message)
-      val magicAndTimestamp = MessageSet.magicAndLargestTimestamp(messages)
-      val firstMessageOffset = messageAndOffsets.head
-      val firstAbsoluteOffset = firstMessageOffset.offset
-      var offset = -1L
-      val timestampType = firstMessageOffset.message.timestampType
-      val messageWriter = new MessageWriter(math.min(math.max(MessageSet.messageSetSize(messages) / 2, 1024), 1 << 16))
-      messageWriter.write(codec = compressionCodec, timestamp = magicAndTimestamp.timestamp, timestampType = timestampType, magicValue = messageFormatVersion) { outputStream =>
-        val output = new DataOutputStream(CompressionFactory(compressionCodec, messageFormatVersion, outputStream))
-        try {
-          for (messageOffset <- messageAndOffsets) {
-            val message = messageOffset.message
-            offset = messageOffset.offset
-            if (messageFormatVersion > Message.MagicValue_V0) {
-              // The offset of the messages are absolute offset, compute the inner offset.
-              val innerOffset = messageOffset.offset - firstAbsoluteOffset
-              output.writeLong(innerOffset)
-            } else
-              output.writeLong(offset)
-            output.writeInt(message.size)
-            output.write(message.buffer.array, message.buffer.arrayOffset, message.buffer.limit)
-          }
-        } finally {
-          output.close()
-        }
-      }
-      ByteBufferMessageSet.writeMessage(buffer, messageWriter, offset)
-      messageWriter.size + MessageSet.LogOverhead
-    }
   }
 
   /**

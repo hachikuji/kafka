@@ -457,9 +457,7 @@ private[log] class Cleaner(val id: Int,
       writeBuffer.clear()
 
       val result = source.log.filterInto(readBuffer, writeBuffer, position, messageFormatVersion, throttler = Some(throttler),
-        (messageAndOffset: MessageAndOffset) => {
-          shouldRetainMessage(source, map, retainDeletes, messageAndOffset)
-        })
+        (messageAndOffset: MessageAndOffset) => shouldRetainMessage(source, map, retainDeletes, messageAndOffset))
 
       stats.readMessages(result.messagesRead, result.bytesRead)
       stats.recopyMessages(result.messagesRetained, result.bytesRetained)
