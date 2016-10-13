@@ -636,11 +636,6 @@ private case class CleanerStats(time: Time = SystemTime) {
   var bufferUtilization = 0.0d
   clear()
   
-  def readMessage(size: Int) {
-    messagesRead += 1
-    bytesRead += size
-  }
-
   def readMessages(messagesRead: Int, bytesRead: Int) {
     this.messagesRead += messagesRead
     this.bytesRead += bytesRead
@@ -650,11 +645,6 @@ private case class CleanerStats(time: Time = SystemTime) {
     invalidMessagesRead += 1
   }
   
-  def recopyMessage(size: Int) {
-    messagesWritten += 1
-    bytesWritten += size
-  }
-
   def recopyMessages(messagesWritten: Int, bytesWritten: Int) {
     this.messagesWritten += messagesWritten
     this.bytesWritten += bytesWritten
