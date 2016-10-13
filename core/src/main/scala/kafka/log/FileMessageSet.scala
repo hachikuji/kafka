@@ -483,7 +483,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
         if (writeOriginalMessageSet) {
           ByteBufferMessageSet.writeMessage(writeBuffer, message, offset)
         } else if (retainedMessages.nonEmpty) {
-          val compressedSize = ByteBufferMessageSet.writeCompressedMessage(writeBuffer, message.compressionCodec,
+          val compressedSize = ByteBufferMessageSet.convertCompressedMessages(writeBuffer, message.compressionCodec,
             messageFormatVersion, retainedMessages)
           messagesRetained += 1
           bytesRetained += compressedSize
