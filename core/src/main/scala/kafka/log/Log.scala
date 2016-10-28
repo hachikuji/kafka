@@ -19,7 +19,6 @@ package kafka.log
 
 import kafka.api.KAFKA_0_10_0_IV0
 import kafka.utils._
-import kafka.message._
 import kafka.common._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{BrokerTopicStats, FetchDataInfo, LogOffsetMetadata}
@@ -28,16 +27,20 @@ import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap}
 import java.util.concurrent.atomic._
 import java.text.NumberFormat
 
-import org.apache.kafka.common.errors.{UnsupportedForMessageFormatException, CorruptRecordException, OffsetOutOfRangeException, RecordBatchTooLargeException, RecordTooLargeException}
-import org.apache.kafka.common.record.TimestampType
+import org.apache.kafka.common.errors.{CorruptRecordException, OffsetOutOfRangeException, RecordBatchTooLargeException, RecordTooLargeException, UnsupportedForMessageFormatException}
+import org.apache.kafka.common.record.{FileLogBuffer, MemoryLogBuffer, Record, TimestampType}
 import org.apache.kafka.common.requests.ListOffsetRequest
 
-import scala.collection.{Seq, JavaConversions}
+import scala.collection.{JavaConversions, Seq}
 import com.yammer.metrics.core.Gauge
+import kafka.message.{BrokerCompressionCodec, CompressionCodec, NoCompressionCodec}
 import org.apache.kafka.common.utils.Utils
 
+import scala.collection.JavaConverters._
+
 object LogAppendInfo {
-  val UnknownLogAppendInfo = LogAppendInfo(-1, -1, Message.NoTimestamp, -1L, Message.NoTimestamp, NoCompressionCodec, NoCompressionCodec, -1, -1, offsetsMonotonic = false)
+  val UnknownLogAppendInfo = LogAppendInfo(-1, -1, Record.NO_TIMESTAMP, -1L, Record.NO_TIMESTAMP,
+    NoCompressionCodec, NoCompressionCodec, -1, -1, offsetsMonotonic = false)
 }
 
 /**
@@ -237,7 +240,7 @@ class Log(val dir: File,
       val index =  new OffsetIndex(indexFile, baseOffset = startOffset, maxIndexSize = config.maxIndexSize)
       val timeIndexFile = new File(CoreUtils.replaceSuffix(logFile.getPath, LogFileSuffix, TimeIndexFileSuffix) + SwapFileSuffix)
       val timeIndex = new TimeIndex(timeIndexFile, baseOffset = startOffset, maxIndexSize = config.maxIndexSize)
-      val swapSegment = new LogSegment(new FileMessageSet(file = swapFile),
+      val swapSegment = new LogSegment(FileLogBuffer.open(swapFile),
                                        index = index,
                                        timeIndex = timeIndex,
                                        baseOffset = startOffset,
@@ -331,20 +334,20 @@ class Log(val dir: File,
    * This method will generally be responsible for assigning offsets to the messages,
    * however if the assignOffsets=false flag is passed we will only check that the existing offsets are valid.
    *
-   * @param messages The message set to append
+   * @param records The message set to append
    * @param assignOffsets Should the log assign offsets to this message set or blindly apply what it is given
    * @throws KafkaStorageException If the append fails due to an I/O error.
    * @return Information about the appended messages including the first and last offset.
    */
-  def append(messages: ByteBufferMessageSet, assignOffsets: Boolean = true): LogAppendInfo = {
-    val appendInfo = analyzeAndValidateMessageSet(messages)
+  def append(records: MemoryLogBuffer, assignOffsets: Boolean = true): LogAppendInfo = {
+    val appendInfo = analyzeAndValidateMessageSet(records)
 
     // if we have any valid messages, append them to the log
     if (appendInfo.shallowCount == 0)
       return appendInfo
 
     // trim any invalid bytes or partial messages before appending it to the on-disk log
-    var validMessages = trimInvalidBytes(messages, appendInfo)
+    var validRecords = trimInvalidBytes(records, appendInfo)
 
     try {
       // they are valid, insert them in the log
@@ -356,18 +359,19 @@ class Log(val dir: File,
           appendInfo.firstOffset = offset.value
           val now = time.milliseconds
           val validateAndOffsetAssignResult = try {
-            validMessages.validateMessagesAndAssignOffsets(offset,
-                                                           now,
-                                                           appendInfo.sourceCodec,
-                                                           appendInfo.targetCodec,
-                                                           config.compact,
-                                                           config.messageFormatVersion.messageFormatVersion,
-                                                           config.messageTimestampType,
-                                                           config.messageTimestampDifferenceMaxMs)
+            LogValidator.validateMessagesAndAssignOffsets(validRecords,
+                                                          offset,
+                                                          now,
+                                                          appendInfo.sourceCodec,
+                                                          appendInfo.targetCodec,
+                                                          config.compact,
+                                                          config.messageFormatVersion.messageFormatVersion,
+                                                          config.messageTimestampType,
+                                                          config.messageTimestampDifferenceMaxMs)
           } catch {
             case e: IOException => throw new KafkaException("Error in validating messages while appending to log '%s'".format(name), e)
           }
-          validMessages = validateAndOffsetAssignResult.validatedMessages
+          validRecords = validateAndOffsetAssignResult.validatedRecords
           appendInfo.maxTimestamp = validateAndOffsetAssignResult.maxTimestamp
           appendInfo.offsetOfMaxTimestamp = validateAndOffsetAssignResult.offsetOfMaxTimestamp
           appendInfo.lastOffset = offset.value - 1
@@ -377,14 +381,14 @@ class Log(val dir: File,
           // re-validate message sizes if there's a possibility that they have changed (due to re-compression or message
           // format conversion)
           if (validateAndOffsetAssignResult.messageSizeMaybeChanged) {
-            for (messageAndOffset <- validMessages.shallowIterator) {
-              if (MessageSet.entrySize(messageAndOffset.message) > config.maxMessageSize) {
+            for (logEntry <- validRecords.iterator(true).asScala) {
+              if (logEntry.size > config.maxMessageSize) {
                 // we record the original message set size instead of the trimmed size
                 // to be consistent with pre-compression bytesRejectedRate recording
-                BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(messages.sizeInBytes)
-                BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(messages.sizeInBytes)
+                BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(records.sizeInBytes)
+                BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(records.sizeInBytes)
                 throw new RecordTooLargeException("Message size is %d bytes which exceeds the maximum configured message size of %d."
-                  .format(MessageSet.entrySize(messageAndOffset.message), config.maxMessageSize))
+                  .format(logEntry.size, config.maxMessageSize))
               }
             }
           }
@@ -392,28 +396,27 @@ class Log(val dir: File,
         } else {
           // we are taking the offsets we are given
           if (!appendInfo.offsetsMonotonic || appendInfo.firstOffset < nextOffsetMetadata.messageOffset)
-            throw new IllegalArgumentException("Out of order offsets found in " + messages)
+            throw new IllegalArgumentException("Out of order offsets found in " + records.asScala.map(_.offset))
         }
 
         // check messages set size may be exceed config.segmentSize
-        if (validMessages.sizeInBytes > config.segmentSize) {
+        if (validRecords.sizeInBytes > config.segmentSize) {
           throw new RecordBatchTooLargeException("Message set size is %d bytes which exceeds the maximum configured segment size of %d."
-            .format(validMessages.sizeInBytes, config.segmentSize))
+            .format(validRecords.sizeInBytes, config.segmentSize))
         }
 
         // maybe roll the log if this segment is full
-        val segment = maybeRoll(messagesSize = validMessages.sizeInBytes,
-                                maxTimestampInMessages = appendInfo.maxTimestamp)
+        val segment = maybeRoll(messagesSize = validRecords.sizeInBytes, maxTimestampInMessages = appendInfo.maxTimestamp)
 
         // now append to the log
         segment.append(firstOffset = appendInfo.firstOffset, largestTimestamp = appendInfo.maxTimestamp,
-          offsetOfLargestTimestamp = appendInfo.offsetOfMaxTimestamp, messages = validMessages)
+          offsetOfLargestTimestamp = appendInfo.offsetOfMaxTimestamp, records = MemoryLogBuffer.readableRecords(validRecords.buffer))
 
         // increment the log end offset
         updateLogEndOffset(appendInfo.lastOffset + 1)
 
         trace("Appended message set to log %s with first offset: %d, next offset: %d, and messages: %s"
-          .format(this.name, appendInfo.firstOffset, nextOffsetMetadata.messageOffset, validMessages))
+          .format(this.name, appendInfo.firstOffset, nextOffsetMetadata.messageOffset, validRecords))
 
         if (unflushedMessages >= config.flushInterval)
           flush()
@@ -442,73 +445,73 @@ class Log(val dir: File,
    * <li> Whether any compression codec is used (if many are used, then the last one is given)
    * </ol>
    */
-  private def analyzeAndValidateMessageSet(messages: ByteBufferMessageSet): LogAppendInfo = {
+  private def analyzeAndValidateMessageSet(records: MemoryLogBuffer): LogAppendInfo = {
     var shallowMessageCount = 0
     var validBytesCount = 0
     var firstOffset, lastOffset = -1L
     var sourceCodec: CompressionCodec = NoCompressionCodec
     var monotonic = true
-    var maxTimestamp = Message.NoTimestamp
+    var maxTimestamp = Record.NO_TIMESTAMP
     var offsetOfMaxTimestamp = -1L
-    for(messageAndOffset <- messages.shallowIterator) {
+    for(logEntry <- records.iterator(true).asScala) {
       // update the first offset if on the first message
       if(firstOffset < 0)
-        firstOffset = messageAndOffset.offset
+        firstOffset = logEntry.offset
       // check that offsets are monotonically increasing
-      if(lastOffset >= messageAndOffset.offset)
+      if(lastOffset >= logEntry.offset)
         monotonic = false
       // update the last offset seen
-      lastOffset = messageAndOffset.offset
+      lastOffset = logEntry.offset
 
-      val m = messageAndOffset.message
+      val record = logEntry.record
 
       // Check if the message sizes are valid.
-      val messageSize = MessageSet.entrySize(m)
+      val messageSize = logEntry.size
       if(messageSize > config.maxMessageSize) {
-        BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(messages.sizeInBytes)
-        BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(messages.sizeInBytes)
+        BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(records.sizeInBytes)
+        BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(records.sizeInBytes)
         throw new RecordTooLargeException("Message size is %d bytes which exceeds the maximum configured message size of %d."
           .format(messageSize, config.maxMessageSize))
       }
 
       // check the validity of the message by checking CRC
-      m.ensureValid()
-      if (m.timestamp > maxTimestamp) {
-        maxTimestamp = m.timestamp
+      record.ensureValid()
+      if (record.timestamp > maxTimestamp) {
+        maxTimestamp = record.timestamp
         offsetOfMaxTimestamp = lastOffset
       }
       shallowMessageCount += 1
       validBytesCount += messageSize
 
-      val messageCodec = m.compressionCodec
-      if(messageCodec != NoCompressionCodec)
+      val messageCodec = CompressionCodec.getCompressionCodec(record.compressionType.id)
+      if (messageCodec != NoCompressionCodec)
         sourceCodec = messageCodec
     }
 
     // Apply broker-side compression if any
     val targetCodec = BrokerCompressionCodec.getTargetCompressionCodec(config.compressionType, sourceCodec)
 
-    LogAppendInfo(firstOffset, lastOffset, maxTimestamp, offsetOfMaxTimestamp, Message.NoTimestamp, sourceCodec, targetCodec, shallowMessageCount, validBytesCount, monotonic)
+    LogAppendInfo(firstOffset, lastOffset, maxTimestamp, offsetOfMaxTimestamp, Record.NO_TIMESTAMP, sourceCodec, targetCodec, shallowMessageCount, validBytesCount, monotonic)
   }
 
   /**
    * Trim any invalid bytes from the end of this message set (if there are any)
    *
-   * @param messages The message set to trim
+   * @param records The message set to trim
    * @param info The general information of the message set
    * @return A trimmed message set. This may be the same as what was passed in or it may not.
    */
-  private def trimInvalidBytes(messages: ByteBufferMessageSet, info: LogAppendInfo): ByteBufferMessageSet = {
+  private def trimInvalidBytes(records: MemoryLogBuffer, info: LogAppendInfo): MemoryLogBuffer = {
     val messageSetValidBytes = info.validBytes
     if(messageSetValidBytes < 0)
       throw new CorruptRecordException("Illegal length of message set " + messageSetValidBytes + " Message set cannot be appended to log. Possible causes are corrupted produce requests")
-    if(messageSetValidBytes == messages.sizeInBytes) {
-      messages
+    if(messageSetValidBytes == records.sizeInBytes) {
+      records
     } else {
       // trim invalid bytes
-      val validByteBuffer = messages.buffer.duplicate()
+      val validByteBuffer = records.buffer.duplicate()
       validByteBuffer.limit(messageSetValidBytes)
-      new ByteBufferMessageSet(validByteBuffer)
+      MemoryLogBuffer.readableRecords(validByteBuffer)
     }
   }
 
@@ -531,7 +534,7 @@ class Log(val dir: File,
     val currentNextOffsetMetadata = nextOffsetMetadata
     val next = currentNextOffsetMetadata.messageOffset
     if(startOffset == next)
-      return FetchDataInfo(currentNextOffsetMetadata, MessageSet.Empty)
+      return FetchDataInfo(currentNextOffsetMetadata, MemoryLogBuffer.EMPTY)
 
     var entry = segments.floorEntry(startOffset)
 
@@ -571,7 +574,7 @@ class Log(val dir: File,
     // okay we are beyond the end of the last segment with no data fetched although the start offset is in range,
     // this can happen when all messages with offset larger than start offsets have been deleted.
     // In this case, we will return the empty set with log end offset metadata
-    FetchDataInfo(nextOffsetMetadata, MessageSet.Empty)
+    FetchDataInfo(nextOffsetMetadata, MemoryLogBuffer.EMPTY)
   }
 
   /**
@@ -601,9 +604,9 @@ class Log(val dir: File,
     // For the earliest and latest, we do not need to return the timestamp.
     val segsArray = logSegments.toArray
     if (targetTimestamp == ListOffsetRequest.EARLIEST_TIMESTAMP)
-        return Some(TimestampOffset(Message.NoTimestamp, segsArray(0).baseOffset))
+        return Some(TimestampOffset(Record.NO_TIMESTAMP, segsArray(0).baseOffset))
     else if (targetTimestamp == ListOffsetRequest.LATEST_TIMESTAMP)
-        return Some(TimestampOffset(Message.NoTimestamp, logEndOffset))
+        return Some(TimestampOffset(Record.NO_TIMESTAMP, logEndOffset))
 
     val targetSeg = {
       // Get all the segments whose largest timestamp is smaller than target timestamp
@@ -874,7 +877,7 @@ class Log(val dir: File,
     debug("Truncate and start log '" + name + "' to " + newOffset)
     lock synchronized {
       val segmentsToDelete = logSegments.toList
-      segmentsToDelete.foreach(deleteSegment(_))
+      segmentsToDelete.foreach(deleteSegment)
       addSegment(new LogSegment(dir,
                                 newOffset,
                                 indexIntervalBytes = config.indexInterval,

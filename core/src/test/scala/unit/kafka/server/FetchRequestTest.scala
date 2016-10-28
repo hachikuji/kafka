@@ -25,7 +25,7 @@ import kafka.utils.TestUtils._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.{ApiKeys, Errors, ProtoUtils}
-import org.apache.kafka.common.record.{LogEntry, MemoryRecords}
+import org.apache.kafka.common.record.{LogEntry, MemoryLogBuffer}
 import org.apache.kafka.common.requests.{FetchRequest, FetchResponse}
 import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.Test
@@ -166,7 +166,7 @@ class FetchRequestTest extends BaseRequestTest {
 
   private def logEntries(partitionData: FetchResponse.PartitionData): Seq[LogEntry] = {
     val memoryRecords = partitionData.records
-    memoryRecords.iterator.asScala.toIndexedSeq
+    memoryRecords.asScala.toIndexedSeq
   }
 
   private def checkFetchResponse(expectedPartitions: Seq[TopicPartition], fetchResponse: FetchResponse,
@@ -184,7 +184,7 @@ class FetchRequestTest extends BaseRequestTest {
       val memoryRecords = partitionData.records
       responseBufferSize += memoryRecords.sizeInBytes
 
-      val messages = memoryRecords.iterator.asScala.toIndexedSeq
+      val messages = memoryRecords.asScala.toIndexedSeq
       assertTrue(messages.size < numMessagesPerPartition)
       val messagesSize = messages.map(_.size).sum
       responseSize += messagesSize

@@ -17,18 +17,17 @@
 
 package kafka.server
 
-
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-import kafka.api.FetchResponsePartitionData
 import kafka.cluster.Broker
 import kafka.common.TopicAndPartition
-import kafka.message.{ByteBufferMessageSet, Message, MessageSet}
+import kafka.message.{ByteBufferMessageSet, Message}
 import kafka.utils.{MockScheduler, MockTime, TestUtils, ZkUtils}
 import org.I0Itec.zkclient.ZkClient
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.record.{LogBuffer, MemoryLogBuffer}
 import org.apache.kafka.common.requests.{LeaderAndIsrRequest, PartitionState}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
@@ -111,7 +110,7 @@ class ReplicaManagerTest {
         timeout = 0,
         requiredAcks = 3,
         internalTopicsAllowed = false,
-        messagesPerPartition = Map(new TopicPartition("test1", 0) -> new ByteBufferMessageSet(new Message("first message".getBytes))),
+        recordsPerPartition = Map(new TopicPartition("test1", 0) -> new ByteBufferMessageSet(new Message("first message".getBytes)).asLogBuffer),
         responseCallback = callback)
     } finally {
       rm.shutdown(checkpointHW = false)
@@ -137,7 +136,7 @@ class ReplicaManagerTest {
       }
 
       var fetchCallbackFired = false
-      def fetchCallback(responseStatus: Seq[(TopicAndPartition, FetchResponsePartitionData)]) = {
+      def fetchCallback(responseStatus: Seq[(TopicAndPartition, FetchPartitionData)]) = {
         assertEquals("Should give NotLeaderForPartitionException", Errors.NOT_LEADER_FOR_PARTITION.code, responseStatus.map(_._2).head.error)
         fetchCallbackFired = true
       }
@@ -164,7 +163,7 @@ class ReplicaManagerTest {
         timeout = 1000,
         requiredAcks = -1,
         internalTopicsAllowed = false,
-        messagesPerPartition = Map(new TopicPartition(topic, 0) -> new ByteBufferMessageSet(new Message("first message".getBytes))),
+        recordsPerPartition = Map(new TopicPartition(topic, 0) -> new ByteBufferMessageSet(new Message("first message".getBytes)).asLogBuffer),
         responseCallback = produceCallback)
 
       // Fetch some messages
@@ -226,15 +225,15 @@ class ReplicaManagerTest {
           timeout = 1000,
           requiredAcks = -1,
           internalTopicsAllowed = false,
-          messagesPerPartition = Map(new TopicPartition(topic, 0) -> new ByteBufferMessageSet(new Message("message %d".format(i).getBytes))),
+          recordsPerPartition = Map(new TopicPartition(topic, 0) -> new ByteBufferMessageSet(new Message("message %d".format(i).getBytes)).asLogBuffer),
           responseCallback = produceCallback)
       
       var fetchCallbackFired = false
       var fetchError = 0
-      var fetchedMessages: MessageSet = null
-      def fetchCallback(responseStatus: Seq[(TopicAndPartition, FetchResponsePartitionData)]) = {
+      var fetchedMessages: LogBuffer = null
+      def fetchCallback(responseStatus: Seq[(TopicAndPartition, FetchPartitionData)]) = {
         fetchError = responseStatus.map(_._2).head.error
-        fetchedMessages = responseStatus.map(_._2).head.messages
+        fetchedMessages = responseStatus.map(_._2).head.logBuffer
         fetchCallbackFired = true
       }
       
@@ -251,7 +250,7 @@ class ReplicaManagerTest {
       
       assertTrue(fetchCallbackFired)
       assertEquals("Should not give an exception", Errors.NONE.code, fetchError)
-      assertTrue("Should return some data", fetchedMessages.iterator.hasNext)
+      assertTrue("Should return some data", fetchedMessages.iterator().hasNext)
       fetchCallbackFired = false
       
       // Fetch a message above the high watermark as a consumer
@@ -266,7 +265,7 @@ class ReplicaManagerTest {
           
         assertTrue(fetchCallbackFired)
         assertEquals("Should not give an exception", Errors.NONE.code, fetchError)
-        assertEquals("Should return empty response", MessageSet.Empty, fetchedMessages)
+        assertEquals("Should return empty response", MemoryLogBuffer.EMPTY, fetchedMessages)
     } finally {
       rm.shutdown(checkpointHW = false)
     }

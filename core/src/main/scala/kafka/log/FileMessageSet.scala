@@ -28,12 +28,11 @@ import kafka.common.KafkaException
 import java.util.concurrent.TimeUnit
 
 import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
-import org.apache.kafka.common.errors.CorruptRecordException
-import org.apache.kafka.common.network.TransportLayer
-import org.apache.kafka.common.record.FileRecords
+import org.apache.kafka.common.record.FileLogBuffer
 import org.apache.kafka.common.utils.Utils
 
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.JavaConverters._
 
 /**
  * An on-disk message set. An optional start and end position can be applied to the message set
@@ -49,7 +48,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
                                     private[log] val channel: FileChannel,
                                     private[log] val start: Int,
                                     private[log] val end: Int,
-                                    isSlice: Boolean) extends MessageSet {
+                                    val isSlice: Boolean) extends MessageSet {
   /* the size of the message set in bytes */
   private val _size =
     if(isSlice)
@@ -127,7 +126,12 @@ class FileMessageSet private[kafka](@volatile var file: File,
                        })
   }
 
-  override def asRecords: FileRecords = new FileRecords(file, channel, start, end, isSlice)
+  override def asLogBuffer: FileLogBuffer = {
+    if (isSlice)
+      new FileLogBuffer(file, channel, start, end, true)
+    else
+      new FileLogBuffer(file, channel, start, _size.get, false)
+  }
 
   /**
    * Search forward for the file position of the last offset that is greater than or equal to the target offset
@@ -138,25 +142,11 @@ class FileMessageSet private[kafka](@volatile var file: File,
    * @param startingPosition The starting position in the file to begin searching from.
    */
   def searchForOffsetWithSize(targetOffset: Long, startingPosition: Int): (OffsetPosition, Int) = {
-    var position = startingPosition
-    val buffer = ByteBuffer.allocate(MessageSet.LogOverhead)
-    val size = sizeInBytes()
-    while(position + MessageSet.LogOverhead < size) {
-      buffer.rewind()
-      channel.read(buffer, position)
-      if(buffer.hasRemaining)
-        throw new IllegalStateException("Failed to read complete buffer for targetOffset %d startPosition %d in %s"
-          .format(targetOffset, startingPosition, file.getAbsolutePath))
-      buffer.rewind()
-      val offset = buffer.getLong()
-      val messageSize = buffer.getInt()
-      if (messageSize < Message.MinMessageOverhead)
-        throw new IllegalStateException("Invalid message size: " + messageSize)
-      if (offset >= targetOffset)
-        return (OffsetPosition(offset, position), messageSize + MessageSet.LogOverhead)
-      position += MessageSet.LogOverhead + messageSize
-    }
-    null
+    val recordPosition = asLogBuffer.searchForOffsetWithSize(targetOffset, startingPosition)
+    if (recordPosition == null)
+      null
+    else
+      (OffsetPosition(recordPosition.offset, recordPosition.position.toInt), recordPosition.size)
   }
 
   /**
@@ -167,27 +157,9 @@ class FileMessageSet private[kafka](@volatile var file: File,
    * @return The timestamp and offset of the message found. None, if no message is found.
    */
   def searchForTimestamp(targetTimestamp: Long, startingPosition: Int): Option[TimestampOffset] = {
-    val messagesToSearch = read(startingPosition, sizeInBytes)
-    for (messageAndOffset <- messagesToSearch) {
-      val message = messageAndOffset.message
-      if (message.timestamp >= targetTimestamp) {
-        // We found a message
-        message.compressionCodec match {
-          case NoCompressionCodec =>
-            return Some(TimestampOffset(messageAndOffset.message.timestamp, messageAndOffset.offset))
-          case _ =>
-            // Iterate over the inner messages to get the exact offset.
-            for (innerMessageAndOffset <- ByteBufferMessageSet.deepIterator(messageAndOffset)) {
-              val timestamp = innerMessageAndOffset.message.timestamp
-              if (timestamp >= targetTimestamp)
-                return Some(TimestampOffset(innerMessageAndOffset.message.timestamp, innerMessageAndOffset.offset))
-            }
-            throw new IllegalStateException(s"The message set (max timestamp = ${message.timestamp}, max offset = ${messageAndOffset.offset}" +
-                s" should contain target timestamp $targetTimestamp but it does not.")
-        }
-      }
+    Option(asLogBuffer.searchForTimestamp(targetTimestamp, startingPosition)).map { timestampAndOffset =>
+      TimestampOffset(timestampAndOffset.timestamp, timestampAndOffset.offset)
     }
-    None
   }
 
   /**
@@ -196,16 +168,8 @@ class FileMessageSet private[kafka](@volatile var file: File,
    * @return The largest timestamp of the messages after the given position.
    */
   def largestTimestampAfter(startingPosition: Int): TimestampOffset = {
-    var maxTimestamp = Message.NoTimestamp
-    var offsetOfMaxTimestamp = -1L
-    val messagesToSearch = read(startingPosition, Int.MaxValue)
-    for (messageAndOffset <- messagesToSearch) {
-      if (messageAndOffset.message.timestamp > maxTimestamp) {
-        maxTimestamp = messageAndOffset.message.timestamp
-        offsetOfMaxTimestamp = messageAndOffset.offset
-      }
-    }
-    TimestampOffset(maxTimestamp, offsetOfMaxTimestamp)
+    val timestampAndOffset = asLogBuffer.largestTimestampAfter(startingPosition)
+    TimestampOffset(timestampAndOffset.timestamp, timestampAndOffset.offset)
   }
 
   /**
@@ -216,26 +180,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
     * @return true if all messages have expected magic value, false otherwise
     */
   override def isMagicValueInAllWrapperMessages(expectedMagicValue: Byte): Boolean = {
-    var location = start
-    val offsetAndSizeBuffer = ByteBuffer.allocate(MessageSet.LogOverhead)
-    val crcAndMagicByteBuffer = ByteBuffer.allocate(Message.CrcLength + Message.MagicLength)
-    while (location < end) {
-      offsetAndSizeBuffer.rewind()
-      channel.read(offsetAndSizeBuffer, location)
-      if (offsetAndSizeBuffer.hasRemaining)
-        return true
-      offsetAndSizeBuffer.rewind()
-      offsetAndSizeBuffer.getLong // skip offset field
-      val messageSize = offsetAndSizeBuffer.getInt
-      if (messageSize < Message.MinMessageOverhead)
-        throw new IllegalStateException("Invalid message size: " + messageSize)
-      crcAndMagicByteBuffer.rewind()
-      channel.read(crcAndMagicByteBuffer, location + MessageSet.LogOverhead)
-      if (crcAndMagicByteBuffer.get(Message.MagicOffset) != expectedMagicValue)
-        return false
-      location += (MessageSet.LogOverhead + messageSize)
-    }
-    true
+    asLogBuffer.hasMatchingShallowMagic(expectedMagicValue)
   }
 
   /**
@@ -244,18 +189,11 @@ class FileMessageSet private[kafka](@volatile var file: File,
   def toMessageFormat(toMagicValue: Byte): MessageSet = {
     val offsets = new ArrayBuffer[Long]
     val newMessages = new ArrayBuffer[Message]
-    this.foreach { messageAndOffset =>
-      val message = messageAndOffset.message
-      if (message.compressionCodec == NoCompressionCodec) {
+    this.asLogBuffer.asScala.foreach { shallowLogEntry =>
+      for (deepLogEntry <- shallowLogEntry.asScala) {
+        val message = Message.fromRecord(deepLogEntry.record)
         newMessages += message.toFormatVersion(toMagicValue)
-        offsets += messageAndOffset.offset
-      } else {
-        // File message set only has shallow iterator. We need to do deep iteration here if needed.
-        val deepIter = ByteBufferMessageSet.deepIterator(messageAndOffset)
-        for (innerMessageAndOffset <- deepIter) {
-          newMessages += innerMessageAndOffset.message.toFormatVersion(toMagicValue)
-          offsets += innerMessageAndOffset.offset
-        }
+        offsets += deepLogEntry.offset
       }
     }
 
@@ -283,41 +221,7 @@ class FileMessageSet private[kafka](@volatile var file: File,
    * @return The iterator.
    */
   def iterator(maxMessageSize: Int): Iterator[MessageAndOffset] = {
-    new IteratorTemplate[MessageAndOffset] {
-      var location = start
-      val sizeOffsetLength = 12
-      val sizeOffsetBuffer = ByteBuffer.allocate(sizeOffsetLength)
-
-      override def makeNext(): MessageAndOffset = {
-        if(location + sizeOffsetLength >= end)
-          return allDone()
-
-        // read the size of the item
-        sizeOffsetBuffer.rewind()
-        channel.read(sizeOffsetBuffer, location)
-        if(sizeOffsetBuffer.hasRemaining)
-          return allDone()
-
-        sizeOffsetBuffer.rewind()
-        val offset = sizeOffsetBuffer.getLong()
-        val size = sizeOffsetBuffer.getInt()
-        if(size < Message.MinMessageOverhead || location + sizeOffsetLength + size > end)
-          return allDone()
-        if(size > maxMessageSize)
-          throw new CorruptRecordException("Message size exceeds the largest allowable message size (%d).".format(maxMessageSize))
-
-        // read the item itself
-        val buffer = ByteBuffer.allocate(size)
-        channel.read(buffer, location + sizeOffsetLength)
-        if(buffer.hasRemaining)
-          return allDone()
-        buffer.rewind()
-
-        // increment the location and return the item
-        location += size + sizeOffsetLength
-        MessageAndOffset(new Message(buffer), offset)
-      }
-    }
+    asLogBuffer.iterator(true, false, maxMessageSize).asScala.map(MessageAndOffset.fromLogEntry)
   }
 
   /**

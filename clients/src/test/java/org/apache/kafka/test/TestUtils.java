@@ -22,9 +22,10 @@ import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.record.CompressionType;
-import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.MemoryLogBuffer;
 import org.apache.kafka.common.record.Record;
-import org.apache.kafka.common.record.Records;
+import org.apache.kafka.common.record.LogBuffer;
+import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.Utils;
 
 import javax.xml.bind.DatatypeConverter;
@@ -185,13 +186,14 @@ public class TestUtils {
     public static ByteBuffer partitionRecordsBuffer(final long offset, final CompressionType compressionType, final Record... records) {
         int bufferSize = 0;
         for (final Record record : records)
-            bufferSize += Records.LOG_OVERHEAD + record.size();
+            bufferSize += LogBuffer.LOG_OVERHEAD + record.size();
         final ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
-        final MemoryRecords memoryRecords = MemoryRecords.emptyRecords(buffer, compressionType);
+        MemoryLogBuffer.Builder builder = MemoryLogBuffer.builder(buffer, compressionType, TimestampType.CREATE_TIME);
+        long nextOffset = offset;
         for (final Record record : records)
-            memoryRecords.append(offset, record);
-        memoryRecords.close();
-        return memoryRecords.buffer();
+            builder.append(nextOffset++, record);
+        builder.close();
+        return builder.records().buffer();
     }
 
     public static Properties producerConfig(final String bootstrapServers,

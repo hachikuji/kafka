@@ -19,11 +19,11 @@ package kafka.server
 
 import com.yammer.metrics.Metrics
 import kafka.cluster.BrokerEndPoint
-import kafka.message.ByteBufferMessageSet
 import kafka.server.AbstractFetcherThread.{FetchRequest, PartitionData}
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.record.MemoryLogBuffer
 import org.junit.Assert.{assertFalse, assertTrue}
 import org.junit.{Before, Test}
 
@@ -93,7 +93,7 @@ class AbstractFetcherThreadTest {
   class DummyPartitionData extends PartitionData {
     override def errorCode: Short = Errors.NONE.code
 
-    override def toByteBufferMessageSet: ByteBufferMessageSet = new ByteBufferMessageSet()
+    override def toLogBuffer: MemoryLogBuffer = MemoryLogBuffer.EMPTY
 
     override def highWatermark: Long = 0L
 

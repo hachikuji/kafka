@@ -40,7 +40,7 @@ import scala.collection.mutable
 import scala.collection.mutable.Buffer
 import org.apache.kafka.common.KafkaException
 import kafka.admin.AdminUtils
-import org.apache.kafka.common.record.MemoryRecords
+import org.apache.kafka.common.record.MemoryLogBuffer
 
 class AuthorizerIntegrationTest extends BaseRequestTest {
 
@@ -181,7 +181,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   }
 
   private def createProduceRequest = {
-    new requests.ProduceRequest(1, 5000, collection.mutable.Map(tp -> MemoryRecords.readableRecords(ByteBuffer.wrap("test".getBytes))).asJava)
+    new requests.ProduceRequest(1, 5000, collection.mutable.Map(tp -> MemoryLogBuffer.readableRecords(ByteBuffer.wrap("test".getBytes))).asJava)
   }
 
   private def createFetchRequest = {

@@ -28,6 +28,7 @@ import kafka.message._
 
 import scala.math._
 import joptsimple._
+import org.apache.kafka.common.record.{CompressionType, MemoryLogBuffer, Record}
 import org.apache.kafka.common.utils.Utils
 
 /**
@@ -97,13 +98,13 @@ object TestLinearWriteSpeed {
     val buffer = ByteBuffer.allocate(bufferSize)
     val messageSize = options.valueOf(messageSizeOpt).intValue
     val flushInterval = options.valueOf(flushIntervalOpt).longValue
-    val compressionCodec = CompressionCodec.getCompressionCodec(options.valueOf(compressionCodecOpt))
+    val compressionCodec = CompressionType.forName(options.valueOf(compressionCodecOpt))
     val rand = new Random
     rand.nextBytes(buffer.array)
     val numMessages = bufferSize / (messageSize + MessageSet.LogOverhead)
-    val messageSet = new ByteBufferMessageSet(compressionCodec = compressionCodec,
-      messages = (0 until numMessages).map(_ => new Message(new Array[Byte](messageSize))): _*)
-    
+    val messageSet = MemoryLogBuffer.withRecords(compressionCodec,
+      (0 until numMessages).map(_ => Record.create(new Array[Byte](messageSize))): _*)
+
     val writables = new Array[Writable](numFiles)
     val scheduler = new KafkaScheduler(1)
     scheduler.startup()
@@ -199,7 +200,7 @@ object TestLinearWriteSpeed {
     }
   }
   
-  class LogWritable(val dir: File, config: LogConfig, scheduler: Scheduler, val messages: ByteBufferMessageSet) extends Writable {
+  class LogWritable(val dir: File, config: LogConfig, scheduler: Scheduler, val messages: MemoryLogBuffer) extends Writable {
     Utils.delete(dir)
     val log = new Log(dir, config, 0L, scheduler, SystemTime)
     def write(): Int = {

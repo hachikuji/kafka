@@ -25,7 +25,7 @@ import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.protocol.types.Type;
-import org.apache.kafka.common.record.Records;
+import org.apache.kafka.common.record.LogBuffer;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -75,9 +75,9 @@ public class FetchResponse extends AbstractResponse {
     public static final class PartitionData {
         public final short errorCode;
         public final long highWatermark;
-        public final Records records;
+        public final LogBuffer records;
 
-        public PartitionData(short errorCode, long highWatermark, Records records) {
+        public PartitionData(short errorCode, long highWatermark, LogBuffer records) {
             this.errorCode = errorCode;
             this.highWatermark = highWatermark;
             this.records = records;
@@ -111,7 +111,7 @@ public class FetchResponse extends AbstractResponse {
         this(3, responseData, throttleTime);
     }
 
-    private FetchResponse(int version, LinkedHashMap<TopicPartition, PartitionData> responseData, int throttleTime) {
+    public FetchResponse(int version, LinkedHashMap<TopicPartition, PartitionData> responseData, int throttleTime) {
         super(new Struct(ProtoUtils.responseSchema(ApiKeys.FETCH.id, version)));
         writeStruct(struct, version, responseData, throttleTime);
         this.responseData = responseData;
@@ -130,7 +130,7 @@ public class FetchResponse extends AbstractResponse {
                 int partition = partitionResponseHeader.getInt(PARTITION_KEY_NAME);
                 short errorCode = partitionResponseHeader.getShort(ERROR_CODE_KEY_NAME);
                 long highWatermark = partitionResponseHeader.getLong(HIGH_WATERMARK_KEY_NAME);
-                Records records = partitionResponse.getRecords(RECORD_SET_KEY_NAME);
+                LogBuffer records = partitionResponse.getRecords(RECORD_SET_KEY_NAME);
                 PartitionData partitionData = new PartitionData(errorCode, highWatermark, records);
                 responseData.put(new TopicPartition(topic, partition), partitionData);
             }
@@ -210,7 +210,7 @@ public class FetchResponse extends AbstractResponse {
 
     private void addPartitionData(String dest, List<Send> sends, Struct partitionData) {
         Struct header = partitionData.getStruct(PARTITION_HEADER_KEY_NAME);
-        Records records = partitionData.getRecords(RECORD_SET_KEY_NAME);
+        LogBuffer records = partitionData.getRecords(RECORD_SET_KEY_NAME);
 
         // include the partition header and the size of the record set
         ByteBuffer buffer = ByteBuffer.allocate(header.sizeOf() + 4);

@@ -19,7 +19,7 @@ package kafka.tools
 
 import joptsimple.OptionParser
 import kafka.cluster.BrokerEndPoint
-import kafka.message.{MessageSet, MessageAndOffset, ByteBufferMessageSet}
+import kafka.message.{MessageSet, ByteBufferMessageSet}
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicReference
 import kafka.client.ClientUtils
@@ -31,6 +31,7 @@ import kafka.common.TopicAndPartition
 import kafka.utils._
 import kafka.consumer.{ConsumerConfig, Whitelist, SimpleConsumer}
 import org.apache.kafka.common.protocol.Errors
+import scala.collection.JavaConverters._
 
 /**
  *  For verifying the consistency among replicas.
@@ -145,15 +146,15 @@ object ReplicaVerificationTool extends Logging {
     debug("Selected topic partitions: " + topicPartitionReplicaList)
     val topicAndPartitionsPerBroker: Map[Int, Seq[TopicAndPartition]] = topicPartitionReplicaList.groupBy(_.replicaId)
       .map { case (brokerId, partitions) =>
-               brokerId -> partitions.map { case partition => new TopicAndPartition(partition.topic, partition.partitionId) } }
+               brokerId -> partitions.map { partition => TopicAndPartition(partition.topic, partition.partitionId) } }
     debug("Topic partitions per broker: " + topicAndPartitionsPerBroker)
     val expectedReplicasPerTopicAndPartition: Map[TopicAndPartition, Int] =
-          topicPartitionReplicaList.groupBy(replica => new TopicAndPartition(replica.topic, replica.partitionId))
+          topicPartitionReplicaList.groupBy(replica => TopicAndPartition(replica.topic, replica.partitionId))
           .map { case (topicAndPartition, replicaSet) => topicAndPartition -> replicaSet.size }
     debug("Expected replicas per topic partition: " + expectedReplicasPerTopicAndPartition)
     val leadersPerBroker: Map[Int, Seq[TopicAndPartition]] = filteredTopicMetadata.flatMap { topicMetadataResponse =>
       topicMetadataResponse.partitionsMetadata.map { partitionMetadata =>
-        (new TopicAndPartition(topicMetadataResponse.topic, partitionMetadata.partitionId), partitionMetadata.leader.get.id)
+        (TopicAndPartition(topicMetadataResponse.topic, partitionMetadata.partitionId), partitionMetadata.leader.get.id)
       }
     }.groupBy(_._2).mapValues(topicAndPartitionAndLeaderIds => topicAndPartitionAndLeaderIds.map { case (topicAndPartition, _) =>
        topicAndPartition
@@ -195,8 +196,6 @@ object ReplicaVerificationTool extends Logging {
 }
 
 private case class TopicPartitionReplica(topic: String,  partitionId: Int,  replicaId: Int)
-
-private case class ReplicaAndMessageIterator(replicaId: Int, iterator: Iterator[MessageAndOffset])
 
 private case class MessageInfo(replicaId: Int, offset: Long, nextOffset: Long, checksum: Long)
 
@@ -272,41 +271,42 @@ private class ReplicaBuffer(expectedReplicasPerTopicAndPartition: Map[TopicAndPa
       assert(fetchResponsePerReplica.size == expectedReplicasPerTopicAndPartition(topicAndPartition),
             "fetched " + fetchResponsePerReplica.size + " replicas for " + topicAndPartition + ", but expected "
             + expectedReplicasPerTopicAndPartition(topicAndPartition) + " replicas")
-      val messageIteratorMap = fetchResponsePerReplica.map {
+      val logEntryIteratorMap = fetchResponsePerReplica.map {
         case(replicaId, fetchResponse) =>
-          replicaId -> fetchResponse.messages.asInstanceOf[ByteBufferMessageSet].shallowIterator}
+          replicaId -> fetchResponse.messages.asInstanceOf[ByteBufferMessageSet].asLogBuffer.iterator(true).asScala
+      }
       val maxHw = fetchResponsePerReplica.values.map(_.hw).max
 
       // Iterate one message at a time from every replica, until high watermark is reached.
       var isMessageInAllReplicas = true
       while (isMessageInAllReplicas) {
         var messageInfoFromFirstReplicaOpt: Option[MessageInfo] = None
-        for ( (replicaId, messageIterator) <- messageIteratorMap) {
+        for ( (replicaId, logEntries) <- logEntryIteratorMap) {
           try {
-            if (messageIterator.hasNext) {
-              val messageAndOffset = messageIterator.next()
+            if (logEntries.hasNext) {
+              val logEntry = logEntries.next()
 
               // only verify up to the high watermark
-              if (messageAndOffset.offset >= fetchResponsePerReplica.get(replicaId).hw)
+              if (logEntry.offset >= fetchResponsePerReplica.get(replicaId).hw)
                 isMessageInAllReplicas = false
               else {
                 messageInfoFromFirstReplicaOpt match {
                   case None =>
                     messageInfoFromFirstReplicaOpt = Some(
-                      MessageInfo(replicaId, messageAndOffset.offset,messageAndOffset.nextOffset, messageAndOffset.message.checksum))
+                      MessageInfo(replicaId, logEntry.offset,logEntry.nextOffset, logEntry.record.checksum))
                   case Some(messageInfoFromFirstReplica) =>
-                    if (messageInfoFromFirstReplica.offset != messageAndOffset.offset) {
+                    if (messageInfoFromFirstReplica.offset != logEntry.offset) {
                       println(ReplicaVerificationTool.getCurrentTimeString + ": partition " + topicAndPartition
                         + ": replica " + messageInfoFromFirstReplica.replicaId + "'s offset "
                         + messageInfoFromFirstReplica.offset + " doesn't match replica "
-                        + replicaId + "'s offset " + messageAndOffset.offset)
+                        + replicaId + "'s offset " + logEntry.offset)
                       System.exit(1)
                     }
-                    if (messageInfoFromFirstReplica.checksum != messageAndOffset.message.checksum)
+                    if (messageInfoFromFirstReplica.checksum != logEntry.record.checksum)
                       println(ReplicaVerificationTool.getCurrentTimeString + ": partition "
-                        + topicAndPartition + " has unmatched checksum at offset " + messageAndOffset.offset + "; replica "
+                        + topicAndPartition + " has unmatched checksum at offset " + logEntry.offset + "; replica "
                         + messageInfoFromFirstReplica.replicaId + "'s checksum " + messageInfoFromFirstReplica.checksum
-                        + "; replica " + replicaId + "'s checksum " + messageAndOffset.message.checksum)
+                        + "; replica " + replicaId + "'s checksum " + logEntry.record.checksum)
                 }
               }
             } else

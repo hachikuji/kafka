@@ -21,7 +21,6 @@ import java.util.concurrent.locks.ReentrantLock
 
 import kafka.cluster.BrokerEndPoint
 import kafka.consumer.PartitionTopicInfo
-import kafka.message.ByteBufferMessageSet
 import kafka.utils.{DelayedItem, Pool, ShutdownableThread}
 import kafka.common.{ClientIdAndBroker, KafkaException}
 import kafka.metrics.KafkaMetricsGroup
@@ -38,6 +37,7 @@ import java.util.concurrent.atomic.AtomicLong
 import com.yammer.metrics.core.Gauge
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.PartitionStates
+import org.apache.kafka.common.record.MemoryLogBuffer
 
 /**
  *  Abstract class for fetching data from multiple partitions from the same broker.
@@ -144,11 +144,11 @@ abstract class AbstractFetcherThread(name: String,
               Errors.forCode(partitionData.errorCode) match {
                 case Errors.NONE =>
                   try {
-                    val messages = partitionData.toByteBufferMessageSet
-                    val newOffset = messages.shallowIterator.toSeq.lastOption match {
+                    val logBuffer = partitionData.toLogBuffer
+                    val newOffset = logBuffer.iterator(true).asScala.toSeq.lastOption match {
                       case Some(m) =>
                         partitionStates.updateAndMoveToEnd(topicPartition, new PartitionFetchState(m.nextOffset))
-                        fetcherStats.byteRate.mark(messages.validBytes)
+                        fetcherStats.byteRate.mark(logBuffer.validBytes)
                         m.nextOffset
                       case None =>
                         currentPartitionFetchState.offset
@@ -258,7 +258,7 @@ object AbstractFetcherThread {
   trait PartitionData {
     def errorCode: Short
     def exception: Option[Throwable]
-    def toByteBufferMessageSet: ByteBufferMessageSet
+    def toLogBuffer: MemoryLogBuffer
     def highWatermark: Long
   }
 
