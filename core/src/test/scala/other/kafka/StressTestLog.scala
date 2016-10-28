@@ -20,11 +20,13 @@ package kafka
 import java.util.Properties
 import java.util.concurrent.atomic._
 
-import kafka.message._
 import kafka.log._
 import kafka.utils._
 import org.apache.kafka.clients.consumer.OffsetOutOfRangeException
+import org.apache.kafka.common.record.FileLogBuffer
 import org.apache.kafka.common.utils.Utils
+
+import scala.collection.JavaConverters._
 
 /**
  * A stress test that instantiates a log and then runs continual appends against it from one thread and continual reads against it
@@ -36,13 +38,13 @@ object StressTestLog {
   def main(args: Array[String]) {
     val dir = TestUtils.randomPartitionLogDir(TestUtils.tempDir())
     val time = new MockTime
-    val logProprties = new Properties()
-    logProprties.put(LogConfig.SegmentBytesProp, 64*1024*1024: java.lang.Integer)
-    logProprties.put(LogConfig.MaxMessageBytesProp, Int.MaxValue: java.lang.Integer)
-    logProprties.put(LogConfig.SegmentIndexBytesProp, 1024*1024: java.lang.Integer)
+    val logProperties = new Properties()
+    logProperties.put(LogConfig.SegmentBytesProp, 64*1024*1024: java.lang.Integer)
+    logProperties.put(LogConfig.MaxMessageBytesProp, Int.MaxValue: java.lang.Integer)
+    logProperties.put(LogConfig.SegmentIndexBytesProp, 1024*1024: java.lang.Integer)
 
     val log = new Log(dir = dir,
-                      config = LogConfig(logProprties),
+                      config = LogConfig(logProperties),
                       recoveryPoint = 0L,
                       scheduler = time.scheduler,
                       time = time)
@@ -84,7 +86,7 @@ object StressTestLog {
   class WriterThread(val log: Log) extends WorkerThread {
     @volatile var offset = 0
     override def work() {
-      val logAppendInfo = log.append(TestUtils.singleMessageSet(offset.toString.getBytes))
+      val logAppendInfo = log.append(TestUtils.singletonLogBuffer(offset.toString.getBytes))
       require(logAppendInfo.firstOffset == offset && logAppendInfo.lastOffset == offset)
       offset += 1
       if(offset % 1000 == 0)
@@ -96,11 +98,11 @@ object StressTestLog {
     @volatile var offset = 0
     override def work() {
       try {
-        log.read(offset, 1024, Some(offset+1)).messageSet match {
-          case read: FileMessageSet if read.sizeInBytes > 0 => {
-            val first = read.head
+        log.read(offset, 1024, Some(offset+1)).logEntries match {
+          case read: FileLogBuffer if read.sizeInBytes > 0 => {
+            val first = read.asScala.head
             require(first.offset == offset, "We should either read nothing or the message we asked for.")
-            require(MessageSet.entrySize(first.message) == read.sizeInBytes, "Expected %d but got %d.".format(MessageSet.entrySize(first.message), read.sizeInBytes))
+            require(first.size == read.sizeInBytes, "Expected %d but got %d.".format(first.size, read.sizeInBytes))
             offset += 1
           }
           case _ =>

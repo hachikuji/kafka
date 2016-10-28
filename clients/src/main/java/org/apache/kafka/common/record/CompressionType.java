@@ -26,7 +26,7 @@ public enum CompressionType {
     public final String name;
     public final float rate;
 
-    private CompressionType(int id, String name, float rate) {
+    CompressionType(int id, String name, float rate) {
         this.id = id;
         this.name = name;
         this.rate = rate;
@@ -58,6 +58,10 @@ public enum CompressionType {
             return LZ4;
         else
             throw new IllegalArgumentException("Unknown compression name: " + name);
+    }
+
+    public static CompressionType defaultCompressionType() {
+        return GZIP;
     }
 
 }

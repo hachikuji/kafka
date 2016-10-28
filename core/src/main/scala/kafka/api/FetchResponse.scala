@@ -76,7 +76,7 @@ class PartitionDataSend(val partitionId: Int,
       written += channel.write(buffer)
     if (!buffer.hasRemaining) {
       if (messagesSentSize < messageSize) {
-        val records = partitionData.messages.asRecords
+        val records = partitionData.messages.asLogBuffer
         val bytesSent = records.writeTo(channel, messagesSentSize, messageSize - messagesSentSize).toInt
         messagesSentSize += bytesSent
         written += bytesSent

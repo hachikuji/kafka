@@ -16,15 +16,14 @@
  */
 package org.apache.kafka.common.record;
 
-import java.lang.reflect.Constructor;
 import org.apache.kafka.common.KafkaException;
-import org.apache.kafka.common.utils.Utils;
 
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.lang.reflect.Constructor;
 import java.nio.ByteBuffer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -61,7 +60,7 @@ public class Compressor {
         @Override
         public Constructor get() throws ClassNotFoundException, NoSuchMethodException {
             return Class.forName("org.apache.kafka.common.record.KafkaLZ4BlockOutputStream")
-                .getConstructor(OutputStream.class);
+                .getConstructor(OutputStream.class, Boolean.TYPE);
         }
     });
 
@@ -81,34 +80,48 @@ public class Compressor {
         }
     });
 
-    private final CompressionType type;
+    private final TimestampType timestampType;
+    private final CompressionType compressionType;
     private final DataOutputStream appendStream;
     private final ByteBufferOutputStream bufferStream;
+    private final byte magic;
     private final int initPos;
+    private final long baseOffset;
+    private final long logAppendTime;
 
-    public long writtenUncompressed;
-    public long numRecords;
-    public float compressionRate;
-    public long maxTimestamp;
+    private long writtenUncompressed;
+    private long numRecords;
+    private float compressionRate;
+    private long maxTimestamp;
+    private long offsetOfMaxTimestamp;
+    private long lastOffset = -1;
 
-    public Compressor(ByteBuffer buffer, CompressionType type) {
-        this.type = type;
+    public Compressor(ByteBuffer buffer,
+                      byte magic,
+                      CompressionType compressionType,
+                      TimestampType timestampType,
+                      long baseOffset,
+                      long logAppendTime) {
+        this.magic = magic;
+        this.timestampType = timestampType;
+        this.compressionType = compressionType;
+        this.baseOffset = baseOffset;
+        this.logAppendTime = logAppendTime;
         this.initPos = buffer.position();
-
         this.numRecords = 0;
         this.writtenUncompressed = 0;
         this.compressionRate = 1;
         this.maxTimestamp = Record.NO_TIMESTAMP;
 
-        if (type != CompressionType.NONE) {
+        if (compressionType != CompressionType.NONE) {
             // for compressed records, leave space for the header and the shallow message metadata
             // and move the starting position to the value payload offset
-            buffer.position(initPos + Records.LOG_OVERHEAD + Record.RECORD_OVERHEAD);
+            buffer.position(initPos + LogBuffer.LOG_OVERHEAD + Record.recordOverhead(magic));
         }
 
         // create the stream
         bufferStream = new ByteBufferOutputStream(buffer);
-        appendStream = wrapForOutput(bufferStream, type, COMPRESSION_DEFAULT_BUFFER_SIZE);
+        appendStream = wrapForOutput(bufferStream, compressionType, magic, COMPRESSION_DEFAULT_BUFFER_SIZE);
     }
 
     public ByteBuffer buffer() {
@@ -126,29 +139,22 @@ public class Compressor {
             throw new KafkaException(e);
         }
 
-        if (type != CompressionType.NONE) {
+        if (compressionType != CompressionType.NONE) {
             ByteBuffer buffer = bufferStream.buffer();
             int pos = buffer.position();
-            // write the header, for the end offset write as number of records - 1
             buffer.position(initPos);
-            buffer.putLong(numRecords - 1);
-            buffer.putInt(pos - initPos - Records.LOG_OVERHEAD);
-            // write the shallow message (the crc and value size are not correct yet)
-            Record.write(buffer, maxTimestamp, null, null, type, 0, -1);
-            // compute the fill the value size
-            int valueSize = pos - initPos - Records.LOG_OVERHEAD - Record.RECORD_OVERHEAD;
-            buffer.putInt(initPos + Records.LOG_OVERHEAD + Record.KEY_OFFSET_V1, valueSize);
-            // compute and fill the crc at the beginning of the message
-            long crc = Record.computeChecksum(buffer,
-                initPos + Records.LOG_OVERHEAD + Record.MAGIC_OFFSET,
-                pos - initPos - Records.LOG_OVERHEAD - Record.MAGIC_OFFSET);
-            Utils.writeUnsignedInt(buffer, initPos + Records.LOG_OVERHEAD + Record.CRC_OFFSET, crc);
-            // reset the position
+
+            int wrapperSize = pos - LogBuffer.LOG_OVERHEAD;
+            LogEntry.writeHeader(buffer, lastOffset, wrapperSize);
+
+            long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : maxTimestamp;
+            Record.writeCompressedRecordHeader(buffer, magic, wrapperSize, timestamp, compressionType, timestampType);
+
             buffer.position(pos);
 
             // update the compression ratio
             this.compressionRate = (float) buffer.position() / this.writtenUncompressed;
-            TYPE_TO_RATE[type.id] = TYPE_TO_RATE[type.id] * COMPRESSION_RATE_DAMPING_FACTOR +
+            TYPE_TO_RATE[compressionType.id] = TYPE_TO_RATE[compressionType.id] * COMPRESSION_RATE_DAMPING_FACTOR +
                 compressionRate * (1 - COMPRESSION_RATE_DAMPING_FACTOR);
         }
     }
@@ -181,72 +187,142 @@ public class Compressor {
         }
     }
 
-    public void putByte(final byte value) {
-        try {
-            appendStream.write(value);
-        } catch (IOException e) {
-            throw new KafkaException("I/O exception when writing to the append stream, closing", e);
-        }
-    }
-
-    public void put(final byte[] bytes, final int offset, final int len) {
-        try {
-            appendStream.write(bytes, offset, len);
-        } catch (IOException e) {
-            throw new KafkaException("I/O exception when writing to the append stream, closing", e);
-        }
-    }
-
-    /**
-     * @return CRC of the record
-     */
-    public long putRecord(long timestamp, byte[] key, byte[] value, CompressionType type,
-                          int valueOffset, int valueSize) {
-        // put a record as un-compressed into the underlying stream
-        long crc = Record.computeChecksum(timestamp, key, value, type, valueOffset, valueSize);
-        byte attributes = Record.computeAttributes(type);
-        putRecord(crc, attributes, timestamp, key, value, valueOffset, valueSize);
-        return crc;
-    }
-
     /**
      * Put a record as uncompressed into the underlying stream
      * @return CRC of the record
      */
-    public long putRecord(long timestamp, byte[] key, byte[] value) {
-        return putRecord(timestamp, key, value, CompressionType.NONE, 0, -1);
+    public long putRecord(long offset, long timestamp, byte[] key, byte[] value) {
+        try {
+            if (lastOffset > 0 && offset <= lastOffset)
+                throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s (Offsets must increase monotonically).", offset, lastOffset));
+
+            int size = Record.recordSize(magic, key, value);
+            LogEntry.writeHeader(this, toInnerOffset(offset), size);
+            long crc = Record.write(appendStream, magic, timestamp, key, value, CompressionType.NONE, timestampType);
+            recordWritten(offset, timestamp, size + LogBuffer.LOG_OVERHEAD);
+            return crc;
+        } catch (IOException e) {
+            throw new KafkaException("I/O exception when writing to the append stream, closing", e);
+        }
     }
 
-    private void putRecord(final long crc, final byte attributes, final long timestamp, final byte[] key, final byte[] value, final int valueOffset, final int valueSize) {
-        maxTimestamp = Math.max(maxTimestamp, timestamp);
-        Record.write(this, crc, attributes, timestamp, key, value, valueOffset, valueSize);
+    /**
+     * Add the record, converting to the desired magic value if necessary.
+     * @param offset The offset of the record
+     * @param record The record to add
+     */
+    public void convertAndPutRecord(long offset, Record record) {
+        if (magic == record.magic()) {
+            putRecord(offset, record);
+            return;
+        }
+
+        if (lastOffset > 0 && offset <= lastOffset)
+            throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s (Offsets must increase monotonically).", offset, lastOffset));
+
+        try {
+            int size = record.convertedSize(magic);
+            LogEntry.writeHeader(this, toInnerOffset(offset), size);
+            record.convertTo(appendStream, magic, logAppendTime, timestampType);
+            recordWritten(offset, logAppendTime, size);
+        } catch (IOException e) {
+            throw new KafkaException("I/O exception when writing to the append stream, closing", e);
+        }
     }
 
-    public void recordWritten(int size) {
+    /**
+     * Add a record without doing offset/magic validation (this should only be used in testing).
+     * @param offset The offset of the record
+     * @param record The record to add
+     */
+    public void putRecordUnchecked(long offset, Record record) {
+        int size = record.size();
+        LogEntry.writeHeader(this, toInnerOffset(offset), size);
+        put(record.buffer().duplicate());
+        recordWritten(offset, record.timestamp(), size);
+    }
+
+    /**
+     * Add a record with a given offset. The record must have a magic which matches the magic use to
+     * construct this Compressor instance.
+     * @param offset The offset of the record
+     * @param record The record to add
+     */
+    public void putRecord(long offset, Record record) {
+        if (record.magic() != magic)
+            throw new IllegalArgumentException("Inner log entries must have matching magic values as the wrapper");
+        if (lastOffset > 0 && offset <= lastOffset)
+            throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s (Offsets must increase monotonically).", offset, lastOffset));
+        putRecordUnchecked(offset, record);
+    }
+
+    private long toInnerOffset(long offset) {
+        // use relative offsets for compressed messages with magic v1
+        if (magic > 0 && compressionType != CompressionType.NONE)
+            return offset - baseOffset;
+        return offset;
+    }
+
+    private void recordWritten(long offset, long timestamp, int size) {
         numRecords += 1;
         writtenUncompressed += size;
+        lastOffset = offset;
+
+        if (timestamp > maxTimestamp) {
+            maxTimestamp = timestamp;
+            offsetOfMaxTimestamp = offset;
+        }
     }
 
+    /**
+     * Get the maximum timestamp of all records added. If the log append time is used, then this
+     * will return the timestamp used to create the Compressor itself.
+     * @return The maximum timestamp
+     */
+    public long maxTimestamp() {
+        if (timestampType == TimestampType.LOG_APPEND_TIME)
+            return logAppendTime;
+        return maxTimestamp;
+    }
+
+    /**
+     * Get the offset of the max timestamp. If the log append time is used, then this will return the
+     * offset of the last record added.
+     * @return The offset of the max timestamp
+     */
+    public long offsetOfMaxTimestamp() {
+        if (timestampType == TimestampType.LOG_APPEND_TIME)
+            return lastOffset;
+        return offsetOfMaxTimestamp;
+    }
+
+    /**
+     * Get the number of records added to this collection.
+     * @return The number of records added.
+     */
     public long numRecordsWritten() {
         return numRecords;
     }
 
+    /**
+     * Get an estimate of the number of bytes written (based on the estimation factor hard-coded in {@link CompressionType}.
+     * @return The estimated number of bytes written
+     */
     public long estimatedBytesWritten() {
-        if (type == CompressionType.NONE) {
+        if (compressionType == CompressionType.NONE) {
             return bufferStream.buffer().position();
         } else {
             // estimate the written bytes to the underlying byte buffer based on uncompressed written bytes
-            return (long) (writtenUncompressed * TYPE_TO_RATE[type.id] * COMPRESSION_RATE_ESTIMATION_FACTOR);
+            return (long) (writtenUncompressed * TYPE_TO_RATE[compressionType.id] * COMPRESSION_RATE_ESTIMATION_FACTOR);
         }
     }
 
-    // the following two functions also need to be public since they are used in MemoryRecords.iteration
 
-    public static DataOutputStream wrapForOutput(ByteBufferOutputStream buffer, CompressionType type, int bufferSize) {
+    private static DataOutputStream wrapForOutput(ByteBufferOutputStream buffer, CompressionType type, byte messageVersion, int bufferSize) {
         try {
             switch (type) {
                 case NONE:
-                    return new DataOutputStream(buffer);
+                    return buffer;
                 case GZIP:
                     return new DataOutputStream(new GZIPOutputStream(buffer, bufferSize));
                 case SNAPPY:
@@ -258,7 +334,8 @@ public class Compressor {
                     }
                 case LZ4:
                     try {
-                        OutputStream stream = (OutputStream) lz4OutputStreamSupplier.get().newInstance(buffer);
+                        OutputStream stream = (OutputStream) lz4OutputStreamSupplier.get().newInstance(buffer,
+                                messageVersion == Record.MAGIC_VALUE_V0);
                         return new DataOutputStream(stream);
                     } catch (Exception e) {
                         throw new KafkaException(e);
@@ -275,7 +352,7 @@ public class Compressor {
         try {
             switch (type) {
                 case NONE:
-                    return new DataInputStream(buffer);
+                    return buffer;
                 case GZIP:
                     return new DataInputStream(new GZIPInputStream(buffer));
                 case SNAPPY:

@@ -24,7 +24,7 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.MemoryLogBuffer;
 
 public class FetchRequest extends AbstractRequest {
 
@@ -186,7 +186,7 @@ public class FetchRequest extends AbstractRequest {
 
         for (Map.Entry<TopicPartition, PartitionData> entry: fetchData.entrySet()) {
             FetchResponse.PartitionData partitionResponse = new FetchResponse.PartitionData(Errors.forException(e).code(),
-                    FetchResponse.INVALID_HIGHWATERMARK, MemoryRecords.EMPTY);
+                    FetchResponse.INVALID_HIGHWATERMARK, MemoryLogBuffer.EMPTY);
 
             responseData.put(entry.getKey(), partitionResponse);
         }

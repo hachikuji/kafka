@@ -59,7 +59,7 @@ class DelayedFetch(delayMs: Long,
                    fetchMetadata: FetchMetadata,
                    replicaManager: ReplicaManager,
                    quota: ReplicaQuota,
-                   responseCallback: Seq[(TopicAndPartition, FetchResponsePartitionData)] => Unit)
+                   responseCallback: Seq[(TopicAndPartition, FetchPartitionData)] => Unit)
   extends DelayedOperation(delayMs) {
 
   /**
@@ -152,7 +152,7 @@ class DelayedFetch(delayMs: Long,
     )
 
     val fetchPartitionData = logReadResults.map { case (tp, result) =>
-      tp -> FetchResponsePartitionData(result.errorCode, result.hw, result.info.messageSet)
+      tp -> FetchPartitionData(result.errorCode, result.hw, result.info.logEntries)
     }
 
     responseCallback(fetchPartitionData)
