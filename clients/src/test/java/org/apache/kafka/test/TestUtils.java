@@ -23,6 +23,7 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryLogBuffer;
+import org.apache.kafka.common.record.MemoryLogBufferBuilder;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.LogBuffer;
 import org.apache.kafka.common.record.TimestampType;
@@ -190,7 +191,7 @@ public class TestUtils {
         for (final Record record : records)
             bufferSize += LogBuffer.LOG_OVERHEAD + record.size();
         final ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
-        MemoryLogBuffer.Builder builder = MemoryLogBuffer.builder(buffer, compressionType, TimestampType.CREATE_TIME);
+        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(buffer, compressionType, TimestampType.CREATE_TIME);
         long nextOffset = offset;
         for (final Record record : records)
             builder.append(nextOffset++, record);

@@ -47,8 +47,8 @@ public class MemoryLogBufferTest {
 
     @Test
     public void testIterator() {
-        MemoryLogBuffer.Builder builder1 = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
-        MemoryLogBuffer.Builder builder2 = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
+        MemoryLogBufferBuilder builder1 = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
+        MemoryLogBufferBuilder builder2 = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
         List<Record> list = Arrays.asList(Record.create(magic, 1L, "a".getBytes(), "1".getBytes()),
                                           Record.create(magic, 2L, "b".getBytes(), "2".getBytes()),
                                           Record.create(magic, 3L, "c".getBytes(), "3".getBytes()));
@@ -78,7 +78,7 @@ public class MemoryLogBufferTest {
 
     @Test
     public void testHasRoomForMethod() {
-        MemoryLogBuffer.Builder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME);
+        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME);
         builder.append(0, Record.create(magic, 0L, "a".getBytes(), "1".getBytes()));
 
         assertTrue(builder.hasRoomFor("b".getBytes(), "2".getBytes()));

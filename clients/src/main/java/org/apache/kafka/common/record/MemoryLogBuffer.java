@@ -139,7 +139,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
                 bytesRetained += shallowRecord.size();
             } else if (!retainedEntries.isEmpty()) {
                 ByteBuffer slice = buffer.slice();
-                Builder builder = builderWithEntries(slice, shallowRecord.timestampType(), shallowRecord.compressionType(),
+                MemoryLogBufferBuilder builder = builderWithEntries(slice, shallowRecord.timestampType(), shallowRecord.compressionType(),
                         System.currentTimeMillis(), retainedEntries);
                 builder.close();
                 buffer.position(buffer.position() + slice.limit());
@@ -176,7 +176,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         return new LogBufferIterator(new ByteBufferLogInputStream(buffer.duplicate(), maxMessageSize), isShallow,
                 ensureMatchingMagic, maxMessageSize);
     }
-    
+
     @Override
     public String toString() {
         Iterator<LogEntry> iter = iterator();
@@ -238,6 +238,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         }
     }
 
+    // FIXME: Maybe TimestampInfo?
     public static class RecordsInfo {
         public final long maxTimestamp;
         public final long offsetOfMaxTimestamp;
@@ -249,37 +250,37 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         }
     }
 
-    public static Builder builder(ByteBuffer buffer,
+    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
                                   CompressionType compressionType,
                                   TimestampType timestampType,
                                   int writeLimit) {
-        return new Builder(buffer, Record.CURRENT_MAGIC_VALUE, compressionType, timestampType, 0L, System.currentTimeMillis(), writeLimit);
+        return new MemoryLogBufferBuilder(buffer, Record.CURRENT_MAGIC_VALUE, compressionType, timestampType, 0L, System.currentTimeMillis(), writeLimit);
     }
 
-    public static Builder builder(ByteBuffer buffer,
+    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
                                   byte magic,
                                   CompressionType compressionType,
                                   TimestampType timestampType,
                                   long baseOffset,
                                   long logAppendTime) {
-        return new Builder(buffer, magic, compressionType, timestampType, baseOffset, logAppendTime, buffer.capacity());
+        return new MemoryLogBufferBuilder(buffer, magic, compressionType, timestampType, baseOffset, logAppendTime, buffer.capacity());
     }
 
-    public static Builder builder(ByteBuffer buffer,
+    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
                                   CompressionType compressionType,
                                   TimestampType timestampType) {
         // use the buffer capacity as the default write limit
         return builder(buffer, compressionType, timestampType, buffer.capacity());
     }
 
-    public static Builder builder(ByteBuffer buffer,
+    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
                                   byte magic,
                                   CompressionType compressionType,
                                   TimestampType timestampType) {
         return builder(buffer, magic, compressionType, timestampType, 0L);
     }
 
-    public static Builder builder(ByteBuffer buffer,
+    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
                                   byte magic,
                                   CompressionType compressionType,
                                   TimestampType timestampType,
@@ -335,7 +336,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         return entries;
     }
 
-    public static Builder builderWithEntries(TimestampType timestampType,
+    public static MemoryLogBufferBuilder builderWithEntries(TimestampType timestampType,
                                              CompressionType compressionType,
                                              long logAppendTime,
                                              List<LogEntry> entries) {
@@ -343,7 +344,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         return builderWithEntries(buffer, timestampType, compressionType, logAppendTime, entries);
     }
 
-    private static Builder builderWithEntries(ByteBuffer buffer,
+    private static MemoryLogBufferBuilder builderWithEntries(ByteBuffer buffer,
                                               TimestampType timestampType,
                                               CompressionType compressionType,
                                               long logAppendTime,
@@ -355,7 +356,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         long firstOffset = firstEntry.offset();
         byte magic = firstEntry.record().magic();
 
-        Builder builder = MemoryLogBuffer.builder(buffer, magic, compressionType, timestampType,
+        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(buffer, magic, compressionType, timestampType,
                 firstOffset, logAppendTime);
         for (LogEntry entry : entries)
             builder.append(entry);
@@ -441,141 +442,6 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         public RecordsInfo build() {
             maybeUpdateMaxTimestamp();
             return new RecordsInfo(maxTimestamp, offsetOfMaxTimestamp);
-        }
-    }
-
-    public static class Builder {
-        private final Compressor compressor;
-        private final int writeLimit;
-        private final ByteBuffer buffer;
-        private final int initialCapacity;
-        private final byte magic;
-        private MemoryLogBuffer records;
-
-        private Builder(ByteBuffer buffer,
-                        byte magic,
-                        CompressionType compressionType,
-                        TimestampType timestampType,
-                        long baseOffset,
-                        long logAppendTime,
-                        int writeLimit) {
-            this.buffer = buffer;
-            this.initialCapacity = buffer.capacity();
-            this.writeLimit = writeLimit;
-            this.magic = magic;
-            this.compressor = new Compressor(buffer, magic, compressionType, timestampType, baseOffset, logAppendTime);
-        }
-
-        public MemoryLogBuffer build() {
-            close();
-            return records();
-        }
-
-        public ByteBuffer buffer() {
-            return buffer;
-        }
-
-        public void close() {
-            if (records == null) {
-                compressor.close();
-                ByteBuffer buffer = compressor.buffer();
-                buffer.flip();
-                records = MemoryLogBuffer.readableRecords(buffer);
-            }
-        }
-
-        public MemoryLogBuffer records() {
-            if (records != null)
-                return records;
-            ByteBuffer buffer = this.buffer.duplicate();
-            buffer.flip();
-            return MemoryLogBuffer.readableRecords(buffer);
-        }
-
-        public RecordsInfo info() {
-            return new RecordsInfo(compressor.maxTimestamp(), compressor.offsetOfMaxTimestamp());
-        }
-
-        /**
-         * Append the given record and offset to the buffer
-         * @param offset The absolute offset of the record in the log buffer
-         * @param record The record to append
-         */
-        public void append(long offset, Record record) {
-            compressor.putRecord(offset, record);
-        }
-
-        /**
-         * Append a record without doing offset/magic validation (used in testing).
-         * @param offset The absolute offset of the record in the log buffer
-         * @param record The record to append
-         */
-        public void appendUnchecked(long offset, Record record) {
-            compressor.putRecordUnchecked(offset, record);
-        }
-
-        /**
-         * Append the given record and offset to the buffer, converting to the write
-         * message format if necessary.
-         */
-        public void convertAndAppend(long offset, Record record) {
-            compressor.convertAndPutRecord(offset, record);
-        }
-
-        /**
-         * Append the given log entry
-         * @param entry The entry to append
-         */
-        public void append(LogEntry entry) {
-            compressor.putRecord(entry.offset(), entry.record());
-        }
-
-        /**
-         * Append a new record and offset to the buffer
-         * @param offset The absolute offset of the record in the log buffer
-         * @param timestamp The record timestamp
-         * @param key The record key
-         * @param value The record value
-         * @return crc of the record
-         */
-        public long append(long offset, long timestamp, byte[] key, byte[] value) {
-            return compressor.putRecord(offset, timestamp, key, value);
-        }
-
-        /**
-         * Check if we have room for a new record containing the given key/value pair
-         *
-         * Note that the return value is based on the estimate of the bytes written to the compressor, which may not be
-         * accurate if compression is really used. When this happens, the following append may cause dynamic buffer
-         * re-allocation in the underlying byte buffer stream.
-         *
-         * There is an exceptional case when appending a single message whose size is larger than the batch size, the
-         * capacity will be the message size which is larger than the write limit, i.e. the batch size. In this case
-         * the checking should be based on the capacity of the initialized buffer rather than the write limit in order
-         * to accept this single record.
-         */
-        public boolean hasRoomFor(byte[] key, byte[] value) {
-            if (isFull())
-                return false;
-            return this.compressor.numRecordsWritten() == 0 ?
-                    this.initialCapacity >= LogBuffer.LOG_OVERHEAD + Record.recordSize(magic, key, value) :
-                    this.writeLimit >= this.compressor.estimatedBytesWritten() + LogBuffer.LOG_OVERHEAD + Record.recordSize(magic, key, value);
-        }
-
-        public boolean isClosed() {
-            return records != null;
-        }
-
-        public boolean isFull() {
-            return isClosed() || this.writeLimit <= this.compressor.estimatedBytesWritten();
-        }
-
-        public int sizeInBytes() {
-            return records != null ? records.sizeInBytes() : compressor.buffer().position();
-        }
-
-        public double compressionRate() {
-            return compressor.compressionRate();
         }
     }
 

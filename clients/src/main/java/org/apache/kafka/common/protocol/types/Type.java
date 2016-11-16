@@ -427,7 +427,7 @@ public abstract class Type {
         }
     };
 
-    public static final Type LOGBUFFER = new Type() {
+    public static final Type LOG_BUFFER = new Type() {
         @Override
         public boolean isNullable() {
             return true;
@@ -458,7 +458,7 @@ public abstract class Type {
 
         @Override
         public String toString() {
-            return "LOGBUFFER";
+            return "LOG_BUFFER";
         }
 
         @Override

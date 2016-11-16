@@ -40,6 +40,7 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.ByteBufferOutputStream;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryLogBuffer;
+import org.apache.kafka.common.record.MemoryLogBufferBuilder;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.requests.AbstractRequest;
@@ -105,7 +106,7 @@ public class FetcherTest {
         metadata.update(cluster, time.milliseconds());
         client.setNode(node);
 
-        MemoryLogBuffer.Builder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), CompressionType.NONE, TimestampType.CREATE_TIME);
+        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), CompressionType.NONE, TimestampType.CREATE_TIME);
         builder.append(1L, 0L, "key".getBytes(), "value-1".getBytes());
         builder.append(2L, 0L, "key".getBytes(), "value-2".getBytes());
         builder.append(3L, 0L, "key".getBytes(), "value-3".getBytes());
@@ -291,7 +292,7 @@ public class FetcherTest {
         // if we are fetching from a compacted topic, there may be gaps in the returned records
         // this test verifies the fetcher updates the current fetched/consumed positions correctly for this case
 
-        MemoryLogBuffer.Builder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), CompressionType.NONE, TimestampType.CREATE_TIME);
+        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), CompressionType.NONE, TimestampType.CREATE_TIME);
         builder.append(15L, 0L, "key".getBytes(), "value-1".getBytes());
         builder.append(20L, 0L, "key".getBytes(), "value-2".getBytes());
         builder.append(30L, 0L, "key".getBytes(), "value-3".getBytes());
@@ -615,7 +616,7 @@ public class FetcherTest {
             // We need to make sure the message offset grows. Otherwise they will be considered as already consumed
             // and filtered out by consumer.
             if (i > 1) {
-                MemoryLogBuffer.Builder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), CompressionType.NONE, TimestampType.CREATE_TIME);
+                MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), CompressionType.NONE, TimestampType.CREATE_TIME);
                 for (int v = 0; v < 3; v++) {
                     builder.append((long) i * 3 + v, Record.NO_TIMESTAMP, "key".getBytes(), String.format("value-%d", v).getBytes());
                 }

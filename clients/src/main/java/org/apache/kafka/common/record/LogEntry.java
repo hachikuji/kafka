@@ -57,11 +57,6 @@ public abstract class LogEntry implements Iterable<LogEntry> {
         buffer.put(record().buffer().duplicate());
     }
 
-    public void writeTo(Compressor compressor) {
-        writeHeader(compressor, offset(), record().size());
-        compressor.put(record().buffer().duplicate());
-    }
-
     @Override
     public Iterator<LogEntry> iterator() {
         if (isCompressed())
@@ -95,9 +90,9 @@ public abstract class LogEntry implements Iterable<LogEntry> {
         buffer.putInt(size);
     }
 
-    public static void writeHeader(Compressor compressor, long offset, int size) {
-        compressor.putLong(offset);
-        compressor.putInt(size);
+    public static void writeHeader(MemoryLogBufferBuilder builder, long offset, int size) {
+        builder.putLong(offset);
+        builder.putInt(size);
     }
 
 

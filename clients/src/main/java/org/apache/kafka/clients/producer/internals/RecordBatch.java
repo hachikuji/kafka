@@ -12,18 +12,19 @@
  */
 package org.apache.kafka.clients.producer.internals;
 
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.record.MemoryLogBuffer;
+import org.apache.kafka.common.record.MemoryLogBufferBuilder;
 import org.apache.kafka.common.record.Record;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A batch of records that is or will be sent.
@@ -46,9 +47,9 @@ public final class RecordBatch {
     private final List<Thunk> thunks;
     private long offsetCounter = 0L;
     private boolean retry;
-    private final MemoryLogBuffer.Builder recordsBuilder;
+    private final MemoryLogBufferBuilder recordsBuilder;
 
-    public RecordBatch(TopicPartition tp, MemoryLogBuffer.Builder recordsBuilder, long now) {
+    public RecordBatch(TopicPartition tp, MemoryLogBufferBuilder recordsBuilder, long now) {
         this.createdMs = now;
         this.lastAttemptMs = now;
         this.recordsBuilder = recordsBuilder;
@@ -199,7 +200,7 @@ public final class RecordBatch {
     }
 
     public ByteBuffer initialBuffer() {
-        return recordsBuilder.buffer();
+        return recordsBuilder.initialBuffer();
     }
 
     public boolean isWritable() {

@@ -27,6 +27,7 @@ import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryLogBuffer;
+import org.apache.kafka.common.record.MemoryLogBufferBuilder;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.LogBuffer;
 import org.apache.kafka.common.record.TimestampType;
@@ -191,7 +192,7 @@ public final class RecordAccumulator {
                     free.deallocate(buffer);
                     return appendResult;
                 }
-                MemoryLogBuffer.Builder recordsBuilder = MemoryLogBuffer.builder(buffer, compression, TimestampType.CREATE_TIME, this.batchSize);
+                MemoryLogBufferBuilder recordsBuilder = MemoryLogBuffer.builder(buffer, compression, TimestampType.CREATE_TIME, this.batchSize);
                 RecordBatch batch = new RecordBatch(tp, recordsBuilder, time.milliseconds());
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, callback, time.milliseconds()));
 

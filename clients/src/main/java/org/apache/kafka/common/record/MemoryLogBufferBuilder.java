@@ -28,7 +28,7 @@ import java.nio.ByteBuffer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
-public class Compressor {
+public class MemoryLogBufferBuilder {
 
     static private final float COMPRESSION_RATE_DAMPING_FACTOR = 0.9f;
     static private final float COMPRESSION_RATE_ESTIMATION_FACTOR = 1.05f;
@@ -80,6 +80,7 @@ public class Compressor {
         }
     });
 
+    private final ByteBuffer initialBuffer;
     private final TimestampType timestampType;
     private final CompressionType compressionType;
     private final DataOutputStream appendStream;
@@ -88,7 +89,9 @@ public class Compressor {
     private final int initPos;
     private final long baseOffset;
     private final long logAppendTime;
+    private final int writeLimit;
 
+    private MemoryLogBuffer records;
     private long writtenUncompressed;
     private long numRecords;
     private float compressionRate;
@@ -96,12 +99,13 @@ public class Compressor {
     private long offsetOfMaxTimestamp;
     private long lastOffset = -1;
 
-    public Compressor(ByteBuffer buffer,
-                      byte magic,
-                      CompressionType compressionType,
-                      TimestampType timestampType,
-                      long baseOffset,
-                      long logAppendTime) {
+    public MemoryLogBufferBuilder(ByteBuffer buffer,
+                                  byte magic,
+                                  CompressionType compressionType,
+                                  TimestampType timestampType,
+                                  long baseOffset,
+                                  long logAppendTime,
+                                  int writeLimit) {
         this.magic = magic;
         this.timestampType = timestampType;
         this.compressionType = compressionType;
@@ -112,6 +116,8 @@ public class Compressor {
         this.writtenUncompressed = 0;
         this.compressionRate = 1;
         this.maxTimestamp = Record.NO_TIMESTAMP;
+        this.writeLimit = writeLimit;
+        this.initialBuffer = buffer;
 
         if (compressionType != CompressionType.NONE) {
             // for compressed records, leave space for the header and the shallow message metadata
@@ -124,6 +130,10 @@ public class Compressor {
         appendStream = wrapForOutput(bufferStream, compressionType, magic, COMPRESSION_DEFAULT_BUFFER_SIZE);
     }
 
+    public ByteBuffer initialBuffer() {
+        return initialBuffer;
+    }
+
     public ByteBuffer buffer() {
         return bufferStream.buffer();
     }
@@ -132,31 +142,69 @@ public class Compressor {
         return compressionRate;
     }
 
+    public MemoryLogBuffer records() {
+        if (records != null)
+            return records;
+        ByteBuffer buffer = buffer().duplicate();
+        buffer.flip();
+        return MemoryLogBuffer.readableRecords(buffer);
+    }
+
+    /**
+     * Close this builder and return the resulting buffer.
+     * @return The built log buffer
+     */
+    public MemoryLogBuffer build() {
+        close();
+        return records();
+    }
+
+    /**
+     * Get the max timestamp and its offset. If the log append time is used, then the offset will
+     * be that of the last log entry added.
+     * @return The max timestamp and its offset
+     */
+    public MemoryLogBuffer.RecordsInfo info() {
+        if (timestampType == TimestampType.LOG_APPEND_TIME)
+            return new MemoryLogBuffer.RecordsInfo(logAppendTime, lastOffset);
+        return new MemoryLogBuffer.RecordsInfo(maxTimestamp, offsetOfMaxTimestamp);
+    }
+
     public void close() {
+        if (records != null)
+            return;
+
         try {
             appendStream.close();
         } catch (IOException e) {
             throw new KafkaException(e);
         }
 
-        if (compressionType != CompressionType.NONE) {
-            ByteBuffer buffer = bufferStream.buffer();
-            int pos = buffer.position();
-            buffer.position(initPos);
+        if (compressionType != CompressionType.NONE)
+            writerCompressedWrapperHeader();
 
-            int wrapperSize = pos - LogBuffer.LOG_OVERHEAD;
-            LogEntry.writeHeader(buffer, lastOffset, wrapperSize);
+        ByteBuffer buffer = buffer();
+        buffer.flip();
+        records = MemoryLogBuffer.readableRecords(buffer);
+    }
 
-            long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : maxTimestamp;
-            Record.writeCompressedRecordHeader(buffer, magic, wrapperSize, timestamp, compressionType, timestampType);
+    private void writerCompressedWrapperHeader() {
+        ByteBuffer buffer = bufferStream.buffer();
+        int pos = buffer.position();
+        buffer.position(initPos);
 
-            buffer.position(pos);
+        int wrapperSize = pos - LogBuffer.LOG_OVERHEAD;
+        LogEntry.writeHeader(buffer, lastOffset, wrapperSize);
 
-            // update the compression ratio
-            this.compressionRate = (float) buffer.position() / this.writtenUncompressed;
-            TYPE_TO_RATE[compressionType.id] = TYPE_TO_RATE[compressionType.id] * COMPRESSION_RATE_DAMPING_FACTOR +
-                compressionRate * (1 - COMPRESSION_RATE_DAMPING_FACTOR);
-        }
+        long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : maxTimestamp;
+        Record.writeCompressedRecordHeader(buffer, magic, wrapperSize, timestamp, compressionType, timestampType);
+
+        buffer.position(pos);
+
+        // update the compression ratio
+        this.compressionRate = (float) buffer.position() / this.writtenUncompressed;
+        TYPE_TO_RATE[compressionType.id] = TYPE_TO_RATE[compressionType.id] * COMPRESSION_RATE_DAMPING_FACTOR +
+            compressionRate * (1 - COMPRESSION_RATE_DAMPING_FACTOR);
     }
 
     // Note that for all the write operations below, IO exceptions should
@@ -188,10 +236,14 @@ public class Compressor {
     }
 
     /**
-     * Put a record as uncompressed into the underlying stream
-     * @return CRC of the record
+     * Append a new record and offset to the buffer
+     * @param offset The absolute offset of the record in the log buffer
+     * @param timestamp The record timestamp
+     * @param key The record key
+     * @param value The record value
+     * @return crc of the record
      */
-    public long putRecord(long offset, long timestamp, byte[] key, byte[] value) {
+    public long append(long offset, long timestamp, byte[] key, byte[] value) {
         try {
             if (lastOffset > 0 && offset <= lastOffset)
                 throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s (Offsets must increase monotonically).", offset, lastOffset));
@@ -211,9 +263,9 @@ public class Compressor {
      * @param offset The offset of the record
      * @param record The record to add
      */
-    public void convertAndPutRecord(long offset, Record record) {
+    public void convertAndAppend(long offset, Record record) {
         if (magic == record.magic()) {
-            putRecord(offset, record);
+            append(offset, record);
             return;
         }
 
@@ -235,7 +287,7 @@ public class Compressor {
      * @param offset The offset of the record
      * @param record The record to add
      */
-    public void putRecordUnchecked(long offset, Record record) {
+    public void appendUnchecked(long offset, Record record) {
         int size = record.size();
         LogEntry.writeHeader(this, toInnerOffset(offset), size);
         put(record.buffer().duplicate());
@@ -243,17 +295,26 @@ public class Compressor {
     }
 
     /**
+     * Append the given log entry. The entry's record must have a magic which matches the magic use to
+     * construct this builder and the offset must be greater than the last appended entry.
+     * @param entry The entry to append
+     */
+    public void append(LogEntry entry) {
+        append(entry.offset(), entry.record());
+    }
+
+    /**
      * Add a record with a given offset. The record must have a magic which matches the magic use to
-     * construct this Compressor instance.
+     * construct this builder and the offset must be greater than the last appended entry.
      * @param offset The offset of the record
      * @param record The record to add
      */
-    public void putRecord(long offset, Record record) {
+    public void append(long offset, Record record) {
         if (record.magic() != magic)
             throw new IllegalArgumentException("Inner log entries must have matching magic values as the wrapper");
         if (lastOffset > 0 && offset <= lastOffset)
             throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s (Offsets must increase monotonically).", offset, lastOffset));
-        putRecordUnchecked(offset, record);
+        appendUnchecked(offset, record);
     }
 
     private long toInnerOffset(long offset) {
@@ -272,28 +333,6 @@ public class Compressor {
             maxTimestamp = timestamp;
             offsetOfMaxTimestamp = offset;
         }
-    }
-
-    /**
-     * Get the maximum timestamp of all records added. If the log append time is used, then this
-     * will return the timestamp used to create the Compressor itself.
-     * @return The maximum timestamp
-     */
-    public long maxTimestamp() {
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
-            return logAppendTime;
-        return maxTimestamp;
-    }
-
-    /**
-     * Get the offset of the max timestamp. If the log append time is used, then this will return the
-     * offset of the last record added.
-     * @return The offset of the max timestamp
-     */
-    public long offsetOfMaxTimestamp() {
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
-            return lastOffset;
-        return offsetOfMaxTimestamp;
     }
 
     /**
@@ -317,6 +356,35 @@ public class Compressor {
         }
     }
 
+    /**
+     * Check if we have room for a new record containing the given key/value pair
+     *
+     * Note that the return value is based on the estimate of the bytes written to the compressor, which may not be
+     * accurate if compression is really used. When this happens, the following append may cause dynamic buffer
+     * re-allocation in the underlying byte buffer stream.
+     *
+     * There is an exceptional case when appending a single message whose size is larger than the batch size, the
+     * capacity will be the message size which is larger than the write limit, i.e. the batch size. In this case
+     * the checking should be based on the capacity of the initialized buffer rather than the write limit in order
+     * to accept this single record.
+     */
+    public boolean hasRoomFor(byte[] key, byte[] value) {
+        return !isFull() && (numRecordsWritten() == 0 ?
+                this.initialBuffer.capacity() >= LogBuffer.LOG_OVERHEAD + Record.recordSize(magic, key, value) :
+                this.writeLimit >= estimatedBytesWritten() + LogBuffer.LOG_OVERHEAD + Record.recordSize(magic, key, value));
+    }
+
+    public boolean isClosed() {
+        return records != null;
+    }
+
+    public boolean isFull() {
+        return isClosed() || this.writeLimit <= estimatedBytesWritten();
+    }
+
+    public int sizeInBytes() {
+        return records != null ? records.sizeInBytes() : buffer().position();
+    }
 
     private static DataOutputStream wrapForOutput(ByteBufferOutputStream buffer, CompressionType type, byte messageVersion, int bufferSize) {
         try {
