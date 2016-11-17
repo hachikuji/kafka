@@ -138,8 +138,8 @@ object TestLogCleaning {
   def dumpLog(dir: File) {
     require(dir.exists, "Non-existent directory: " + dir.getAbsolutePath)
     for (file <- dir.list.sorted; if file.endsWith(Log.LogFileSuffix)) {
-      val entries = FileLogBuffer.open(new File(dir, file))
-      for (entry <- entries.asScala) {
+      val fileLogBuffer = FileLogBuffer.open(new File(dir, file))
+      for (entry <- fileLogBuffer.shallowEntries.asScala) {
         val key = TestUtils.readString(entry.record.key)
         val content = 
           if(entry.record.hasNullValue)

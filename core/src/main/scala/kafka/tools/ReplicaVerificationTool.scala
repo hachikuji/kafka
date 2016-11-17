@@ -277,7 +277,7 @@ private class ReplicaBuffer(expectedReplicasPerTopicAndPartition: Map[TopicAndPa
             + expectedReplicasPerTopicAndPartition(topicAndPartition) + " replicas")
       val logEntryIteratorMap = fetchResponsePerReplica.map {
         case(replicaId, fetchResponse) =>
-          replicaId -> fetchResponse.messages.asInstanceOf[ByteBufferMessageSet].asLogBuffer.iterator(true).asScala
+          replicaId -> fetchResponse.messages.asInstanceOf[ByteBufferMessageSet].asLogBuffer.shallowEntries.asScala
       }
       val maxHw = fetchResponsePerReplica.values.map(_.hw).max
 

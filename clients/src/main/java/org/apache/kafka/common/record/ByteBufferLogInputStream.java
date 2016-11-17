@@ -17,6 +17,7 @@
 package org.apache.kafka.common.record;
 
 import org.apache.kafka.common.errors.CorruptRecordException;
+import org.apache.kafka.common.utils.Utils;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -75,6 +76,43 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
             ByteBuffer dup = buffer.duplicate();
             dup.position(LOG_OVERHEAD);
             return new Record(dup.slice());
+        }
+
+        public void setOffset(long offset) {
+            buffer.putLong(LogBuffer.OFFSET_OFFSET, offset);
+        }
+
+        public void setCreateTime(long timestamp) {
+            Record record = record();
+            if (record.magic() > 0) {
+                long currentTimestamp = record.timestamp();
+                // We don't need to recompute crc if the timestamp is not updated.
+                if (record.timestampType() == TimestampType.CREATE_TIME && currentTimestamp == timestamp)
+                    return;
+
+                byte attributes = record.attributes();
+                buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.CREATE_TIME.updateAttributes(attributes));
+                buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
+
+                long crc = Record.computeChecksum(buffer,
+                        LOG_OVERHEAD + Record.MAGIC_OFFSET,
+                        buffer.limit() - Record.MAGIC_OFFSET - LOG_OVERHEAD);
+                Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
+            }
+        }
+
+        public void setLogAppendTime(long timestamp) {
+            Record record = record();
+            if (record.magic() > 0) {
+                byte attributes = record.attributes();
+                buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
+                buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
+
+                long crc = Record.computeChecksum(buffer,
+                        LOG_OVERHEAD + Record.MAGIC_OFFSET,
+                        buffer.limit() - Record.MAGIC_OFFSET - LOG_OVERHEAD);
+                Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
+            }
         }
 
         public ByteBuffer buffer() {

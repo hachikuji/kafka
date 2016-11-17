@@ -98,9 +98,9 @@ object StressTestLog {
     @volatile var offset = 0
     override def work() {
       try {
-        log.read(offset, 1024, Some(offset+1)).logEntries match {
+        log.read(offset, 1024, Some(offset+1)).logBuffer match {
           case read: FileLogBuffer if read.sizeInBytes > 0 => {
-            val first = read.asScala.head
+            val first = read.shallowEntries.next()
             require(first.offset == offset, "We should either read nothing or the message we asked for.")
             require(first.size == read.sizeInBytes, "Expected %d but got %d.".format(first.size, read.sizeInBytes))
             offset += 1

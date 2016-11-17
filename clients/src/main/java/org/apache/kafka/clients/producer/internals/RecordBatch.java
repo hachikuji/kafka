@@ -179,7 +179,7 @@ public final class RecordBatch {
         this.retry = true;
     }
 
-    public MemoryLogBuffer records() {
+    public MemoryLogBuffer logBuffer() {
         return recordsBuilder.records();
     }
 

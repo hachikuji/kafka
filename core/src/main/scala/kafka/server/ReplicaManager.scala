@@ -481,7 +481,7 @@ class ReplicaManager(val config: KafkaConfig,
 
     // check if this fetch request can be satisfied right away
     val logReadResultValues = logReadResults.map { case (_, v) => v }
-    val bytesReadable = logReadResultValues.map(_.info.logEntries.sizeInBytes).sum
+    val bytesReadable = logReadResultValues.map(_.info.logBuffer.sizeInBytes).sum
     val errorReadingData = logReadResultValues.foldLeft(false) ((errorIncurred, readResult) =>
       errorIncurred || (readResult.errorCode != Errors.NONE.code))
 
@@ -491,7 +491,7 @@ class ReplicaManager(val config: KafkaConfig,
     //                        4) some error happens while reading data
     if (timeout <= 0 || fetchInfos.isEmpty || bytesReadable >= fetchMinBytes || errorReadingData) {
       val fetchPartitionData = logReadResults.map { case (tp, result) =>
-        tp -> FetchPartitionData(result.errorCode, result.hw, result.info.logEntries)
+        tp -> FetchPartitionData(result.errorCode, result.hw, result.info.logBuffer)
       }
       responseCallback(fetchPartitionData)
     } else {
@@ -607,7 +607,7 @@ class ReplicaManager(val config: KafkaConfig,
     var minOneMessage = !hardMaxBytesLimit
     readPartitionInfo.foreach { case (tp, fetchInfo) =>
       val readResult = read(tp, fetchInfo, limitBytes, minOneMessage)
-      val messageSetSize = readResult.info.logEntries.sizeInBytes
+      val messageSetSize = readResult.info.logBuffer.sizeInBytes
       // Once we read from a non-empty partition, we stop ignoring request and partition level size limits
       if (messageSetSize > 0)
         minOneMessage = false

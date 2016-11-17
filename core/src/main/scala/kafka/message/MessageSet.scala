@@ -98,7 +98,7 @@ abstract class MessageSet extends Iterable[MessageAndOffset] {
   override def toString: String = {
     val builder = new StringBuilder()
     builder.append(getClass.getSimpleName + "(")
-    val iter = this.asLogBuffer.iterator()
+    val iter = this.asLogBuffer.shallowEntries()
     var i = 0
     while(iter.hasNext && i < 100) {
       val message = iter.next

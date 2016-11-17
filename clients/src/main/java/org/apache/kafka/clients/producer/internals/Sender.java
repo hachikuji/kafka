@@ -345,7 +345,7 @@ public class Sender implements Runnable {
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<>(batches.size());
         for (RecordBatch batch : batches) {
             TopicPartition tp = batch.topicPartition;
-            produceRecordsByPartition.put(tp, batch.records());
+            produceRecordsByPartition.put(tp, batch.logBuffer());
             recordsByPartition.put(tp, batch);
         }
 

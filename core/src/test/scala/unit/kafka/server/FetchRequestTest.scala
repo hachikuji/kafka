@@ -165,8 +165,7 @@ class FetchRequestTest extends BaseRequestTest {
   }
 
   private def logEntries(partitionData: FetchResponse.PartitionData): Seq[LogEntry] = {
-    val memoryRecords = partitionData.logBuffer
-    memoryRecords.asScala.toIndexedSeq
+    partitionData.logBuffer.deepEntries.asScala.toIndexedSeq
   }
 
   private def checkFetchResponse(expectedPartitions: Seq[TopicPartition], fetchResponse: FetchResponse,
@@ -184,7 +183,7 @@ class FetchRequestTest extends BaseRequestTest {
       val logBuffer = partitionData.logBuffer
       responseBufferSize += logBuffer.sizeInBytes
 
-      val entries = logBuffer.asScala.toIndexedSeq
+      val entries = logBuffer.shallowEntries.asScala.toIndexedSeq
       assertTrue(entries.size < numMessagesPerPartition)
       val entriesSize = entries.map(_.size).sum
       responseSize += entriesSize

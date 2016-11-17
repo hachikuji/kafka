@@ -12,8 +12,7 @@
  */
 package org.apache.kafka.common.record;
 
-import org.apache.kafka.common.utils.AbstractIterator;
-import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.common.record.ByteBufferLogInputStream.ByteBufferLogEntry;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -73,7 +72,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
     public int validBytes() {
         // TODO: old version cached the computed value. is it worth it?
         int bytes = 0;
-        Iterator<LogEntry> iterator = iterator(true);
+        Iterator<ByteBufferLogEntry> iterator = shallowEntries();
         while (iterator.hasNext())
             bytes += iterator.next().size();
         return bytes;
@@ -93,9 +92,9 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         int messagesRetained = 0;
         int bytesRetained = 0;
 
-        Iterator<LogEntry> shallowIterator = this.iterator(true);
+        Iterator<ByteBufferLogEntry> shallowIterator = shallowEntries();
         while (shallowIterator.hasNext()) {
-            LogEntry shallowEntry = shallowIterator.next();
+            ByteBufferLogEntry shallowEntry = shallowIterator.next();
             messagesRead += 1;
             bytesRead += shallowEntry.size();
 
@@ -128,7 +127,6 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
                 }
             }
 
-            // TODO: Is this correct? There's no guarantee that timestamps increase monotonically
             if (!retainedEntries.isEmpty())
                 offsetOfMaxTimestamp = retainedEntries.get(retainedEntries.size() - 1).offset();
 
@@ -159,27 +157,27 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
     }
 
     @Override
-    public Iterator<LogEntry> iterator() {
-        return iterator(false, false, Integer.MAX_VALUE);
+    public Iterator<ByteBufferLogEntry> shallowEntries() {
+        return LogBufferIterator.shallowIterator(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
     }
 
     @Override
-    public Iterator<LogEntry> iterator(boolean isShallow) {
-        return iterator(isShallow, false, Integer.MAX_VALUE);
+    public Iterator<LogEntry> deepEntries() {
+        return deepEntries(false);
     }
 
-    public Iterator<LogEntry> iterator(boolean isShallow, boolean ensureMatchingMagic) {
-        return iterator(isShallow, ensureMatchingMagic, Integer.MAX_VALUE);
+    public Iterator<LogEntry> deepEntries(boolean ensureMatchingMagic) {
+        return deepEntries(ensureMatchingMagic, Integer.MAX_VALUE);
     }
 
-    public Iterator<LogEntry> iterator(boolean isShallow, boolean ensureMatchingMagic, int maxMessageSize) {
-        return new LogBufferIterator(new ByteBufferLogInputStream(buffer.duplicate(), maxMessageSize), isShallow,
+    public Iterator<LogEntry> deepEntries(boolean ensureMatchingMagic, int maxMessageSize) {
+        return new LogBufferIterator(new ByteBufferLogInputStream(buffer.duplicate(), maxMessageSize), false,
                 ensureMatchingMagic, maxMessageSize);
     }
 
     @Override
     public String toString() {
-        Iterator<LogEntry> iter = iterator();
+        Iterator<LogEntry> iter = deepEntries();
         StringBuilder builder = new StringBuilder();
         builder.append('[');
         while (iter.hasNext()) {
@@ -238,7 +236,6 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         }
     }
 
-    // FIXME: Maybe TimestampInfo?
     public static class RecordsInfo {
         public final long maxTimestamp;
         public final long offsetOfMaxTimestamp;
@@ -290,10 +287,6 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
 
     public static MemoryLogBuffer readableRecords(ByteBuffer buffer) {
         return new MemoryLogBuffer(buffer);
-    }
-
-    public static LogUpdater inPlaceUpdater(ByteBuffer buffer) {
-        return new LogUpdater(buffer.duplicate());
     }
 
     public static MemoryLogBuffer withLogEntries(CompressionType compressionType, List<LogEntry> entries) {
@@ -362,87 +355,6 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
             builder.append(entry);
 
         return builder;
-    }
-
-    public static class MutableLogEntry extends ByteBufferLogInputStream.ByteBufferLogEntry {
-
-        public MutableLogEntry(ByteBuffer buffer) {
-            super(buffer);
-        }
-
-        public void setOffset(long offset) {
-            buffer.putLong(LogBuffer.OFFSET_OFFSET, offset);
-        }
-
-        public void setCreateTime(long timestamp) {
-            Record record = record();
-            if (record.magic() > 0) {
-                long currentTimestamp = record.timestamp();
-                // We don't need to recompute crc if the timestamp is not updated.
-                if (record.timestampType() == TimestampType.CREATE_TIME && currentTimestamp == timestamp)
-                    return;
-
-                byte attributes = record.attributes();
-                buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.CREATE_TIME.updateAttributes(attributes));
-                buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
-
-                long crc = Record.computeChecksum(buffer,
-                        LOG_OVERHEAD + Record.MAGIC_OFFSET,
-                        buffer.limit() - Record.MAGIC_OFFSET - LOG_OVERHEAD);
-                Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
-            }
-        }
-
-        public void setLogAppendTime(long timestamp) {
-            Record record = record();
-            if (record.magic() > 0) {
-                byte attributes = record.attributes();
-                buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
-                buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
-
-                long crc = Record.computeChecksum(buffer,
-                        LOG_OVERHEAD + Record.MAGIC_OFFSET,
-                        buffer.limit() - Record.MAGIC_OFFSET - LOG_OVERHEAD);
-                Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
-            }
-        }
-    }
-
-    public static class LogUpdater extends AbstractIterator<MutableLogEntry> {
-        private MutableLogEntry current;
-        private Iterator<ByteBufferLogInputStream.ByteBufferLogEntry> iterator;
-        private long maxTimestamp = Record.NO_TIMESTAMP;
-        private long offsetOfMaxTimestamp = -1;
-
-        public LogUpdater(ByteBuffer buffer) {
-            this.iterator = LogBufferIterator.shallowIterator(new ByteBufferLogInputStream(buffer, Integer.MAX_VALUE));
-        }
-
-        private void maybeUpdateMaxTimestamp() {
-            if (current != null) {
-                long timestamp = current.record().timestamp();
-                if (timestamp > maxTimestamp) {
-                    maxTimestamp = timestamp;
-                    offsetOfMaxTimestamp = current.offset();
-                }
-            }
-        }
-
-        @Override
-        protected MutableLogEntry makeNext() {
-            maybeUpdateMaxTimestamp();
-
-            if (!iterator.hasNext())
-                return allDone();
-
-            current = new MutableLogEntry(iterator.next().buffer());
-            return current;
-        }
-
-        public RecordsInfo build() {
-            maybeUpdateMaxTimestamp();
-            return new RecordsInfo(maxTimestamp, offsetOfMaxTimestamp);
-        }
     }
 
 }

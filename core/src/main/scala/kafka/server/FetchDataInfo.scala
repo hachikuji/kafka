@@ -20,5 +20,5 @@ package kafka.server
 import org.apache.kafka.common.record.LogBuffer
 
 case class FetchDataInfo(fetchOffsetMetadata: LogOffsetMetadata,
-                         logEntries: LogBuffer,
+                         logBuffer: LogBuffer,
                          firstMessageSetIncomplete: Boolean = false)

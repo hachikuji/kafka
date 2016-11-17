@@ -123,7 +123,7 @@ trait BaseMessageSetTestCases extends JUnitSuite {
         logBuffer.resize() // resize since we wrote to the channel directly
 
         assertEquals("Expect to write the number of bytes in the set.", set.sizeInBytes, written)
-        checkEquals(set.asLogBuffer.iterator(), logBuffer.iterator())
+        checkEquals(set.asLogBuffer.deepEntries, logBuffer.deepEntries())
       } finally logBuffer.close()
     }
   }

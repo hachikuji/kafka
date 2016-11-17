@@ -63,7 +63,7 @@ public class MemoryLogBufferTest {
 
         for (int iteration = 0; iteration < 2; iteration++) {
             for (MemoryLogBuffer recs : Arrays.asList(recs1, recs2)) {
-                Iterator<LogEntry> iter = recs.iterator();
+                Iterator<LogEntry> iter = recs.deepEntries();
                 for (int i = 0; i < list.size(); i++) {
                     assertTrue(iter.hasNext());
                     LogEntry entry = iter.next();

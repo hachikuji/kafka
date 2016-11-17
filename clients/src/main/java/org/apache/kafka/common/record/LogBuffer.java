@@ -24,7 +24,7 @@ import java.util.Iterator;
  * A log buffer is a sequence of log entries. Each log entry consists of a 4 byte size, an 8 byte offset,
  * and the record bytes. See {@link MemoryLogBuffer} for the in-memory representation.
  */
-public interface LogBuffer extends Iterable<LogEntry> {
+public interface LogBuffer {
 
     int OFFSET_OFFSET = 0;
     int OFFSET_LENGTH = 8;
@@ -49,11 +49,16 @@ public interface LogBuffer extends Iterable<LogEntry> {
     long writeTo(GatheringByteChannel channel, long position, int length) throws IOException;
 
     /**
-     * Get an iterator over the entries in this buffer
-     * @param isShallow Whether or not to descend into compressed messages to return "deep" entries
-     * @return The new iterator
+     * Get the shallow log entries in this log buffer.
+     * @return An iterator over the shallow entries of the log
      */
-    Iterator<LogEntry> iterator(boolean isShallow);
+    Iterator<? extends LogEntry> shallowEntries();
+
+    /**
+     * Get the deep log entries (i.e. descend into compressed message sets)
+     * @return An iterator over the deep entries of the log
+     */
+    Iterator<LogEntry> deepEntries();
 
     /**
      * Check whether all entries in this buffer have a certain magic value.

@@ -26,7 +26,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
 
     @Override
     public boolean hasMatchingShallowMagic(byte magic) {
-        Iterator<LogEntry> iterator = iterator(true);
+        Iterator<? extends LogEntry> iterator = shallowEntries();
         while (iterator.hasNext())
             if (iterator.next().record().magic() != magic)
                 return false;
@@ -39,7 +39,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
     @Override
     public LogBuffer toMessageFormat(byte toMagic) {
         List<LogEntry> converted = new ArrayList<>();
-        Iterator<LogEntry> deepIterator = iterator(false);
+        Iterator<LogEntry> deepIterator = deepEntries();
         while (deepIterator.hasNext()) {
             LogEntry entry = deepIterator.next();
             converted.add(LogEntry.create(entry.offset(), entry.record().convert(toMagic)));
@@ -55,7 +55,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
             // TODO: Using the compression like this seems wrong. Also, there's no guarantee that timestamp
             // types match, so putting all the messages into a wrapped message would cause us to lose log append time.
             // Maybe this is ok since we only use this for down-conversion in practice?
-            CompressionType compressionType = iterator(true).next().record().compressionType();
+            CompressionType compressionType = shallowEntries().next().record().compressionType();
             return MemoryLogBuffer.withLogEntries(compressionType, converted);
         }
     }
@@ -69,7 +69,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
 
     public Iterator<Record> records(final boolean isShallow) {
         return new AbstractIterator<Record>() {
-            private final Iterator<LogEntry> entries = iterator(isShallow);
+            private final Iterator<? extends LogEntry> entries = isShallow ? shallowEntries() : deepEntries();
             @Override
             protected Record makeNext() {
                 if (entries.hasNext())

@@ -387,7 +387,7 @@ class Log(@volatile var dir: File,
           // re-validate message sizes if there's a possibility that they have changed (due to re-compression or message
           // format conversion)
           if (validateAndOffsetAssignResult.messageSizeMaybeChanged) {
-            for (logEntry <- validEntries.iterator(true).asScala) {
+            for (logEntry <- validEntries.shallowEntries.asScala) {
               if (logEntry.size > config.maxMessageSize) {
                 // we record the original message set size instead of the trimmed size
                 // to be consistent with pre-compression bytesRejectedRate recording
@@ -402,7 +402,7 @@ class Log(@volatile var dir: File,
         } else {
           // we are taking the offsets we are given
           if (!appendInfo.offsetsMonotonic || appendInfo.firstOffset < nextOffsetMetadata.messageOffset)
-            throw new IllegalArgumentException("Out of order offsets found in " + entries.asScala.map(_.offset))
+            throw new IllegalArgumentException("Out of order offsets found in " + entries.deepEntries.asScala.map(_.offset))
         }
 
         // check messages set size may be exceed config.segmentSize
@@ -451,7 +451,7 @@ class Log(@volatile var dir: File,
    * <li> Whether any compression codec is used (if many are used, then the last one is given)
    * </ol>
    */
-  private def analyzeAndValidateEntries(entries: MemoryLogBuffer): LogAppendInfo = {
+  private def analyzeAndValidateEntries(logBuffer: MemoryLogBuffer): LogAppendInfo = {
     var shallowMessageCount = 0
     var validBytesCount = 0
     var firstOffset, lastOffset = -1L
@@ -459,7 +459,7 @@ class Log(@volatile var dir: File,
     var monotonic = true
     var maxTimestamp = Record.NO_TIMESTAMP
     var offsetOfMaxTimestamp = -1L
-    for (logEntry <- entries.iterator(true).asScala) {
+    for (logEntry <- logBuffer.shallowEntries.asScala) {
       // update the first offset if on the first message
       if(firstOffset < 0)
         firstOffset = logEntry.offset
@@ -474,8 +474,8 @@ class Log(@volatile var dir: File,
       // Check if the message sizes are valid.
       val messageSize = logEntry.size
       if(messageSize > config.maxMessageSize) {
-        BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(entries.sizeInBytes)
-        BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(entries.sizeInBytes)
+        BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(logBuffer.sizeInBytes)
+        BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(logBuffer.sizeInBytes)
         throw new RecordTooLargeException("Message size is %d bytes which exceeds the maximum configured message size of %d."
           .format(messageSize, config.maxMessageSize))
       }

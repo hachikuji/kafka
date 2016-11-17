@@ -254,7 +254,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
      * @return The timestamp and offset of the message found. None, if no message is found.
      */
     public TimestampAndOffset searchForTimestamp(long targetTimestamp, int startingPosition) {
-        Iterator<LogEntry> shallowIterator = iterator(true, startingPosition);
+        Iterator<LogEntry> shallowIterator = shallowEntriesFrom(startingPosition);
         while (shallowIterator.hasNext()) {
             LogEntry shallowEntry = shallowIterator.next();
             Record shallowRecord = shallowEntry.record();
@@ -282,7 +282,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
         long maxTimestamp = Record.NO_TIMESTAMP;
         long offsetOfMaxTimestamp = -1L;
 
-        Iterator<LogEntry> shallowIterator = iterator(true, startingPosition);
+        Iterator<LogEntry> shallowIterator = shallowEntriesFrom(startingPosition);
         while (shallowIterator.hasNext()) {
             LogEntry shallowEntry = shallowIterator.next();
             long timestamp = shallowEntry.record().timestamp();
@@ -304,21 +304,25 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
     }
 
     @Override
-    public Iterator<LogEntry> iterator() {
-        return iterator(true, false, Integer.MAX_VALUE);
+    public Iterator<LogEntry> shallowEntries() {
+        return shallowEntriesFrom(start);
+    }
+
+    public Iterator<LogEntry> shallowEntries(int maxMessageSize) {
+        return shallowEntriesFrom(maxMessageSize, start);
+    }
+
+    public Iterator<LogEntry> shallowEntriesFrom(long start) {
+        return shallowEntriesFrom(Integer.MAX_VALUE, start);
+    }
+
+    public Iterator<LogEntry> shallowEntriesFrom(int maxMessageSize, long start) {
+        return iterator(true, false, maxMessageSize, start);
     }
 
     @Override
-    public Iterator<LogEntry> iterator(boolean isShallow) {
-        return iterator(isShallow, false, Integer.MAX_VALUE);
-    }
-
-    public Iterator<LogEntry> iterator(boolean isShallow, long start) {
-        return iterator(isShallow, false, Integer.MAX_VALUE, start);
-    }
-
-    public Iterator<LogEntry> iterator(int maxMessageSize) {
-        return iterator(true, false, maxMessageSize);
+    public Iterator<LogEntry> deepEntries() {
+        return iterator(false, false, Integer.MAX_VALUE, start);
     }
 
     private Iterator<FileChannelLogEntry> lazyIterator() {
@@ -337,11 +341,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
         return LogBufferIterator.shallowIterator(inputStream);
     }
 
-    public Iterator<LogEntry> iterator(boolean isShallow, boolean ensureMatchingMagic, int maxMessageSize) {
-        return iterator(isShallow, ensureMatchingMagic, maxMessageSize, start);
-    }
-
-    public Iterator<LogEntry> iterator(boolean isShallow, boolean ensureMatchingMagic, int maxMessageSize, long start) {
+    private Iterator<LogEntry> iterator(boolean isShallow, boolean ensureMatchingMagic, int maxMessageSize, long start) {
         final long end;
         if (isSlice)
             end = this.end;
