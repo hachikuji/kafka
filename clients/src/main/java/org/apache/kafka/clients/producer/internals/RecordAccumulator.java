@@ -192,8 +192,8 @@ public final class RecordAccumulator {
                     free.deallocate(buffer);
                     return appendResult;
                 }
-                MemoryLogBufferBuilder recordsBuilder = MemoryLogBuffer.builder(buffer, compression, TimestampType.CREATE_TIME, this.batchSize);
-                RecordBatch batch = new RecordBatch(tp, recordsBuilder, time.milliseconds());
+                MemoryLogBufferBuilder logBufferBuilder = MemoryLogBuffer.builder(buffer, compression, TimestampType.CREATE_TIME, this.batchSize);
+                RecordBatch batch = new RecordBatch(tp, logBufferBuilder, time.milliseconds());
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, callback, time.milliseconds()));
 
                 dq.addLast(batch);

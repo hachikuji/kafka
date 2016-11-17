@@ -47,12 +47,12 @@ public final class RecordBatch {
     private final List<Thunk> thunks;
     private long offsetCounter = 0L;
     private boolean retry;
-    private final MemoryLogBufferBuilder recordsBuilder;
+    private final MemoryLogBufferBuilder logBufferBuilder;
 
-    public RecordBatch(TopicPartition tp, MemoryLogBufferBuilder recordsBuilder, long now) {
+    public RecordBatch(TopicPartition tp, MemoryLogBufferBuilder logBufferBuilder, long now) {
         this.createdMs = now;
         this.lastAttemptMs = now;
-        this.recordsBuilder = recordsBuilder;
+        this.logBufferBuilder = logBufferBuilder;
         this.topicPartition = tp;
         this.produceFuture = new ProduceRequestResult();
         this.thunks = new ArrayList<>();
@@ -69,7 +69,7 @@ public final class RecordBatch {
         if (!hasRoomFor(key, value)) {
             return null;
         } else {
-            long checksum = this.recordsBuilder.append(offsetCounter++, timestamp, key, value);
+            long checksum = this.logBufferBuilder.append(offsetCounter++, timestamp, key, value);
             this.maxRecordSize = Math.max(this.maxRecordSize, Record.recordSize(key, value));
             this.lastAppendTime = now;
             FutureRecordMetadata future = new FutureRecordMetadata(this.produceFuture, this.recordCount,
@@ -180,35 +180,35 @@ public final class RecordBatch {
     }
 
     public MemoryLogBuffer logBuffer() {
-        return recordsBuilder.logBuffer();
+        return logBufferBuilder.logBuffer();
     }
 
     public int sizeInBytes() {
-        return recordsBuilder.sizeInBytes();
+        return logBufferBuilder.sizeInBytes();
     }
 
     public double compressionRate() {
-        return recordsBuilder.compressionRate();
+        return logBufferBuilder.compressionRate();
     }
 
     public boolean isFull() {
-        return recordsBuilder.isFull();
+        return logBufferBuilder.isFull();
     }
 
     public void close() {
-        recordsBuilder.close();
+        logBufferBuilder.close();
     }
 
     public ByteBuffer initialBuffer() {
-        return recordsBuilder.initialBuffer();
+        return logBufferBuilder.initialBuffer();
     }
 
     public boolean isWritable() {
-        return !recordsBuilder.isClosed();
+        return !logBufferBuilder.isClosed();
     }
 
     private boolean hasRoomFor(byte[] key, byte[] value) {
-        return recordsBuilder.hasRoomFor(key, value);
+        return logBufferBuilder.hasRoomFor(key, value);
     }
 
 }
