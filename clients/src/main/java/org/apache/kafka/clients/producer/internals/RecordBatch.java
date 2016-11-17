@@ -180,7 +180,7 @@ public final class RecordBatch {
     }
 
     public MemoryLogBuffer logBuffer() {
-        return recordsBuilder.records();
+        return recordsBuilder.logBuffer();
     }
 
     public int sizeInBytes() {

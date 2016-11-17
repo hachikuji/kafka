@@ -91,7 +91,7 @@ public class MemoryLogBufferBuilder {
     private final long logAppendTime;
     private final int writeLimit;
 
-    private MemoryLogBuffer records;
+    private MemoryLogBuffer builtLogBuffer;
     private long writtenUncompressed;
     private long numRecords;
     private float compressionRate;
@@ -142,9 +142,9 @@ public class MemoryLogBufferBuilder {
         return compressionRate;
     }
 
-    public MemoryLogBuffer records() {
-        if (records != null)
-            return records;
+    public MemoryLogBuffer logBuffer() {
+        if (builtLogBuffer != null)
+            return builtLogBuffer;
         ByteBuffer buffer = buffer().duplicate();
         buffer.flip();
         return MemoryLogBuffer.readableRecords(buffer);
@@ -156,7 +156,7 @@ public class MemoryLogBufferBuilder {
      */
     public MemoryLogBuffer build() {
         close();
-        return records();
+        return builtLogBuffer;
     }
 
     /**
@@ -171,7 +171,7 @@ public class MemoryLogBufferBuilder {
     }
 
     public void close() {
-        if (records != null)
+        if (builtLogBuffer != null)
             return;
 
         try {
@@ -185,7 +185,7 @@ public class MemoryLogBufferBuilder {
 
         ByteBuffer buffer = buffer();
         buffer.flip();
-        records = MemoryLogBuffer.readableRecords(buffer);
+        builtLogBuffer = MemoryLogBuffer.readableRecords(buffer);
     }
 
     private void writerCompressedWrapperHeader() {
@@ -375,7 +375,7 @@ public class MemoryLogBufferBuilder {
     }
 
     public boolean isClosed() {
-        return records != null;
+        return builtLogBuffer != null;
     }
 
     public boolean isFull() {
@@ -383,7 +383,7 @@ public class MemoryLogBufferBuilder {
     }
 
     public int sizeInBytes() {
-        return records != null ? records.sizeInBytes() : buffer().position();
+        return builtLogBuffer != null ? builtLogBuffer.sizeInBytes() : buffer().position();
     }
 
     private static DataOutputStream wrapForOutput(ByteBufferOutputStream buffer, CompressionType type, byte messageVersion, int bufferSize) {

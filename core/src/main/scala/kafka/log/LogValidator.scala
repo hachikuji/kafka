@@ -112,7 +112,7 @@ private[kafka] object LogValidator {
         val info = builder.info
 
         ValidationAndOffsetAssignResult(
-          validatedEntries = builder.records,
+          validatedEntries = builder.logBuffer,
           maxTimestamp = info.maxTimestamp,
           offsetOfMaxTimestamp = info.offsetOfMaxTimestamp,
           messageSizeMaybeChanged = true)
@@ -163,7 +163,7 @@ private[kafka] object LogValidator {
     val info = builder.info
 
     ValidationAndOffsetAssignResult(
-      validatedEntries = builder.records,
+      validatedEntries = builder.logBuffer,
       maxTimestamp = info.maxTimestamp,
       offsetOfMaxTimestamp = info.offsetOfMaxTimestamp,
       messageSizeMaybeChanged = true)
