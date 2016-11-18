@@ -17,12 +17,9 @@
 
 package kafka.server
 
-import java.nio.ByteBuffer
-
 import kafka.utils.TestUtils
-import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.protocol.{ApiKeys, Errors, ProtoUtils}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, Record}
 import org.apache.kafka.common.requests.{ProduceRequest, ProduceResponse}
 import org.junit.Assert._
@@ -40,9 +37,9 @@ class ProduceRequestTest extends BaseRequestTest {
   def testSimpleProduceRequest() {
     val (partition, leader) = createTopicAndFindPartitionWithLeader("topic")
 
-    def sendAndCheck(recordBuffer: ByteBuffer, expectedOffset: Long): ProduceResponse.PartitionResponse = {
+    def sendAndCheck(records: MemoryRecords, expectedOffset: Long): ProduceResponse.PartitionResponse = {
       val topicPartition = new TopicPartition("topic", partition)
-      val partitionRecords = Map(topicPartition -> MemoryRecords.readableRecords(recordBuffer))
+      val partitionRecords = Map(topicPartition -> records)
       val produceResponse = sendProduceRequest(leader, new ProduceRequest(-1, 3000, partitionRecords.asJava))
       assertEquals(1, produceResponse.responses.size)
       val (tp, partitionResponse) = produceResponse.responses.asScala.head
@@ -53,12 +50,12 @@ class ProduceRequestTest extends BaseRequestTest {
       partitionResponse
     }
 
-    sendAndCheck(JTestUtils.partitionRecordsBuffer(0, CompressionType.NONE,
-      Record.create(System.currentTimeMillis(), "key".getBytes, "value".getBytes)), 0)
+    sendAndCheck(TestUtils.records(Record.CURRENT_MAGIC_VALUE, CompressionType.NONE,
+      ("key".getBytes, "value".getBytes, System.currentTimeMillis())), 0)
 
-    sendAndCheck(JTestUtils.partitionRecordsBuffer(0, CompressionType.GZIP,
-      Record.create(System.currentTimeMillis(), "key1".getBytes, "value1".getBytes),
-      Record.create(System.currentTimeMillis(), "key2".getBytes, "value2".getBytes)), 1)
+    sendAndCheck(TestUtils.records(Record.CURRENT_MAGIC_VALUE, CompressionType.GZIP,
+      ("key1".getBytes, "value1".getBytes, System.currentTimeMillis()),
+      ("key2".getBytes, "value2".getBytes, System.currentTimeMillis())), 1)
   }
 
   /* returns a pair of partition id and leader id */
@@ -73,10 +70,10 @@ class ProduceRequestTest extends BaseRequestTest {
   def testCorruptLz4ProduceRequest() {
     val (partition, leader) = createTopicAndFindPartitionWithLeader("topic")
     val timestamp = 1000000
-    val recordBuffer = JTestUtils.partitionRecordsBuffer(0, CompressionType.LZ4,
-      Record.create(timestamp, "key".getBytes, "value".getBytes))
+    val recordBuffer = TestUtils.records(codec = CompressionType.LZ4, timestamp = timestamp,
+      key = "key".getBytes, value = "value".getBytes).buffer()
     // Change the lz4 checksum value so that it doesn't match the contents
-    recordBuffer.array.update(40, 0)
+    recordBuffer.array.update(40, 3) // FIXME: Is this index significant? For older magic, the CRC should be at offset 13
     val topicPartition = new TopicPartition("topic", partition)
     val partitionRecords = Map(topicPartition -> MemoryRecords.readableRecords(recordBuffer))
     val produceResponse = sendProduceRequest(leader, new ProduceRequest(-1, 3000, partitionRecords.asJava))

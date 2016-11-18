@@ -197,6 +197,7 @@ public class FetchRequest extends AbstractRequest {
             case 1:
             case 2:
             case 3:
+            case 4:
                 return new FetchResponse(responseData, 0);
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",

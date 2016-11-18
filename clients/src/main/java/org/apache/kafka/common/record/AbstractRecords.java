@@ -17,8 +17,8 @@
 package org.apache.kafka.common.record;
 
 import org.apache.kafka.common.utils.AbstractIterator;
+import org.apache.kafka.common.utils.Utils;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -26,9 +26,16 @@ public abstract class AbstractRecords implements Records {
 
     @Override
     public boolean hasMatchingShallowMagic(byte magic) {
-        Iterator<? extends LogEntry> iterator = shallowIterator();
-        while (iterator.hasNext())
-            if (iterator.next().magic() != magic)
+        for (LogEntry entry : this)
+            if (entry.magic() != magic)
+                return false;
+        return true;
+    }
+
+    @Override
+    public boolean hasCompatibleMagic(byte magic) {
+        for (LogEntry entry : this)
+            if (entry.magic() > magic)
                 return false;
         return true;
     }
@@ -38,14 +45,8 @@ public abstract class AbstractRecords implements Records {
      */
     @Override
     public Records toMessageFormat(byte toMagic) {
-        List<LogEntry> converted = new ArrayList<>();
-        Iterator<LogEntry> deepIterator = deepIterator();
-        while (deepIterator.hasNext()) {
-            LogEntry entry = deepIterator.next();
-            converted.add(LogEntry.create(entry.offset(), entry.record().convert(toMagic)));
-        }
-
-        if (converted.isEmpty()) {
+        List<LogRecord> records = Utils.toList(records());
+        if (records.isEmpty()) {
             // This indicates that the message is too large, which indicates that the buffer is not large
             // enough to hold a full log entry. We just return all the bytes in the file message set.
             // Even though the message set does not have the right format version, we expect old clients
@@ -60,33 +61,66 @@ public abstract class AbstractRecords implements Records {
             // cause some timestamp information to be lost (e.g. if the timestamp type was changed) since
             // we are essentially merging multiple message sets. However, currently this method is only
             // used for down-conversion, so we've ignored the problem.
-            CompressionType compressionType = shallowIterator().next().record().compressionType();
-            return MemoryRecords.withLogEntries(compressionType, converted);
+            LogEntry firstEntry = iterator().next();
+            return MemoryRecords.withLogRecords(toMagic, firstEntry.compressionType(), firstEntry.timestampType(), records);
         }
     }
 
-    public static int estimatedSize(CompressionType compressionType, Iterable<LogEntry> entries) {
-        int size = 0;
-        for (LogEntry entry : entries)
-            size += entry.sizeInBytes();
-        // NOTE: 1024 is the minimum block size for snappy encoding
-        return compressionType == CompressionType.NONE ? size : Math.min(Math.max(size / 2, 1024), 1 << 16);
+    @Override
+    @SuppressWarnings("unchecked")
+    public Iterator<LogEntry> iterator() {
+        return (Iterator<LogEntry>) shallowIterator();
     }
 
     /**
      * Get an iterator over the deep records.
      * @return An iterator over the records
      */
-    public Iterator<Record> records() {
-        return new AbstractIterator<Record>() {
-            private final Iterator<? extends LogEntry> deepEntries = deepIterator();
+    @Override
+    public Iterator<LogRecord> records() {
+        return new AbstractIterator<LogRecord>() {
+            private final Iterator<? extends LogEntry> entries = shallowIterator();
+            private Iterator<LogRecord> records;
+
             @Override
-            protected Record makeNext() {
-                if (deepEntries.hasNext())
-                    return deepEntries.next().record();
+            protected LogRecord makeNext() {
+                if (records != null && records.hasNext())
+                    return records.next();
+
+                if (entries.hasNext()) {
+                    records = entries.next().iterator();
+                    return makeNext();
+                }
+
                 return allDone();
             }
         };
     }
 
+    public Iterator<Record> rawRecords() {
+        return new AbstractIterator<Record>() {
+            private final Iterator<LogEntry> entries = deepIterator();
+            @Override
+            protected Record makeNext() {
+                if (entries.hasNext())
+                    return entries.next().record();
+                return allDone();
+            }
+        };
+    }
+
+    public static int estimatedSize(CompressionType compressionType, Iterable<LogEntry> entries) {
+        int size = 0;
+        for (LogEntry entry : entries)
+            size += entry.sizeInBytes();
+        return compressionType == CompressionType.NONE ? size : Math.min(Math.max(size / 2, 1024), 1 << 16);
+    }
+
+    public static int estimatedSizeRecords(CompressionType compressionType, Iterable<LogRecord> entries) {
+        int size = 0;
+        for (LogRecord entry : entries)
+            size += entry.sizeInBytes();
+        // TODO: Account for header overhead
+        return compressionType == CompressionType.NONE ? size : Math.min(Math.max(size / 2, 1024), 1 << 16);
+    }
 }

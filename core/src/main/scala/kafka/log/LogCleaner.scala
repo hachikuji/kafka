@@ -26,9 +26,9 @@ import com.yammer.metrics.core.Gauge
 import kafka.common._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.utils._
-import org.apache.kafka.common.record.{FileRecords, LogEntry, MemoryRecords}
+import org.apache.kafka.common.record.MemoryRecords.LogRecordFilter
+import org.apache.kafka.common.record.{FileRecords, LogRecord, MemoryRecords}
 import org.apache.kafka.common.utils.Time
-import MemoryRecords.LogEntryFilter
 
 import scala.collection._
 import JavaConverters._
@@ -450,11 +450,11 @@ private[log] class Cleaner(val id: Int,
                              retainDeletes: Boolean,
                              maxLogMessageSize: Int,
                              stats: CleanerStats) {
-    def shouldRetainEntry(logEntry: LogEntry): Boolean =
-      shouldRetainMessage(source, map, retainDeletes, logEntry, stats)
+    def shouldRetainEntry(record: LogRecord): Boolean =
+      shouldRetainMessage(source, map, retainDeletes, record, stats)
 
-    class LogCleanerFilter extends LogEntryFilter {
-      def shouldRetain(logEntry: LogEntry): Boolean = shouldRetainEntry(logEntry)
+    class LogCleanerFilter extends LogRecordFilter {
+      def shouldRetain(record: LogRecord): Boolean = shouldRetainEntry(record)
     }
 
     var position = 0
@@ -493,22 +493,22 @@ private[log] class Cleaner(val id: Int,
   private def shouldRetainMessage(source: kafka.log.LogSegment,
                                   map: kafka.log.OffsetMap,
                                   retainDeletes: Boolean,
-                                  entry: LogEntry,
+                                  entry: LogRecord,
                                   stats: CleanerStats): Boolean = {
     val pastLatestOffset = entry.offset > map.latestOffset
     if (pastLatestOffset)
       return true
 
 
-    if (entry.record.hasKey) {
-      val key = entry.record.key
+    if (entry.hasKey) {
+      val key = entry.key
       val foundOffset = map.get(key)
       /* two cases in which we can get rid of a message:
        *   1) if there exists a message with the same key but higher offset
        *   2) if the message is a delete "tombstone" marker and enough time has passed
        */
       val redundant = foundOffset >= 0 && entry.offset < foundOffset
-      val obsoleteDelete = !retainDeletes && entry.record.hasNullValue
+      val obsoleteDelete = !retainDeletes && entry.hasNullValue
       !redundant && !obsoleteDelete
     } else {
       stats.invalidMessage()
@@ -630,11 +630,10 @@ private[log] class Cleaner(val id: Int,
       throttler.maybeThrottle(records.sizeInBytes)
 
       val startPosition = position
-      for (entry <- records.deepIterator.asScala) {
-        val message = entry.record
-        if (message.hasKey && entry.offset >= start) {
+      for (record <- records.records.asScala) {
+        if (record.hasKey && record.offset >= start) {
           if (map.size < maxDesiredMapSize)
-            map.put(message.key, entry.offset)
+            map.put(record.key, record.offset)
           else
             return true
         }
