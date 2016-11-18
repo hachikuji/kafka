@@ -755,7 +755,7 @@ public class Utils {
 
 
     /**
-     * Compute the checksum of the record from the record contents
+     * Compute the checksum of a range of data
      * @param buffer Buffer containing the data to checksum
      * @param start Offset in the buffer to read from
      * @param size The number of bytes to include
