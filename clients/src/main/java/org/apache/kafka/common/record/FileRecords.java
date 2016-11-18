@@ -41,7 +41,7 @@ public class FileRecords extends AbstractRecords implements Closeable {
     private final int start;
     private final int end;
 
-    private final Iterable<FileChannelLogEntry> shallowEntries;
+    private final Iterable<FileChannelLogEntry> entries;
 
     private final Iterable<LogEntry> deepEntries = new Iterable<LogEntry>() {
         @Override
@@ -83,7 +83,7 @@ public class FileRecords extends AbstractRecords implements Closeable {
             channel.position(limit);
         }
 
-        shallowEntries = shallowEntriesFrom(start);
+        entries = entriesFrom(start);
     }
 
     @Override
@@ -266,8 +266,8 @@ public class FileRecords extends AbstractRecords implements Closeable {
      * @param startingPosition The starting position in the file to begin searching from.
      */
     public LogEntryPosition searchForOffsetWithSize(long targetOffset, int startingPosition) {
-        for (FileChannelLogEntry entry : shallowEntriesFrom(startingPosition)) {
-            long offset = entry.offset();
+        for (FileChannelLogEntry entry : entriesFrom(startingPosition)) {
+            long offset = entry.lastOffset();
             if (offset >= targetOffset)
                 return new LogEntryPosition(offset, entry.position(), entry.sizeInBytes());
         }
@@ -282,18 +282,17 @@ public class FileRecords extends AbstractRecords implements Closeable {
      * @return The timestamp and offset of the message found. None, if no message is found.
      */
     public TimestampAndOffset searchForTimestamp(long targetTimestamp, int startingPosition) {
-        for (LogEntry shallowEntry : shallowEntriesFrom(startingPosition)) {
-            Record shallowRecord = shallowEntry.record();
-            if (shallowRecord.timestamp() >= targetTimestamp) {
+        for (LogEntry logEntry : entriesFrom(startingPosition)) {
+            if (logEntry.timestamp() >= targetTimestamp) {
                 // We found a message
-                for (LogEntry deepLogEntry : shallowEntry) {
-                    long timestamp = deepLogEntry.record().timestamp();
+                for (LogRecord record : logEntry) {
+                    long timestamp = record.timestamp();
                     if (timestamp >= targetTimestamp)
-                        return new TimestampAndOffset(timestamp, deepLogEntry.offset());
+                        return new TimestampAndOffset(timestamp, record.offset());
                 }
-                throw new IllegalStateException(String.format("The message set (max timestamp = %s, max offset = %s" +
-                        " should contain target timestamp %s, but does not.", shallowRecord.timestamp(),
-                        shallowEntry.offset(), targetTimestamp));
+                throw new IllegalStateException(String.format("The message set (max timestamp = %s, max offset = %s)" +
+                        " should contain target timestamp %s but it does not.", logEntry.timestamp(),
+                        logEntry.offset(), targetTimestamp));
             }
         }
         return null;
@@ -308,11 +307,11 @@ public class FileRecords extends AbstractRecords implements Closeable {
         long maxTimestamp = Record.NO_TIMESTAMP;
         long offsetOfMaxTimestamp = -1L;
 
-        for (LogEntry shallowEntry : shallowEntriesFrom(startingPosition)) {
-            long timestamp = shallowEntry.record().timestamp();
+        for (LogEntry logEntry : entriesFrom(startingPosition)) {
+            long timestamp = logEntry.timestamp();
             if (timestamp > maxTimestamp) {
                 maxTimestamp = timestamp;
-                offsetOfMaxTimestamp = shallowEntry.offset();
+                offsetOfMaxTimestamp = logEntry.offset();
             }
         }
         return new TimestampAndOffset(maxTimestamp, offsetOfMaxTimestamp);
@@ -325,8 +324,8 @@ public class FileRecords extends AbstractRecords implements Closeable {
      * @return An iterator over the shallow entries
      */
     @Override
-    public Iterable<FileChannelLogEntry> shallowEntries() {
-        return shallowEntries;
+    public Iterable<FileChannelLogEntry> entries() {
+        return entries;
     }
 
     /**
@@ -334,24 +333,24 @@ public class FileRecords extends AbstractRecords implements Closeable {
      * @param maxRecordSize The maximum allowable size of individual records (including compressed record sets)
      * @return An iterator over the shallow entries
      */
-    public Iterable<FileChannelLogEntry> shallowEntries(int maxRecordSize) {
-        return shallowEntries(maxRecordSize, start);
+    public Iterable<FileChannelLogEntry> entries(int maxRecordSize) {
+        return entries(maxRecordSize, start);
     }
 
-    private Iterable<FileChannelLogEntry> shallowEntriesFrom(int start) {
-        return shallowEntries(Integer.MAX_VALUE, start);
+    private Iterable<FileChannelLogEntry> entriesFrom(int start) {
+        return entries(Integer.MAX_VALUE, start);
     }
 
-    private Iterable<FileChannelLogEntry> shallowEntries(final int maxRecordSize, final int start) {
+    private Iterable<FileChannelLogEntry> entries(final int maxRecordSize, final int start) {
         return new Iterable<FileChannelLogEntry>() {
             @Override
             public Iterator<FileChannelLogEntry> iterator() {
-                return shallowIterator(maxRecordSize, start);
+                return entryIterator(maxRecordSize, start);
             }
         };
     }
 
-    private Iterator<FileChannelLogEntry> shallowIterator(int maxRecordSize, int start) {
+    private Iterator<FileChannelLogEntry> entryIterator(int maxRecordSize, int start) {
         final int end;
         if (isSlice)
             end = this.end;
