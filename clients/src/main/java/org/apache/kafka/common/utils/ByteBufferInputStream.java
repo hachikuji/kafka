@@ -14,23 +14,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.kafka.common.utils;
 
-package kafka.message
+import java.io.InputStream;
+import java.nio.ByteBuffer;
 
-import org.apache.kafka.common.record.OldLogEntry
+/**
+ * A byte buffer backed input inputStream
+ */
+public final class ByteBufferInputStream extends InputStream {
+    private final ByteBuffer buffer;
 
-object MessageAndOffset {
-  def fromLogEntry(logEntry: OldLogEntry): MessageAndOffset = {
-    MessageAndOffset(Message.fromRecord(logEntry.record), logEntry.lastOffset)
-  }
+    public ByteBufferInputStream(ByteBuffer buffer) {
+        this.buffer = buffer;
+    }
+
+    public int read() {
+        if (!buffer.hasRemaining()) {
+            return -1;
+        }
+        return buffer.get() & 0xFF;
+    }
+
+    public int read(byte[] bytes, int off, int len) {
+        if (!buffer.hasRemaining()) {
+            return -1;
+        }
+
+        len = Math.min(len, buffer.remaining());
+        buffer.get(bytes, off, len);
+        return len;
+    }
 }
-
-case class MessageAndOffset(message: Message, offset: Long) {
-  
-  /**
-   * Compute the offset of the next message in the log
-   */
-  def nextOffset: Long = offset + 1
-
-}
-
