@@ -47,14 +47,18 @@ public abstract class AbstractLogBuffer implements LogBuffer {
 
         if (converted.isEmpty()) {
             // This indicates that the message is too large. We just return all the bytes in the file message set.
-            // TODO: Is this really what we want? The consumer is still going to break if it gets the wrong version
-            // would it be better to just return an empty buffer instead?
+            // Even though the message set does not have the right format version, we expect old clients
+            // to fail to raise an error to the user after reading the message size and seeing that there
+            // is not enough data available to parse the full message. Yes, this is a hack.
             return this;
         } else {
-            // We use the offset seq to assign offsets so the offset of the messages does not change.
-            // TODO: Using the compression like this seems wrong. Also, there's no guarantee that timestamp
-            // types match, so putting all the messages into a wrapped message would cause us to lose log append time.
-            // Maybe this is ok since we only use this for down-conversion in practice?
+            // We use the first message to determine the compression type for the resulting message set.
+            // This could result in message sets which are either larger or smaller than the original size.
+            // For example, it could end up larger if most messages were previously compressed, but
+            // it just so happens that the first one is not. There is also some risk that this can
+            // cause some timestamp information to be lost (e.g. if the timestamp type was changed) since
+            // we are essentially merging multiple message sets. However, currently this method is only
+            // used for down-conversion, so we've ignored the problem.
             CompressionType compressionType = shallowEntries().next().record().compressionType();
             return MemoryLogBuffer.withLogEntries(compressionType, converted);
         }

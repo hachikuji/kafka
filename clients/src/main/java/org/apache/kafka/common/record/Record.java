@@ -16,13 +16,13 @@
  */
 package org.apache.kafka.common.record;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.utils.Crc32;
 import org.apache.kafka.common.utils.Utils;
+
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 
 
 /**
@@ -109,12 +109,11 @@ public final class Record {
         this.wrapperRecordTimestampType = wrapperRecordTimestampType;
     }
 
-
     /**
      * Compute the checksum of the record from the record contents
      */
     public long computeChecksum() {
-        return computeChecksum(buffer, MAGIC_OFFSET, buffer.limit() - MAGIC_OFFSET);
+        return Utils.computeChecksum(buffer, MAGIC_OFFSET, buffer.limit() - MAGIC_OFFSET);
     }
 
     /**
@@ -257,7 +256,7 @@ public final class Record {
      * A ByteBuffer containing the value of this record
      */
     public ByteBuffer value() {
-        return sizeDelimited(valueSizeOffset());
+        return Utils.sizeDelimited(buffer, valueSizeOffset());
     }
 
     /**
@@ -265,31 +264,16 @@ public final class Record {
      */
     public ByteBuffer key() {
         if (magic() == MAGIC_VALUE_V0)
-            return sizeDelimited(KEY_SIZE_OFFSET_V0);
+            return Utils.sizeDelimited(buffer, KEY_SIZE_OFFSET_V0);
         else
-            return sizeDelimited(KEY_SIZE_OFFSET_V1);
+            return Utils.sizeDelimited(buffer, KEY_SIZE_OFFSET_V1);
     }
 
     public ByteBuffer buffer() {
         return this.buffer;
     }
 
-    /**
-     * Read a size-delimited byte buffer starting at the given offset
-     */
-    private ByteBuffer sizeDelimited(int start) {
-        int size = buffer.getInt(start);
-        if (size < 0) {
-            return null;
-        } else {
-            ByteBuffer b = buffer.duplicate();
-            b.position(start + 4);
-            b = b.slice();
-            b.limit(size);
-            b.rewind();
-            return b;
-        }
-    }
+
 
     public String toString() {
         if (magic() > 0)
@@ -421,9 +405,7 @@ public final class Record {
         buffer.putInt(recordPosition + keyOffset(magic), valueSize);
 
         // compute and fill the crc from the beginning of the message
-        long crc = computeChecksum(buffer,
-                recordPosition + MAGIC_OFFSET,
-                recordSize - MAGIC_OFFSET);
+        long crc = Utils.computeChecksum(buffer, recordPosition + MAGIC_OFFSET, recordSize - MAGIC_OFFSET);
         Utils.writeUnsignedInt(buffer, recordPosition + CRC_OFFSET, crc);
     }
 
@@ -544,14 +526,6 @@ public final class Record {
         return attributes;
     }
 
-    /**
-     * Compute the checksum of the record from the record contents
-     */
-    public static long computeChecksum(ByteBuffer buffer, int position, int size) {
-        Crc32 crc = new Crc32();
-        crc.update(buffer.array(), buffer.arrayOffset() + position, size);
-        return crc.getValue();
-    }
 
     public static long computeChecksum(byte magic, byte attributes, long timestamp, byte[] key, byte[] value) {
         return computeChecksum(magic, attributes, timestamp, wrapNullable(key), wrapNullable(value));

@@ -248,40 +248,40 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
     }
 
     public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                  CompressionType compressionType,
-                                  TimestampType timestampType,
-                                  int writeLimit) {
+                                                 CompressionType compressionType,
+                                                 TimestampType timestampType,
+                                                 int writeLimit) {
         return new MemoryLogBufferBuilder(buffer, Record.CURRENT_MAGIC_VALUE, compressionType, timestampType, 0L, System.currentTimeMillis(), writeLimit);
     }
 
     public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                  byte magic,
-                                  CompressionType compressionType,
-                                  TimestampType timestampType,
-                                  long baseOffset,
-                                  long logAppendTime) {
+                                                 byte magic,
+                                                 CompressionType compressionType,
+                                                 TimestampType timestampType,
+                                                 long baseOffset,
+                                                 long logAppendTime) {
         return new MemoryLogBufferBuilder(buffer, magic, compressionType, timestampType, baseOffset, logAppendTime, buffer.capacity());
     }
 
     public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                  CompressionType compressionType,
-                                  TimestampType timestampType) {
+                                                 CompressionType compressionType,
+                                                 TimestampType timestampType) {
         // use the buffer capacity as the default write limit
         return builder(buffer, compressionType, timestampType, buffer.capacity());
     }
 
     public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                  byte magic,
-                                  CompressionType compressionType,
-                                  TimestampType timestampType) {
+                                                 byte magic,
+                                                 CompressionType compressionType,
+                                                 TimestampType timestampType) {
         return builder(buffer, magic, compressionType, timestampType, 0L);
     }
 
     public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                  byte magic,
-                                  CompressionType compressionType,
-                                  TimestampType timestampType,
-                                  long baseOffset) {
+                                                 byte magic,
+                                                 CompressionType compressionType,
+                                                 TimestampType timestampType,
+                                                 long baseOffset) {
         return builder(buffer, magic, compressionType, timestampType, baseOffset, System.currentTimeMillis());
     }
 
@@ -330,18 +330,18 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
     }
 
     public static MemoryLogBufferBuilder builderWithEntries(TimestampType timestampType,
-                                             CompressionType compressionType,
-                                             long logAppendTime,
-                                             List<LogEntry> entries) {
+                                                            CompressionType compressionType,
+                                                            long logAppendTime,
+                                                            List<LogEntry> entries) {
         ByteBuffer buffer = ByteBuffer.allocate(estimatedSize(compressionType, entries));
         return builderWithEntries(buffer, timestampType, compressionType, logAppendTime, entries);
     }
 
     private static MemoryLogBufferBuilder builderWithEntries(ByteBuffer buffer,
-                                              TimestampType timestampType,
-                                              CompressionType compressionType,
-                                              long logAppendTime,
-                                              List<LogEntry> entries) {
+                                                             TimestampType timestampType,
+                                                             CompressionType compressionType,
+                                                             long logAppendTime,
+                                                             List<LogEntry> entries) {
         if (entries.isEmpty())
             throw new IllegalArgumentException();
 

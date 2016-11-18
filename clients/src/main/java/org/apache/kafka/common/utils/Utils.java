@@ -732,4 +732,38 @@ public class Utils {
     public static int longHashcode(long value) {
         return (int) (value ^ (value >>> 32));
     }
+
+    /**
+     * Read a size-delimited byte buffer starting at the given offset.
+     * @param buffer Buffer containing the size and data
+     * @param start Offset in the buffer to read from
+     * @return A slice of the buffer containing only the delimited data (excluding the size)
+     */
+    public static ByteBuffer sizeDelimited(ByteBuffer buffer, int start) {
+        int size = buffer.getInt(start);
+        if (size < 0) {
+            return null;
+        } else {
+            ByteBuffer b = buffer.duplicate();
+            b.position(start + 4);
+            b = b.slice();
+            b.limit(size);
+            b.rewind();
+            return b;
+        }
+    }
+
+
+    /**
+     * Compute the checksum of the record from the record contents
+     * @param buffer Buffer containing the data to checksum
+     * @param start Offset in the buffer to read from
+     * @param size The number of bytes to include
+     */
+    public static long computeChecksum(ByteBuffer buffer, int start, int size) {
+        Crc32 crc = new Crc32();
+        crc.update(buffer.array(), buffer.arrayOffset() + start, size);
+        return crc.getValue();
+    }
+
 }

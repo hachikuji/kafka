@@ -93,10 +93,7 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
                 byte attributes = record.attributes();
                 buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.CREATE_TIME.updateAttributes(attributes));
                 buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
-
-                long crc = Record.computeChecksum(buffer,
-                        LOG_OVERHEAD + Record.MAGIC_OFFSET,
-                        buffer.limit() - Record.MAGIC_OFFSET - LOG_OVERHEAD);
+                long crc = record.computeChecksum();
                 Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
             }
         }
@@ -107,10 +104,7 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
                 byte attributes = record.attributes();
                 buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
                 buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
-
-                long crc = Record.computeChecksum(buffer,
-                        LOG_OVERHEAD + Record.MAGIC_OFFSET,
-                        buffer.limit() - Record.MAGIC_OFFSET - LOG_OVERHEAD);
+                long crc = record.computeChecksum();
                 Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
             }
         }
