@@ -22,12 +22,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import kafka.cluster.Broker
 import kafka.common.TopicAndPartition
-import kafka.message.{ByteBufferMessageSet, Message}
 import kafka.utils.{MockScheduler, MockTime, TestUtils, ZkUtils}
 import org.I0Itec.zkclient.ZkClient
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.record.{LogBuffer, MemoryLogBuffer}
+import org.apache.kafka.common.record.{LogBuffer, MemoryLogBuffer, Record}
 import org.apache.kafka.common.requests.{LeaderAndIsrRequest, PartitionState}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
@@ -108,7 +107,7 @@ class ReplicaManagerTest {
         timeout = 0,
         requiredAcks = 3,
         internalTopicsAllowed = false,
-        entriesPerPartition = Map(new TopicPartition("test1", 0) -> new ByteBufferMessageSet(new Message("first message".getBytes)).asLogBuffer),
+        entriesPerPartition = Map(new TopicPartition("test1", 0) -> MemoryLogBuffer.withRecords(Record.create("first message".getBytes()))),
         responseCallback = callback)
     } finally {
       rm.shutdown(checkpointHW = false)
@@ -161,7 +160,7 @@ class ReplicaManagerTest {
         timeout = 1000,
         requiredAcks = -1,
         internalTopicsAllowed = false,
-        entriesPerPartition = Map(new TopicPartition(topic, 0) -> new ByteBufferMessageSet(new Message("first message".getBytes)).asLogBuffer),
+        entriesPerPartition = Map(new TopicPartition(topic, 0) -> MemoryLogBuffer.withRecords(Record.create("first message".getBytes()))),
         responseCallback = produceCallback)
 
       // Fetch some messages
@@ -223,7 +222,7 @@ class ReplicaManagerTest {
           timeout = 1000,
           requiredAcks = -1,
           internalTopicsAllowed = false,
-          entriesPerPartition = Map(new TopicPartition(topic, 0) -> new ByteBufferMessageSet(new Message("message %d".format(i).getBytes)).asLogBuffer),
+          entriesPerPartition = Map(new TopicPartition(topic, 0) -> MemoryLogBuffer.withRecords(Record.create("message %d".format(i).getBytes))),
           responseCallback = produceCallback)
       
       var fetchCallbackFired = false
