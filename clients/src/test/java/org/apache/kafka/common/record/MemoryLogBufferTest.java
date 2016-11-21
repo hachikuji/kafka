@@ -27,7 +27,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 
-import static org.apache.kafka.common.utils.Utils.toArray;
+import static org.apache.kafka.common.utils.Utils.toNullableArray;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -49,13 +49,18 @@ public class MemoryLogBufferTest {
     public void testIterator() {
         MemoryLogBufferBuilder builder1 = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
         MemoryLogBufferBuilder builder2 = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
-        List<Record> list = Arrays.asList(Record.create(magic, 1L, "a".getBytes(), "1".getBytes()),
-                                          Record.create(magic, 2L, "b".getBytes(), "2".getBytes()),
-                                          Record.create(magic, 3L, "c".getBytes(), "3".getBytes()));
+        List<Record> list = Arrays.asList(
+                Record.create(magic, 1L, "a".getBytes(), "1".getBytes()),
+                Record.create(magic, 2L, "b".getBytes(), "2".getBytes()),
+                Record.create(magic, 3L, "c".getBytes(), "3".getBytes()),
+                Record.create(magic, 4L, null, "4".getBytes()),
+                Record.create(magic, 5L, "e".getBytes(), null),
+                Record.create(magic, 6L, null, null));
+
         for (int i = 0; i < list.size(); i++) {
             Record r = list.get(i);
             builder1.append(firstOffset + i, r);
-            builder2.append(firstOffset + i, i + 1, toArray(r.key()), toArray(r.value()));
+            builder2.append(firstOffset + i, i + 1, toNullableArray(r.key()), toNullableArray(r.value()));
         }
 
         MemoryLogBuffer recs1 = builder1.build();

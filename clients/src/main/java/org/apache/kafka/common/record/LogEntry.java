@@ -95,7 +95,6 @@ public abstract class LogEntry implements Iterable<LogEntry> {
         builder.putInt(size);
     }
 
-
     private static class SimpleLogEntry extends LogEntry {
         private final long offset;
         private final Record record;

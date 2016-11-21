@@ -161,12 +161,14 @@ public class MemoryLogBufferBuilder {
 
     /**
      * Get the max timestamp and its offset. If the log append time is used, then the offset will
-     * be that of the last log entry added.
+     * be either the first offset in the set if no compression is used or the last offset otherwise.
      * @return The max timestamp and its offset
      */
     public MemoryLogBuffer.RecordsInfo info() {
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
-            return new MemoryLogBuffer.RecordsInfo(logAppendTime, lastOffset);
+        if (timestampType == TimestampType.LOG_APPEND_TIME) {
+            long offsetOfMaxTimestamp = compressionType == CompressionType.NONE ? baseOffset : lastOffset;
+            return new MemoryLogBuffer.RecordsInfo(logAppendTime,  offsetOfMaxTimestamp);
+        }
         return new MemoryLogBuffer.RecordsInfo(maxTimestamp, offsetOfMaxTimestamp);
     }
 
@@ -250,6 +252,9 @@ public class MemoryLogBufferBuilder {
 
             int size = Record.recordSize(magic, key, value);
             LogEntry.writeHeader(this, toInnerOffset(offset), size);
+
+            if (timestampType == TimestampType.LOG_APPEND_TIME)
+                timestamp = logAppendTime;
             long crc = Record.write(appendStream, magic, timestamp, key, value, CompressionType.NONE, timestampType);
             recordWritten(offset, timestamp, size + LogBuffer.LOG_OVERHEAD);
             return crc;
@@ -275,8 +280,9 @@ public class MemoryLogBufferBuilder {
         try {
             int size = record.convertedSize(magic);
             LogEntry.writeHeader(this, toInnerOffset(offset), size);
-            record.convertTo(appendStream, magic, logAppendTime, timestampType);
-            recordWritten(offset, logAppendTime, size);
+            long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : record.timestamp();
+            record.convertTo(appendStream, magic, timestamp, timestampType);
+            recordWritten(offset, timestamp, size);
         } catch (IOException e) {
             throw new KafkaException("I/O exception when writing to the append stream, closing", e);
         }

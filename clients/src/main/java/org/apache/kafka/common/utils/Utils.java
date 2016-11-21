@@ -265,6 +265,10 @@ public class Utils {
         return toArray(buffer, 0, buffer.limit());
     }
 
+    public static byte[] toNullableArray(ByteBuffer buffer) {
+        return buffer == null ? null : toArray(buffer);
+    }
+
     /**
      * Read a byte array from the given offset and size in the buffer
      */
