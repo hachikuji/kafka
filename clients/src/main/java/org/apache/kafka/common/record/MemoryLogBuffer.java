@@ -138,9 +138,9 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
             } else if (!retainedEntries.isEmpty()) {
                 ByteBuffer slice = buffer.slice();
                 MemoryLogBufferBuilder builder = builderWithEntries(slice, shallowRecord.timestampType(), shallowRecord.compressionType(),
-                        System.currentTimeMillis(), retainedEntries);
+                        shallowRecord.timestamp(), retainedEntries);
                 builder.close();
-                buffer.position(buffer.position() + slice.limit());
+                buffer.position(buffer.position() + slice.position());
                 messagesRetained += 1;
                 bytesRetained += slice.limit();
             }

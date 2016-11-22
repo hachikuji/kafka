@@ -324,4 +324,11 @@ public class TestUtils {
         assertFalse("Iterators have uneven length--first has more", s1.hasNext());
         assertFalse("Iterators have uneven length--second has more", s2.hasNext());
     }
+
+    public static <T> List<T> toList(Iterator<T> iterator) {
+        List<T> res = new ArrayList<>();
+        while (iterator.hasNext())
+            res.add(iterator.next());
+        return res;
+    }
 }

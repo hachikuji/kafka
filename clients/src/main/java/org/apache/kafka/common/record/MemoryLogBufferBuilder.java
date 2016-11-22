@@ -142,14 +142,6 @@ public class MemoryLogBufferBuilder {
         return compressionRate;
     }
 
-    public MemoryLogBuffer logBuffer() {
-        if (builtLogBuffer != null)
-            return builtLogBuffer;
-        ByteBuffer buffer = buffer().duplicate();
-        buffer.flip();
-        return MemoryLogBuffer.readableRecords(buffer);
-    }
-
     /**
      * Close this builder and return the resulting buffer.
      * @return The built log buffer
@@ -185,8 +177,9 @@ public class MemoryLogBufferBuilder {
         if (compressionType != CompressionType.NONE)
             writerCompressedWrapperHeader();
 
-        ByteBuffer buffer = buffer();
+        ByteBuffer buffer = buffer().duplicate();
         buffer.flip();
+        buffer.position(initPos);
         builtLogBuffer = MemoryLogBuffer.readableRecords(buffer);
     }
 
@@ -195,7 +188,7 @@ public class MemoryLogBufferBuilder {
         int pos = buffer.position();
         buffer.position(initPos);
 
-        int wrapperSize = pos - LogBuffer.LOG_OVERHEAD;
+        int wrapperSize = pos - initPos - LogBuffer.LOG_OVERHEAD;
         LogEntry.writeHeader(buffer, lastOffset, wrapperSize);
 
         long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : maxTimestamp;
