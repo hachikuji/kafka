@@ -24,28 +24,34 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 
 /**
- * A log input stream which is backed by a {@link FileChannel}. This input stream provides
- * an "eager" mode in which records are written to ByteBuffer objects immediately when creating
- * the log entry and a "lazy" mode which delays the read of the record until it is actually requested.
- * @param <T> The type of the log entry (see {@link FileChannelLogEntry below}.
+ * A log input stream which is backed by a {@link FileChannel}.
  */
-abstract class FileLogInputStream<T extends LogEntry> implements LogInputStream<T> {
+public class FileLogInputStream implements LogInputStream<FileLogInputStream.FileChannelLogEntry> {
     private long position;
     protected final long end;
     protected final FileChannel channel;
-    private final int maxMessageSize;
+    private final int maxRecordSize;
+    private final boolean eagerLoadRecords;
     private final ByteBuffer logHeaderBuffer = ByteBuffer.allocate(LogBuffer.LOG_OVERHEAD);
 
-    public FileLogInputStream(FileChannel channel, int maxMessageSize, long start, long end) {
+    /**
+     * Create a new log input stream over the FileChannel
+     * @param channel Underlying FileChannel
+     * @param maxRecordSize Maximum size of records
+     * @param start Position in the file channel to start from
+     * @param end Position in the file channel not to read past
+     * @param eagerLoadRecords Whether or not to load records eagerly (i.e. in {@link #nextEntry()})
+     */
+    public FileLogInputStream(FileChannel channel, int maxRecordSize, long start, long end, boolean eagerLoadRecords) {
         this.channel = channel;
-        this.maxMessageSize = maxMessageSize;
+        this.maxRecordSize = maxRecordSize;
         this.position = start;
         this.end = end;
+        this.eagerLoadRecords = eagerLoadRecords;
     }
 
-    protected abstract T nextEntry(long offset, long position, int size) throws IOException;
-
-    public T nextEntry() throws IOException {
+    @Override
+    public FileChannelLogEntry nextEntry() throws IOException {
         if (position + LogBuffer.LOG_OVERHEAD >= end)
             return null;
 
@@ -61,79 +67,18 @@ abstract class FileLogInputStream<T extends LogEntry> implements LogInputStream<
         if (size < Record.RECORD_OVERHEAD_V0)
             throw new CorruptRecordException(String.format("Message size is smaller than minimum record overhead (%d).", Record.RECORD_OVERHEAD_V0));
 
-        if (size > maxMessageSize)
-            throw new CorruptRecordException(String.format("Message size exceeds the largest allowable message size (%d).", maxMessageSize));
+        if (size > maxRecordSize)
+            throw new CorruptRecordException(String.format("Message size exceeds the largest allowable message size (%d).", maxRecordSize));
 
         if (position + LogBuffer.LOG_OVERHEAD + size > end)
             return null;
 
-        T logEntry = nextEntry(offset, position, size);
-        if (logEntry == null)
-            return null;
+        FileChannelLogEntry logEntry = new FileChannelLogEntry(offset, channel, position, size);
+        if (eagerLoadRecords)
+            logEntry.loadRecord();
 
         position += logEntry.size();
         return logEntry;
-    }
-
-    private static class LazyFileLogInputStream extends FileLogInputStream<FileChannelLogEntry> {
-
-        public LazyFileLogInputStream(FileChannel channel, int maxMessageSize, long start, long end) {
-            super(channel, maxMessageSize, start, end);
-        }
-
-        @Override
-        protected FileChannelLogEntry nextEntry(long offset, long position, int size) throws IOException {
-            return new FileChannelLogEntry(offset, channel, position, size);
-        }
-    }
-
-    private static class EagerFileLogInputStream extends FileLogInputStream<LogEntry> {
-
-        public EagerFileLogInputStream(FileChannel channel, int maxMessageSize, long start, long end) {
-            super(channel, maxMessageSize, start, end);
-        }
-
-        protected LogEntry nextEntry(long offset, long position, int size) throws IOException {
-            ByteBuffer recordBuffer = ByteBuffer.allocate(size);
-            channel.read(recordBuffer, position + LogBuffer.LOG_OVERHEAD);
-            if (recordBuffer.hasRemaining())
-                return null;
-            recordBuffer.rewind();
-            return LogEntry.create(offset, new Record(recordBuffer));
-        }
-
-    }
-
-    /**
-     * Get an eager log input stream. Records will be written to a ByteBuffer as log entries
-     * are parsed.
-     * @param channel The underlying file channel
-     * @param maxMessageSize The maximum allowed message size
-     * @param start The starting position in the channel
-     * @param end The end position in the channel
-     * @return The input stream
-     */
-    public static LogInputStream<LogEntry> eagerInputStream(FileChannel channel,
-                                                            int maxMessageSize,
-                                                            long start,
-                                                            long end) {
-        return new EagerFileLogInputStream(channel, maxMessageSize, start, end);
-    }
-
-    /**
-     * Get an eager log input stream. Records will not be read from the file until
-     * the {@link LogEntry#record()} method is invoked on a returned instance.
-     * @param channel The underlying file channel
-     * @param maxMessageSize The maximum allowed message size
-     * @param start The starting position in the channel
-     * @param end The end position in the channel
-     * @return The input stream
-     */
-    public static LogInputStream<FileChannelLogEntry> lazyInputStream(FileChannel channel,
-                                                                      int maxMessageSize,
-                                                                      long start,
-                                                                      long end) {
-        return new LazyFileLogInputStream(channel, maxMessageSize, start, end);
     }
 
     /**
@@ -148,7 +93,10 @@ abstract class FileLogInputStream<T extends LogEntry> implements LogInputStream<
         private final int recordSize;
         private Record record = null;
 
-        public FileChannelLogEntry(long offset, FileChannel channel, long position, int recordSize) {
+        public FileChannelLogEntry(long offset,
+                                   FileChannel channel,
+                                   long position,
+                                   int recordSize) {
             this.offset = offset;
             this.channel = channel;
             this.position = position;
@@ -180,23 +128,30 @@ abstract class FileLogInputStream<T extends LogEntry> implements LogInputStream<
             }
         }
 
+        private Record loadRecord() throws IOException {
+            if (record != null)
+                return record;
+
+            ByteBuffer recordBuffer = ByteBuffer.allocate(recordSize);
+            channel.read(recordBuffer, position + LogBuffer.LOG_OVERHEAD);
+            if (recordBuffer.hasRemaining())
+                throw new IOException("Failed to read full record from channel " + channel);
+
+            recordBuffer.rewind();
+            record = new Record(recordBuffer);
+            return record;
+        }
+
         @Override
         public Record record() {
             if (record != null)
                 return record;
 
-            ByteBuffer recordBuffer = ByteBuffer.allocate(recordSize);
             try {
-                channel.read(recordBuffer, position + LogBuffer.LOG_OVERHEAD);
-                if (recordBuffer.hasRemaining())
-                    throw new KafkaException("Failed to read full record from channel " + channel);
+                return loadRecord();
             } catch (IOException e) {
                 throw new KafkaException(e);
             }
-
-            recordBuffer.rewind();
-            record = new Record(recordBuffer);
-            return record;
         }
 
         @Override
