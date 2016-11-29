@@ -236,7 +236,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
      * @param startingPosition The starting position in the file to begin searching from.
      */
     public LogEntryPosition searchForOffsetWithSize(long targetOffset, int startingPosition) {
-        Iterator<FileChannelLogEntry> iterator = shallowEntriesFrom(startingPosition);
+        Iterator<FileChannelLogEntry> iterator = shallowEntriesFrom(Integer.MAX_VALUE, startingPosition, false);
         while (iterator.hasNext()) {
             FileChannelLogEntry entry = iterator.next();
             long offset = entry.offset();
@@ -424,6 +424,15 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
             result = 31 * result + size;
             return result;
         }
+
+        @Override
+        public String toString() {
+            return "LogEntryPosition(" +
+                    "offset=" + offset +
+                    ", position=" + position +
+                    ", size=" + size +
+                    ')';
+        }
     }
 
     public static class TimestampAndOffset {
@@ -451,6 +460,14 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
             int result = (int) (timestamp ^ (timestamp >>> 32));
             result = 31 * result + (int) (offset ^ (offset >>> 32));
             return result;
+        }
+
+        @Override
+        public String toString() {
+            return "TimestampAndOffset(" +
+                    "timestamp=" + timestamp +
+                    ", offset=" + offset +
+                    ')';
         }
     }
 
