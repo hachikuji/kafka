@@ -19,7 +19,6 @@ package kafka.server
 
 import java.util.concurrent.TimeUnit
 
-import kafka.api.FetchResponsePartitionData
 import kafka.common.TopicAndPartition
 import kafka.metrics.KafkaMetricsGroup
 import org.apache.kafka.common.TopicPartition

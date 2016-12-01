@@ -384,8 +384,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
 
     /* append 2 compressed message sets, each with two messages giving offsets 0, 1, 2, 3 */
-    log.append(MemoryLogBuffer.withRecords(CompressionType.defaultCompressionType(), Record.create("hello".getBytes), Record.create("there".getBytes)))
-    log.append(MemoryLogBuffer.withRecords(CompressionType.defaultCompressionType(), Record.create("alpha".getBytes), Record.create("beta".getBytes)))
+    log.append(MemoryLogBuffer.withRecords(CompressionType.GZIP, Record.create("hello".getBytes), Record.create("there".getBytes)))
+    log.append(MemoryLogBuffer.withRecords(CompressionType.GZIP, Record.create("alpha".getBytes), Record.create("beta".getBytes)))
 
     def read(offset: Int) = log.read(offset, 4096).logBuffer.deepIterator
 

@@ -322,7 +322,7 @@ public final class Record {
         ByteBuffer buffer = ByteBuffer.allocate(convertedSize(toMagic));
         TimestampType timestampType = wrapperRecordTimestampType != null ?
                 wrapperRecordTimestampType : TimestampType.forAttributes(attributes());
-        convertTo(buffer, toMagic, NO_TIMESTAMP, timestampType);
+        convertTo(buffer, toMagic, timestamp(), timestampType);
         buffer.rewind();
         return new Record(buffer);
     }
@@ -534,7 +534,7 @@ public final class Record {
     /**
      * Compute the checksum of the record from the attributes, key and value payloads
      */
-    public static long computeChecksum(byte magic, byte attributes, long timestamp, ByteBuffer key, ByteBuffer value) {
+    private static long computeChecksum(byte magic, byte attributes, long timestamp, ByteBuffer key, ByteBuffer value) {
         Crc32 crc = new Crc32();
         crc.update(magic);
         crc.update(attributes);
@@ -565,7 +565,7 @@ public final class Record {
         return RECORD_OVERHEAD_V1;
     }
 
-    public static int keyOffset(byte magic) {
+    private static int keyOffset(byte magic) {
         if (magic == 0)
             return KEY_OFFSET_V0;
         return KEY_OFFSET_V1;

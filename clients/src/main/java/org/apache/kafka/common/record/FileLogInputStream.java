@@ -65,10 +65,10 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
         int size = logHeaderBuffer.getInt();
 
         if (size < Record.RECORD_OVERHEAD_V0)
-            throw new CorruptRecordException(String.format("Message size is smaller than minimum record overhead (%d).", Record.RECORD_OVERHEAD_V0));
+            throw new CorruptRecordException(String.format("Record size is smaller than minimum record overhead (%d).", Record.RECORD_OVERHEAD_V0));
 
         if (size > maxRecordSize)
-            throw new CorruptRecordException(String.format("Message size exceeds the largest allowable message size (%d).", maxRecordSize));
+            throw new CorruptRecordException(String.format("Record size exceeds the largest allowable message size (%d).", maxRecordSize));
 
         if (position + LogBuffer.LOG_OVERHEAD + size > end)
             return null;

@@ -207,34 +207,6 @@ public class MemoryLogBufferBuilder {
             compressionRate * (1 - COMPRESSION_RATE_DAMPING_FACTOR);
     }
 
-    // Note that for all the write operations below, IO exceptions should
-    // never be thrown since the underlying ByteBufferOutputStream does not throw IOException;
-    // therefore upon encountering this issue we just close the append stream.
-
-    public void putLong(final long value) {
-        try {
-            appendStream.writeLong(value);
-        } catch (IOException e) {
-            throw new KafkaException("I/O exception when writing to the append stream, closing", e);
-        }
-    }
-
-    public void putInt(final int value) {
-        try {
-            appendStream.writeInt(value);
-        } catch (IOException e) {
-            throw new KafkaException("I/O exception when writing to the append stream, closing", e);
-        }
-    }
-
-    public void put(final ByteBuffer buffer) {
-        try {
-            appendStream.write(buffer.array(), buffer.arrayOffset(), buffer.limit());
-        } catch (IOException e) {
-            throw new KafkaException("I/O exception when writing to the append stream, closing", e);
-        }
-    }
-
     /**
      * Append a new record and offset to the buffer
      * @param offset The absolute offset of the record in the log buffer
@@ -249,7 +221,7 @@ public class MemoryLogBufferBuilder {
                 throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s (Offsets must increase monotonically).", offset, lastOffset));
 
             int size = Record.recordSize(magic, key, value);
-            LogEntry.writeHeader(this, toInnerOffset(offset), size);
+            LogEntry.writeHeader(appendStream, toInnerOffset(offset), size);
 
             if (timestampType == TimestampType.LOG_APPEND_TIME)
                 timestamp = logAppendTime;
@@ -277,7 +249,7 @@ public class MemoryLogBufferBuilder {
 
         try {
             int size = record.convertedSize(magic);
-            LogEntry.writeHeader(this, toInnerOffset(offset), size);
+            LogEntry.writeHeader(appendStream, toInnerOffset(offset), size);
             long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : record.timestamp();
             record.convertTo(appendStream, magic, timestamp, timestampType);
             recordWritten(offset, timestamp, size);
@@ -292,10 +264,17 @@ public class MemoryLogBufferBuilder {
      * @param record The record to add
      */
     public void appendUnchecked(long offset, Record record) {
-        int size = record.size();
-        LogEntry.writeHeader(this, toInnerOffset(offset), size);
-        put(record.buffer().duplicate());
-        recordWritten(offset, record.timestamp(), size);
+        try {
+            int size = record.size();
+            LogEntry.writeHeader(appendStream, toInnerOffset(offset), size);
+
+            ByteBuffer buffer = record.buffer().duplicate();
+            appendStream.write(buffer.array(), buffer.arrayOffset(), buffer.limit());
+
+            recordWritten(offset, record.timestamp(), size);
+        } catch (IOException e) {
+            throw new KafkaException("I/O exception when writing to the append stream, closing", e);
+        }
     }
 
     /**
@@ -340,20 +319,12 @@ public class MemoryLogBufferBuilder {
     }
 
     /**
-     * Get the number of records added to this collection.
-     * @return The number of records added.
-     */
-    public long numRecordsWritten() {
-        return numRecords;
-    }
-
-    /**
      * Get an estimate of the number of bytes written (based on the estimation factor hard-coded in {@link CompressionType}.
      * @return The estimated number of bytes written
      */
-    public long estimatedBytesWritten() {
+    private long estimatedBytesWritten() {
         if (compressionType == CompressionType.NONE) {
-            return bufferStream.buffer().position();
+            return buffer().position();
         } else {
             // estimate the written bytes to the underlying byte buffer based on uncompressed written bytes
             return (long) (writtenUncompressed * TYPE_TO_RATE[compressionType.id] * COMPRESSION_RATE_ESTIMATION_FACTOR);
@@ -373,7 +344,7 @@ public class MemoryLogBufferBuilder {
      * to accept this single record.
      */
     public boolean hasRoomFor(byte[] key, byte[] value) {
-        return !isFull() && (numRecordsWritten() == 0 ?
+        return !isFull() && (numRecords == 0 ?
                 this.initialBuffer.capacity() >= LogBuffer.LOG_OVERHEAD + Record.recordSize(magic, key, value) :
                 this.writeLimit >= estimatedBytesWritten() + LogBuffer.LOG_OVERHEAD + Record.recordSize(magic, key, value));
     }
@@ -468,10 +439,8 @@ public class MemoryLogBufferBuilder {
             if (!initialized) {
                 synchronized (this) {
                     if (!initialized) {
-                        Constructor constructor = delegate.get();
-                        value = constructor;
+                        value = delegate.get();
                         initialized = true;
-                        return constructor;
                     }
                 }
             }

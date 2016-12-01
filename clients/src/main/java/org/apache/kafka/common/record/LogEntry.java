@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.common.record;
 
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Iterator;
@@ -85,14 +87,15 @@ public abstract class LogEntry implements Iterable<LogEntry> {
         result = 31 * result + (record != null ? record.hashCode() : 0);
         return result;
     }
+
     public static void writeHeader(ByteBuffer buffer, long offset, int size) {
         buffer.putLong(offset);
         buffer.putInt(size);
     }
 
-    public static void writeHeader(MemoryLogBufferBuilder builder, long offset, int size) {
-        builder.putLong(offset);
-        builder.putInt(size);
+    public static void writeHeader(DataOutputStream out, long offset, int size) throws IOException {
+        out.writeLong(offset);
+        out.writeInt(size);
     }
 
     private static class SimpleLogEntry extends LogEntry {

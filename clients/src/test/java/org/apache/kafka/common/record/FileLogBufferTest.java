@@ -328,7 +328,7 @@ public class FileLogBufferTest {
         List<LogEntry> entries = Arrays.asList(
                 LogEntry.create(0L, Record.create(Record.MAGIC_VALUE_V0, Record.NO_TIMESTAMP, "k1".getBytes(), "hello".getBytes())),
                 LogEntry.create(2L, Record.create(Record.MAGIC_VALUE_V0, Record.NO_TIMESTAMP, "k2".getBytes(), "goodbye".getBytes())));
-        MemoryLogBuffer logBuffer = MemoryLogBuffer.withLogEntries(CompressionType.defaultCompressionType(), entries);
+        MemoryLogBuffer logBuffer = MemoryLogBuffer.withLogEntries(CompressionType.GZIP, entries);
 
         // up conversion for compressed messages
         try (FileLogBuffer fileLogBuffer = FileLogBuffer.open(tempFile())) {
@@ -360,7 +360,7 @@ public class FileLogBufferTest {
         List<LogEntry> entries = Arrays.asList(
                 LogEntry.create(0L, Record.create(Record.MAGIC_VALUE_V1, 1L, "k1".getBytes(), "hello".getBytes())),
                 LogEntry.create(2L, Record.create(Record.MAGIC_VALUE_V1, 2L, "k2".getBytes(), "goodbye".getBytes())));
-        MemoryLogBuffer logBuffer = MemoryLogBuffer.withLogEntries(CompressionType.defaultCompressionType(), entries);
+        MemoryLogBuffer logBuffer = MemoryLogBuffer.withLogEntries(CompressionType.GZIP, entries);
 
         // down conversion for compressed messages
         try (FileLogBuffer fileLogBuffer = FileLogBuffer.open(tempFile())) {

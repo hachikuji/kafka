@@ -46,10 +46,11 @@ public abstract class AbstractLogBuffer implements LogBuffer {
         }
 
         if (converted.isEmpty()) {
-            // This indicates that the message is too large. We just return all the bytes in the file message set.
+            // This indicates that the message is too large, which indicates that the buffer is not large
+            // enough to hold a full log entry. We just return all the bytes in the file message set.
             // Even though the message set does not have the right format version, we expect old clients
-            // to fail to raise an error to the user after reading the message size and seeing that there
-            // is not enough data available to parse the full message. Yes, this is a hack.
+            // to raise an error to the user after reading the message size and seeing that there
+            // is not enough data available to parse the full message.
             return this;
         } else {
             // We use the first message to determine the compression type for the resulting message set.

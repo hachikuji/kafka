@@ -351,16 +351,6 @@ class Message(val buffer: ByteBuffer,
       Message.fromRecord(asRecord.convert(toMagicValue))
   }
 
-  def convertToBuffer(toMagicValue: Byte,
-                      byteBuffer: ByteBuffer,
-                      now: Long,
-                      timestampType: TimestampType = wrapperMessageTimestampType.getOrElse(TimestampType.forAttributes(attributes))) {
-    if (byteBuffer.remaining() < size + headerSizeDiff(magic, toMagicValue))
-      throw new IndexOutOfBoundsException("The byte buffer does not have enough capacity to hold new message format " +
-        s"version $toMagicValue")
-    asRecord.convertTo(buffer, toMagicValue, now, timestampType)
-  }
-
   /**
    * Read a size-delimited byte buffer starting at the given offset
    */

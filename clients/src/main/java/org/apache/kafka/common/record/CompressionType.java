@@ -60,8 +60,4 @@ public enum CompressionType {
             throw new IllegalArgumentException("Unknown compression name: " + name);
     }
 
-    public static CompressionType defaultCompressionType() {
-        return GZIP;
-    }
-
 }

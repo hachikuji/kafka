@@ -650,7 +650,7 @@ class LogCleanerTest extends JUnitSuite {
    */
   @Test
   def testCleanCorruptMessageSet() {
-    val codec = CompressionType.defaultCompressionType
+    val codec = CompressionType.GZIP
 
     val logProps = new Properties()
     logProps.put(LogConfig.CompressionTypeProp, codec.name)
@@ -715,7 +715,7 @@ class LogCleanerTest extends JUnitSuite {
 
   private def invalidCleanedMessage(initialOffset: Long,
                                     keysAndValues: Iterable[(Int, Int)],
-                                    codec: CompressionType = CompressionType.defaultCompressionType): MemoryLogBuffer = {
+                                    codec: CompressionType = CompressionType.GZIP): MemoryLogBuffer = {
     // this function replicates the old versions of the cleaner which under some circumstances
     // would write invalid compressed message sets with the outer magic set to 1 and the inner
     // magic set to 0
