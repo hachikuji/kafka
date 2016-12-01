@@ -101,7 +101,7 @@ public class RecordAccumulatorTest {
         assertEquals(1, batches.size());
         RecordBatch batch = batches.get(0);
 
-        Iterator<LogEntry> iter = batch.logBuffer().deepEntries();
+        Iterator<LogEntry> iter = batch.logBuffer().deepIterator();
         for (int i = 0; i < appends; i++) {
             LogEntry entry = iter.next();
             assertEquals("Keys should match", ByteBuffer.wrap(key), entry.record().key());
@@ -130,7 +130,7 @@ public class RecordAccumulatorTest {
         assertEquals(1, batches.size());
         RecordBatch batch = batches.get(0);
 
-        Iterator<LogEntry> iter = batch.logBuffer().deepEntries();
+        Iterator<LogEntry> iter = batch.logBuffer().deepIterator();
         LogEntry entry = iter.next();
         assertEquals("Keys should match", ByteBuffer.wrap(key), entry.record().key());
         assertEquals("Values should match", ByteBuffer.wrap(value), entry.record().value());
@@ -182,7 +182,7 @@ public class RecordAccumulatorTest {
             List<RecordBatch> batches = accum.drain(cluster, nodes, 5 * 1024, 0).get(node1.id());
             if (batches != null) {
                 for (RecordBatch batch : batches) {
-                    Iterator<LogEntry> deepEntries = batch.logBuffer().deepEntries();
+                    Iterator<LogEntry> deepEntries = batch.logBuffer().deepIterator();
                     while (deepEntries.hasNext()) {
                         deepEntries.next();
                         read++;

@@ -478,7 +478,7 @@ private[log] class Cleaner(val id: Int,
         writeBuffer.flip()
 
         val retained = MemoryLogBuffer.readableRecords(writeBuffer)
-        dest.append(firstOffset = retained.deepEntries().next().offset, largestTimestamp = result.maxTimestamp,
+        dest.append(firstOffset = retained.deepIterator().next().offset, largestTimestamp = result.maxTimestamp,
           offsetOfLargestTimestamp = result.offsetOfMaxTimestamp, entries = retained)
         throttler.maybeThrottle(writeBuffer.limit)
       }
@@ -630,7 +630,7 @@ private[log] class Cleaner(val id: Int,
       throttler.maybeThrottle(logBuffer.sizeInBytes)
 
       val startPosition = position
-      for (entry <- logBuffer.deepEntries.asScala) {
+      for (entry <- logBuffer.deepIterator.asScala) {
         val message = entry.record
         if (message.hasKey && entry.offset >= start) {
           if (map.size < maxDesiredMapSize)

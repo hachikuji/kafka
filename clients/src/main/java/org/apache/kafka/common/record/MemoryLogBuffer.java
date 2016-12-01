@@ -23,7 +23,9 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * A {@link LogBuffer} implementation backed by a ByteBuffer.
+ * A {@link LogBuffer} implementation backed by a ByteBuffer. This is used only for reading or
+ * modifying in-place an existing buffer of log entries. To create a new buffer see {@link MemoryLogBufferBuilder},
+ * or one of the {@link #builder(ByteBuffer, byte, CompressionType, TimestampType) builder} variants.
  */
 public class MemoryLogBuffer extends AbstractLogBuffer {
 
@@ -72,7 +74,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
     public int validBytes() {
         // TODO: old version cached the computed value. is it worth it?
         int bytes = 0;
-        Iterator<ByteBufferLogEntry> iterator = shallowEntries();
+        Iterator<ByteBufferLogEntry> iterator = shallowIterator();
         while (iterator.hasNext())
             bytes += iterator.next().size();
         return bytes;
@@ -92,7 +94,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         int messagesRetained = 0;
         int bytesRetained = 0;
 
-        Iterator<ByteBufferLogEntry> shallowIterator = shallowEntries();
+        Iterator<ByteBufferLogEntry> shallowIterator = shallowIterator();
         while (shallowIterator.hasNext()) {
             ByteBufferLogEntry shallowEntry = shallowIterator.next();
             bytesRead += shallowEntry.size();
@@ -156,12 +158,12 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
     }
 
     @Override
-    public Iterator<ByteBufferLogEntry> shallowEntries() {
+    public Iterator<ByteBufferLogEntry> shallowIterator() {
         return LogBufferIterator.shallowIterator(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
     }
 
     @Override
-    public Iterator<LogEntry> deepEntries() {
+    public Iterator<LogEntry> deepIterator() {
         return deepEntries(false);
     }
 
@@ -176,7 +178,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
 
     @Override
     public String toString() {
-        Iterator<LogEntry> iter = deepEntries();
+        Iterator<LogEntry> iter = deepIterator();
         StringBuilder builder = new StringBuilder();
         builder.append('[');
         while (iter.hasNext()) {

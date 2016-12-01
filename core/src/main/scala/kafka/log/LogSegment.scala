@@ -303,7 +303,7 @@ class LogSegment(val log: FileLogBuffer,
     if (ms == null) {
       baseOffset
     } else {
-      ms.logBuffer.shallowEntries.asScala.toSeq.lastOption match {
+      ms.logBuffer.shallowIterator.asScala.toSeq.lastOption match {
         case None => baseOffset
         case Some(last) => last.nextOffset
       }
@@ -364,7 +364,7 @@ class LogSegment(val log: FileLogBuffer,
   def timeWaitedForRoll(now: Long, messageTimestamp: Long) : Long = {
     // Load the timestamp of the first message into memory
     if (rollingBasedTimestamp.isEmpty) {
-      val iter = log.shallowEntries
+      val iter = log.shallowIterator
       if (iter.hasNext)
         rollingBasedTimestamp = Some(iter.next.record.timestamp)
     }

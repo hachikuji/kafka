@@ -196,11 +196,11 @@ class LogTest extends JUnitSuite {
       log.append(MemoryLogBuffer.withRecords(records(i)))
 
     for(i <- records.indices) {
-      val read = log.read(i, 100, Some(i+1)).logBuffer.shallowEntries.next()
+      val read = log.read(i, 100, Some(i+1)).logBuffer.shallowIterator.next()
       assertEquals("Offset read should match order appended.", i, read.offset)
       assertEquals("Message should match appended.", records(i), read.record)
     }
-    assertEquals("Reading beyond the last message returns nothing.", 0, log.read(records.length, 100, None).logBuffer.shallowEntries.asScala.size)
+    assertEquals("Reading beyond the last message returns nothing.", 0, log.read(records.length, 100, None).logBuffer.shallowIterator.asScala.size)
   }
 
   /**
@@ -220,7 +220,7 @@ class LogTest extends JUnitSuite {
       log.append(MemoryLogBuffer.withLogEntries(LogEntry.create(messageIds(i), records(i))), assignOffsets = false)
     for(i <- 50 until messageIds.max) {
       val idx = messageIds.indexWhere(_ >= i)
-      val read = log.read(i, 100, None).logBuffer.shallowEntries.next()
+      val read = log.read(i, 100, None).logBuffer.shallowIterator.next()
       assertEquals("Offset read should match message id.", messageIds(idx), read.offset)
       assertEquals("Message should match appended.", records(idx), read.record)
     }
@@ -245,7 +245,7 @@ class LogTest extends JUnitSuite {
     // now manually truncate off all but one message from the first segment to create a gap in the messages
     log.logSegments.head.truncateTo(1)
 
-    assertEquals("A read should now return the last message in the log", log.logEndOffset - 1, log.read(1, 200, None).logBuffer.shallowEntries.next().offset)
+    assertEquals("A read should now return the last message in the log", log.logEndOffset - 1, log.read(1, 200, None).logBuffer.shallowIterator.next().offset)
   }
 
   @Test
@@ -266,13 +266,13 @@ class LogTest extends JUnitSuite {
         log.read(i, 1, minOneMessage = true),
         log.read(i, 100, minOneMessage = true),
         log.read(i, 100, Some(10000), minOneMessage = true)
-      ).map(_.logBuffer.shallowEntries.next())
+      ).map(_.logBuffer.shallowIterator.next())
       reads.foreach { read =>
         assertEquals("Offset read should match message id.", messageIds(idx), read.offset)
         assertEquals("Message should match appended.", records(idx), read.record)
       }
 
-      assertEquals(Seq.empty, log.read(i, 1, Some(1), minOneMessage = true).logBuffer.shallowEntries.asScala.toIndexedSeq)
+      assertEquals(Seq.empty, log.read(i, 1, Some(1), minOneMessage = true).logBuffer.shallowIterator.asScala.toIndexedSeq)
     }
 
   }
@@ -357,15 +357,15 @@ class LogTest extends JUnitSuite {
     /* do successive reads to ensure all our messages are there */
     var offset = 0L
     for(i <- 0 until numMessages) {
-      val messages = log.read(offset, 1024*1024).logBuffer.shallowEntries
+      val messages = log.read(offset, 1024*1024).logBuffer.shallowIterator
       val head = messages.next()
       assertEquals("Offsets not equal", offset, head.offset)
-      assertEquals("Messages not equal at offset " + offset, messageSets(i).shallowEntries.next().record,
-        head.record.convert(messageSets(i).shallowEntries.next().record.magic))
+      assertEquals("Messages not equal at offset " + offset, messageSets(i).shallowIterator.next().record,
+        head.record.convert(messageSets(i).shallowIterator.next().record.magic))
       offset = head.offset + 1
     }
     val lastRead = log.read(startOffset = numMessages, maxLength = 1024*1024, maxOffset = Some(numMessages + 1)).logBuffer
-    assertEquals("Should be no more messages", 0, lastRead.shallowEntries.asScala.size)
+    assertEquals("Should be no more messages", 0, lastRead.shallowIterator.asScala.size)
 
     // check that rolling the log forced a flushed the log--the flush is asyn so retry in case of failure
     TestUtils.retry(1000L){
@@ -387,7 +387,7 @@ class LogTest extends JUnitSuite {
     log.append(MemoryLogBuffer.withRecords(CompressionType.defaultCompressionType(), Record.create("hello".getBytes), Record.create("there".getBytes)))
     log.append(MemoryLogBuffer.withRecords(CompressionType.defaultCompressionType(), Record.create("alpha".getBytes), Record.create("beta".getBytes)))
 
-    def read(offset: Int) = log.read(offset, 4096).logBuffer.deepEntries
+    def read(offset: Int) = log.read(offset, 4096).logBuffer.deepIterator
 
     /* we should always get the first message in the compressed set when reading any offset in the set */
     assertEquals("Read at offset 0 should produce 0", 0, read(0).next().offset)
@@ -624,7 +624,7 @@ class LogTest extends JUnitSuite {
     assertTrue("The index should have been rebuilt", log.logSegments.head.index.entries > 0)
     assertTrue("The time index should have been rebuilt", log.logSegments.head.timeIndex.entries > 0)
     for(i <- 0 until numMessages) {
-      assertEquals(i, log.read(i, 100, None).logBuffer.shallowEntries.next().offset)
+      assertEquals(i, log.read(i, 100, None).logBuffer.shallowIterator.next().offset)
       if (i == 0)
         assertEquals(log.logSegments.head.baseOffset, log.fetchOffsetsByTimestamp(time.milliseconds + i * 10).get.offset)
       else
@@ -700,7 +700,7 @@ class LogTest extends JUnitSuite {
     log = new Log(logDir, config, recoveryPoint = 200L, time.scheduler, time)
     assertEquals("Should have %d messages when log is reopened".format(numMessages), numMessages, log.logEndOffset)
     for(i <- 0 until numMessages) {
-      assertEquals(i, log.read(i, 100, None).logBuffer.shallowEntries.next().offset)
+      assertEquals(i, log.read(i, 100, None).logBuffer.shallowIterator.next().offset)
       if (i == 0)
         assertEquals(log.logSegments.head.baseOffset, log.fetchOffsetsByTimestamp(time.milliseconds + i * 10).get.offset)
       else
@@ -959,7 +959,7 @@ class LogTest extends JUnitSuite {
                       time.scheduler,
                       time)
     log.append(MemoryLogBuffer.withRecords(Record.create(null)))
-    val head = log.read(0, 4096, None).logBuffer.shallowEntries().next()
+    val head = log.read(0, 4096, None).logBuffer.shallowIterator().next()
     assertEquals(0, head.offset)
     assertTrue("Message payload should be null.", head.record.hasNullValue)
   }
@@ -998,7 +998,7 @@ class LogTest extends JUnitSuite {
       val numMessages = 50 + TestUtils.random.nextInt(50)
       for (_ <- 0 until numMessages)
         log.append(set)
-      val messages = log.logSegments.flatMap(_.log.shallowEntries.asScala.toList)
+      val messages = log.logSegments.flatMap(_.log.shallowIterator.asScala.toList)
       log.close()
 
       // corrupt index and log by appending random bytes
@@ -1008,7 +1008,7 @@ class LogTest extends JUnitSuite {
       // attempt recovery
       log = new Log(logDir, config, recoveryPoint, time.scheduler, time)
       assertEquals(numMessages, log.logEndOffset)
-      assertEquals("Messages in the log after recovery should be the same.", messages, log.logSegments.flatMap(_.log.shallowEntries.asScala.toList))
+      assertEquals("Messages in the log after recovery should be the same.", messages, log.logSegments.flatMap(_.log.shallowIterator.asScala.toList))
       Utils.delete(logDir)
     }
   }

@@ -26,7 +26,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
 
     @Override
     public boolean hasMatchingShallowMagic(byte magic) {
-        Iterator<? extends LogEntry> iterator = shallowEntries();
+        Iterator<? extends LogEntry> iterator = shallowIterator();
         while (iterator.hasNext())
             if (iterator.next().record().magic() != magic)
                 return false;
@@ -39,7 +39,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
     @Override
     public LogBuffer toMessageFormat(byte toMagic) {
         List<LogEntry> converted = new ArrayList<>();
-        Iterator<LogEntry> deepIterator = deepEntries();
+        Iterator<LogEntry> deepIterator = deepIterator();
         while (deepIterator.hasNext()) {
             LogEntry entry = deepIterator.next();
             converted.add(LogEntry.create(entry.offset(), entry.record().convert(toMagic)));
@@ -59,7 +59,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
             // cause some timestamp information to be lost (e.g. if the timestamp type was changed) since
             // we are essentially merging multiple message sets. However, currently this method is only
             // used for down-conversion, so we've ignored the problem.
-            CompressionType compressionType = shallowEntries().next().record().compressionType();
+            CompressionType compressionType = shallowIterator().next().record().compressionType();
             return MemoryLogBuffer.withLogEntries(compressionType, converted);
         }
     }
@@ -71,13 +71,18 @@ public abstract class AbstractLogBuffer implements LogBuffer {
         return compressionType == CompressionType.NONE ? size : Math.min(Math.max(size / 2, 1024), 1 << 16);
     }
 
-    public Iterator<Record> records(final boolean isShallow) {
+    /**
+     * Get the records from this log buffer (note this requires "deep" iteration into the
+     * compressed message sets.
+     * @return An iterator over the records
+     */
+    public Iterator<Record> records() {
         return new AbstractIterator<Record>() {
-            private final Iterator<? extends LogEntry> entries = isShallow ? shallowEntries() : deepEntries();
+            private final Iterator<? extends LogEntry> deepEntries = deepIterator();
             @Override
             protected Record makeNext() {
-                if (entries.hasNext())
-                    return entries.next().record();
+                if (deepEntries.hasNext())
+                    return deepEntries.next().record();
                 return allDone();
             }
         };

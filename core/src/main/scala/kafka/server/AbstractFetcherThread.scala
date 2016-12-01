@@ -145,7 +145,7 @@ abstract class AbstractFetcherThread(name: String,
                 case Errors.NONE =>
                   try {
                     val logBuffer = partitionData.toLogEntries
-                    val newOffset = logBuffer.shallowEntries.asScala.toSeq.lastOption.map(_.nextOffset).getOrElse(
+                    val newOffset = logBuffer.shallowIterator.asScala.toSeq.lastOption.map(_.nextOffset).getOrElse(
                       currentPartitionFetchState.offset)
 
                     fetcherLagStats.getAndMaybePut(topic, partitionId).lag = Math.max(0L, partitionData.highWatermark - newOffset)

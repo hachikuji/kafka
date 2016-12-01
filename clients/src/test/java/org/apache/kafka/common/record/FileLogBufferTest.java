@@ -85,7 +85,7 @@ public class FileLogBufferTest {
         logBuffer.channel().write(buffer);
 
         // appending those bytes should not change the contents
-        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.records(false));
+        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.records());
     }
 
     /**
@@ -94,7 +94,7 @@ public class FileLogBufferTest {
     @Test
     public void testIterationDoesntChangePosition() throws IOException {
         long position = logBuffer.channel().position();
-        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.records(false));
+        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.records());
         assertEquals(position, logBuffer.channel().position());
     }
 
@@ -104,7 +104,7 @@ public class FileLogBufferTest {
     @Test
     public void testRead() throws IOException {
         FileLogBuffer read = logBuffer.read(0, logBuffer.sizeInBytes());
-        TestUtils.checkEquals(logBuffer.shallowEntries(), read.shallowEntries());
+        TestUtils.checkEquals(logBuffer.shallowIterator(), read.shallowIterator());
 
         List<LogEntry> items = shallowEntries(read);
         LogEntry second = items.get(1);
@@ -384,7 +384,7 @@ public class FileLogBufferTest {
 
     private static List<LogEntry> shallowEntries(LogBuffer buffer) {
         List<LogEntry> entries = new ArrayList<>();
-        Iterator<? extends LogEntry> iterator = buffer.shallowEntries();
+        Iterator<? extends LogEntry> iterator = buffer.shallowIterator();
         while (iterator.hasNext())
             entries.add(iterator.next());
         return entries;
@@ -392,7 +392,7 @@ public class FileLogBufferTest {
 
     private static List<LogEntry> deepEntries(LogBuffer buffer) {
         List<LogEntry> entries = new ArrayList<>();
-        Iterator<? extends LogEntry> iterator = buffer.shallowEntries();
+        Iterator<? extends LogEntry> iterator = buffer.shallowIterator();
         while (iterator.hasNext()) {
             for (LogEntry deepEntry : iterator.next())
                 entries.add(deepEntry);

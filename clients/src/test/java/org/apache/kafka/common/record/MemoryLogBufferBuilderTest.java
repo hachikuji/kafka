@@ -62,7 +62,7 @@ public class MemoryLogBufferBuilderTest {
         else
             assertEquals(2L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records(false);
+        Iterator<Record> iterator = logBuffer.records();
         while (iterator.hasNext()) {
             Record record = iterator.next();
             assertEquals(TimestampType.LOG_APPEND_TIME, record.timestampType());
@@ -92,7 +92,7 @@ public class MemoryLogBufferBuilderTest {
         else
             assertEquals(2L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records(false);
+        Iterator<Record> iterator = logBuffer.records();
         while (iterator.hasNext()) {
             Record record = iterator.next();
             assertEquals(TimestampType.LOG_APPEND_TIME, record.timestampType());
@@ -117,7 +117,7 @@ public class MemoryLogBufferBuilderTest {
         assertEquals(2L, info.maxTimestamp);
         assertEquals(2L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records(false);
+        Iterator<Record> iterator = logBuffer.records();
         long i = 0L;
         while (iterator.hasNext()) {
             Record record = iterator.next();
@@ -145,7 +145,7 @@ public class MemoryLogBufferBuilderTest {
         assertEquals(2L, info.maxTimestamp);
         assertEquals(2L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records(false);
+        Iterator<Record> iterator = logBuffer.records();
         long i = 0L;
         while (iterator.hasNext()) {
             Record record = iterator.next();
@@ -172,7 +172,7 @@ public class MemoryLogBufferBuilderTest {
         assertEquals(Record.NO_TIMESTAMP, info.maxTimestamp);
         assertEquals(0L, info.offsetOfMaxTimestamp);
 
-        Iterator<Record> iterator = logBuffer.records(false);
+        Iterator<Record> iterator = logBuffer.records();
         while (iterator.hasNext()) {
             Record record = iterator.next();
             assertEquals(TimestampType.CREATE_TIME, record.timestampType());

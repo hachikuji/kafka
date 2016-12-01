@@ -312,7 +312,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
     }
 
     @Override
-    public Iterator<FileChannelLogEntry> shallowEntries() {
+    public Iterator<FileChannelLogEntry> shallowIterator() {
         return shallowEntriesFrom(start);
     }
 
@@ -335,7 +335,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
     }
 
     @Override
-    public Iterator<LogEntry> deepEntries() {
+    public Iterator<LogEntry> deepIterator() {
         final long end;
         if (isSlice)
             end = this.end;

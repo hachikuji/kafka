@@ -146,7 +146,7 @@ object DumpLogSegments {
     for(i <- 0 until index.entries) {
       val entry = index.entry(i)
       val slice = logBuffer.read(entry.position, maxMessageSize)
-      val logEntry = getIterator(slice.shallowEntries.next, isDeepIteration = true).next()
+      val logEntry = getIterator(slice.shallowIterator.next, isDeepIteration = true).next()
       if (logEntry.offset != entry.offset + index.baseOffset) {
         var misMatchesSeq = misMatchesForIndexFilesMap.getOrElse(file.getAbsolutePath, List[(Long, Long)]())
         misMatchesSeq ::=(entry.offset + index.baseOffset, logEntry.offset)
@@ -184,7 +184,7 @@ object DumpLogSegments {
       val entry = timeIndex.entry(i)
       val position = index.lookup(entry.offset + timeIndex.baseOffset).position
       val partialFileLogBuffer = logBuffer.read(position, Int.MaxValue)
-      val shallowEntries = partialFileLogBuffer.shallowEntries.asScala
+      val shallowEntries = partialFileLogBuffer.shallowIterator.asScala
       var maxTimestamp = Record.NO_TIMESTAMP
       // We first find the message by offset then check if the timestamp is correct.
       val maybeLogEntry = shallowEntries.find(_.offset >= entry.offset + timeIndex.baseOffset)

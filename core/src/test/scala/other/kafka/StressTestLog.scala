@@ -100,7 +100,7 @@ object StressTestLog {
       try {
         log.read(offset, 1024, Some(offset+1)).logBuffer match {
           case read: FileLogBuffer if read.sizeInBytes > 0 => {
-            val first = read.shallowEntries.next()
+            val first = read.shallowIterator.next()
             require(first.offset == offset, "We should either read nothing or the message we asked for.")
             require(first.size == read.sizeInBytes, "Expected %d but got %d.".format(first.size, read.sizeInBytes))
             offset += 1

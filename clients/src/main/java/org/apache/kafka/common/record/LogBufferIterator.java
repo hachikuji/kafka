@@ -58,13 +58,6 @@ public class LogBufferIterator extends AbstractIterator<LogEntry> {
         return new ShallowRecordsIterator<>(logInputStream);
     }
 
-    /*
-     * Read the next record from the buffer.
-     *
-     * Note that in the compressed message set, each message value size is set as the size of the un-compressed
-     * version of the message value, so when we do de-compression allocating an array of the specified size for
-     * reading compressed value data is sufficient.
-     */
     @Override
     protected LogEntry makeNext() {
         if (innerDone()) {
@@ -105,17 +98,21 @@ public class LogBufferIterator extends AbstractIterator<LogEntry> {
         }
 
         public LogEntry nextEntry() throws IOException {
-            long offset = stream.readLong();
-            int size = stream.readInt();
-            if (size < Record.RECORD_OVERHEAD_V0)
-                throw new CorruptRecordException(String.format("Record size is less than the minimum record overhead (%d)", Record.RECORD_OVERHEAD_V0));
-            if (size > maxMessageSize)
-                throw new CorruptRecordException(String.format("Record size exceeds the largest allowable message size (%d).", maxMessageSize));
+            try {
+                long offset = stream.readLong();
+                int size = stream.readInt();
+                if (size < Record.RECORD_OVERHEAD_V0)
+                    throw new CorruptRecordException(String.format("Record size is less than the minimum record overhead (%d)", Record.RECORD_OVERHEAD_V0));
+                if (size > maxMessageSize)
+                    throw new CorruptRecordException(String.format("Record size exceeds the largest allowable message size (%d).", maxMessageSize));
 
-            byte[] recordBuffer = new byte[size];
-            stream.readFully(recordBuffer, 0, size);
-            ByteBuffer buf = ByteBuffer.wrap(recordBuffer);
-            return LogEntry.create(offset, new Record(buf));
+                byte[] recordBuffer = new byte[size];
+                stream.readFully(recordBuffer, 0, size);
+                ByteBuffer buf = ByteBuffer.wrap(recordBuffer);
+                return LogEntry.create(offset, new Record(buf));
+            } catch (EOFException e) {
+                return null;
+            }
         }
     }
 
@@ -164,26 +161,25 @@ public class LogBufferIterator extends AbstractIterator<LogEntry> {
             // do the same for message format version 0
             try {
                 while (true) {
-                    try {
-                        LogEntry logEntry = logStream.nextEntry();
-                        Record record = logEntry.record();
-                        byte magic = record.magic();
-
-                        if (ensureMatchingMagic && magic != wrapperMagic)
-                            throw new InvalidRecordException("Compressed message magic does not match wrapper magic");
-
-                        if (magic > Record.MAGIC_VALUE_V0) {
-                            Record recordWithTimestamp = new Record(
-                                    record.buffer(),
-                                    wrapperRecordTimestamp,
-                                    wrapperRecord.timestampType()
-                            );
-                            logEntry = LogEntry.create(logEntry.offset(), recordWithTimestamp);
-                        }
-                        logEntries.add(logEntry);
-                    } catch (EOFException e) {
+                    LogEntry logEntry = logStream.nextEntry();
+                    if (logEntry == null)
                         break;
+
+                    Record record = logEntry.record();
+                    byte magic = record.magic();
+
+                    if (ensureMatchingMagic && magic != wrapperMagic)
+                        throw new InvalidRecordException("Compressed message magic does not match wrapper magic");
+
+                    if (magic > Record.MAGIC_VALUE_V0) {
+                        Record recordWithTimestamp = new Record(
+                                record.buffer(),
+                                wrapperRecordTimestamp,
+                                wrapperRecord.timestampType()
+                        );
+                        logEntry = LogEntry.create(logEntry.offset(), recordWithTimestamp);
                     }
+                    logEntries.addLast(logEntry);
                 }
                 if (wrapperMagic > Record.MAGIC_VALUE_V0)
                     this.absoluteBaseOffset = wrapperRecordOffset - logEntries.getLast().offset();

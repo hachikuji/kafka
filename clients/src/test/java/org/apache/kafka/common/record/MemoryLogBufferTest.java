@@ -69,7 +69,7 @@ public class MemoryLogBufferTest {
 
         for (int iteration = 0; iteration < 2; iteration++) {
             for (MemoryLogBuffer recs : asList(recs1, recs2)) {
-                Iterator<LogEntry> iter = recs.deepEntries();
+                Iterator<LogEntry> iter = recs.deepIterator();
                 for (int i = 0; i < list.size(); i++) {
                     assertTrue(iter.hasNext());
                     LogEntry entry = iter.next();
@@ -132,7 +132,7 @@ public class MemoryLogBufferTest {
 
         MemoryLogBuffer filteredRecords = MemoryLogBuffer.readableRecords(filtered);
 
-        List<ByteBufferLogInputStream.ByteBufferLogEntry> shallowEntries = TestUtils.toList(filteredRecords.shallowEntries());
+        List<ByteBufferLogInputStream.ByteBufferLogEntry> shallowEntries = TestUtils.toList(filteredRecords.shallowIterator());
         List<Long> expectedOffsets = compression == CompressionType.NONE ? asList(1L, 4L, 5L, 6L) : asList(1L, 5L, 6L);
         assertEquals(expectedOffsets.size(), shallowEntries.size());
 
@@ -145,7 +145,7 @@ public class MemoryLogBufferTest {
                     shallowEntry.record().timestampType());
         }
 
-        List<LogEntry> deepEntries = TestUtils.toList(filteredRecords.deepEntries());
+        List<LogEntry> deepEntries = TestUtils.toList(filteredRecords.deepIterator());
         assertEquals(4, deepEntries.size());
 
         LogEntry first = deepEntries.get(0);
@@ -194,7 +194,7 @@ public class MemoryLogBufferTest {
         filtered.flip();
         MemoryLogBuffer filteredRecords = MemoryLogBuffer.readableRecords(filtered);
 
-        List<ByteBufferLogInputStream.ByteBufferLogEntry> shallowEntries = TestUtils.toList(filteredRecords.shallowEntries());
+        List<ByteBufferLogInputStream.ByteBufferLogEntry> shallowEntries = TestUtils.toList(filteredRecords.shallowIterator());
         assertEquals(compression == CompressionType.NONE ? 3 : 2, shallowEntries.size());
 
         for (LogEntry shallowEntry : shallowEntries) {

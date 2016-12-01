@@ -52,13 +52,13 @@ public interface LogBuffer {
      * Get the shallow log entries in this log buffer.
      * @return An iterator over the shallow entries of the log
      */
-    Iterator<? extends LogEntry> shallowEntries();
+    Iterator<? extends LogEntry> shallowIterator();
 
     /**
      * Get the deep log entries (i.e. descend into compressed message sets)
      * @return An iterator over the deep entries of the log
      */
-    Iterator<LogEntry> deepEntries();
+    Iterator<LogEntry> deepIterator();
 
     /**
      * Check whether all entries in this buffer have a certain magic value.

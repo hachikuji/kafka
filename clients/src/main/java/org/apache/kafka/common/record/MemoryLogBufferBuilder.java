@@ -28,6 +28,11 @@ import java.nio.ByteBuffer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
+/**
+ * This class is used to write new log data in memory, i.e. this is the write path for {@link MemoryLogBuffer}.
+ * It transparently handles compression and exposes methods for appending new entries, possibly with message
+ * format conversion.
+ */
 public class MemoryLogBufferBuilder {
 
     static private final float COMPRESSION_RATE_DAMPING_FACTOR = 0.9f;
@@ -134,7 +139,7 @@ public class MemoryLogBufferBuilder {
         return initialBuffer;
     }
 
-    public ByteBuffer buffer() {
+    private ByteBuffer buffer() {
         return bufferStream.buffer();
     }
 
