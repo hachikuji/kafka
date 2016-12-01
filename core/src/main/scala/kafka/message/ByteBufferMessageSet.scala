@@ -18,7 +18,6 @@
 package kafka.message
 
 import java.nio.ByteBuffer
-import java.nio.channels._
 
 import kafka.common.LongRef
 import kafka.utils.Logging
@@ -159,9 +158,6 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
 
   override def asLogBuffer: MemoryLogBuffer = MemoryLogBuffer.readableRecords(buffer.duplicate())
 
-  /** Write the messages in this set to the given channel */
-  def writeFullyTo(channel: GatheringByteChannel): Int = asLogBuffer.writeFullyTo(channel)
-
   override def isMagicValueInAllWrapperMessages(expectedMagicValue: Byte): Boolean =
     asLogBuffer.hasMatchingShallowMagic(expectedMagicValue)
 
@@ -172,11 +168,11 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
   def shallowIterator: Iterator[MessageAndOffset] = internalIterator(isShallow = true)
 
   /** When flag isShallow is set to be true, we do a shallow iteration: just traverse the first level of messages. **/
-  private def internalIterator(isShallow: Boolean = false, ensureMatchingMagic: Boolean = false): Iterator[MessageAndOffset] = {
+  private def internalIterator(isShallow: Boolean = false): Iterator[MessageAndOffset] = {
     val entries = if (isShallow)
       asLogBuffer.shallowEntries
     else
-      asLogBuffer.deepEntries(ensureMatchingMagic)
+      asLogBuffer.deepEntries
     entries.asScala.map(MessageAndOffset.fromLogEntry)
   }
 
