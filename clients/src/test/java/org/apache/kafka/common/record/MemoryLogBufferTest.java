@@ -110,16 +110,30 @@ public class MemoryLogBufferTest {
         builder.append(5L, 15L, "5".getBytes(), "f".getBytes());
         builder.close();
 
+        builder = MemoryLogBuffer.builder(buffer, magic, compression, TimestampType.CREATE_TIME, 6L);
+        builder.append(6L, 16L, "6".getBytes(), "g".getBytes());
+        builder.close();
+
         buffer.flip();
 
         ByteBuffer filtered = ByteBuffer.allocate(2048);
-        MemoryLogBuffer.readableRecords(buffer).filterTo(new RetainNonNullKeysFilter(), filtered);
+        MemoryLogBuffer.FilterResult result = MemoryLogBuffer.readableRecords(buffer).filterTo(new RetainNonNullKeysFilter(), filtered);
 
         filtered.flip();
+
+        assertEquals(7, result.messagesRead);
+        assertEquals(4, result.messagesRetained);
+        assertEquals(buffer.limit(), result.bytesRead);
+        assertEquals(filtered.limit(), result.bytesRetained);
+        if (magic > 0) {
+            assertEquals(16L, result.maxTimestamp);
+            assertEquals(6L, result.offsetOfMaxTimestamp);
+        }
+
         MemoryLogBuffer filteredRecords = MemoryLogBuffer.readableRecords(filtered);
 
         List<ByteBufferLogInputStream.ByteBufferLogEntry> shallowEntries = TestUtils.toList(filteredRecords.shallowEntries());
-        List<Long> expectedOffsets = compression == CompressionType.NONE ? asList(1L, 4L, 5L) : asList(1L, 5L);
+        List<Long> expectedOffsets = compression == CompressionType.NONE ? asList(1L, 4L, 5L, 6L) : asList(1L, 5L, 6L);
         assertEquals(expectedOffsets.size(), shallowEntries.size());
 
         for (int i = 0; i < expectedOffsets.size(); i++) {
@@ -132,7 +146,7 @@ public class MemoryLogBufferTest {
         }
 
         List<LogEntry> deepEntries = TestUtils.toList(filteredRecords.deepEntries());
-        assertEquals(3, deepEntries.size());
+        assertEquals(4, deepEntries.size());
 
         LogEntry first = deepEntries.get(0);
         assertEquals(1L, first.offset());
@@ -145,6 +159,10 @@ public class MemoryLogBufferTest {
         LogEntry third = deepEntries.get(2);
         assertEquals(5L, third.offset());
         assertEquals(Record.create(magic, 15L, "5".getBytes(), "f".getBytes()), third.record());
+
+        LogEntry fourth = deepEntries.get(3);
+        assertEquals(6L, fourth.offset());
+        assertEquals(Record.create(magic, 16L, "6".getBytes(), "g".getBytes()), fourth.record());
     }
 
     @Test

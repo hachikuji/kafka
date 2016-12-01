@@ -84,29 +84,31 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
 
         public void setCreateTime(long timestamp) {
             Record record = record();
-            if (record.magic() > 0) {
-                long currentTimestamp = record.timestamp();
-                // We don't need to recompute crc if the timestamp is not updated.
-                if (record.timestampType() == TimestampType.CREATE_TIME && currentTimestamp == timestamp)
-                    return;
+            if (record.magic() == 0)
+                throw new IllegalArgumentException("Cannot set timestamp for a record with magic = 0");
 
-                byte attributes = record.attributes();
-                buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.CREATE_TIME.updateAttributes(attributes));
-                buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
-                long crc = record.computeChecksum();
-                Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
-            }
+            long currentTimestamp = record.timestamp();
+            // We don't need to recompute crc if the timestamp is not updated.
+            if (record.timestampType() == TimestampType.CREATE_TIME && currentTimestamp == timestamp)
+                return;
+
+            byte attributes = record.attributes();
+            buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.CREATE_TIME.updateAttributes(attributes));
+            buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
+            long crc = record.computeChecksum();
+            Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
         }
 
         public void setLogAppendTime(long timestamp) {
             Record record = record();
-            if (record.magic() > 0) {
-                byte attributes = record.attributes();
-                buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
-                buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
-                long crc = record.computeChecksum();
-                Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
-            }
+            if (record.magic() == 0)
+                throw new IllegalArgumentException("Cannot set timestamp for a record with magic = 0");
+
+            byte attributes = record.attributes();
+            buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
+            buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
+            long crc = record.computeChecksum();
+            Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
         }
 
         public ByteBuffer buffer() {

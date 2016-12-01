@@ -45,7 +45,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
     @Override
     public long writeTo(GatheringByteChannel channel, long position, int length) throws IOException {
         ByteBuffer dup = buffer.duplicate();
-        dup.position(new Long(position).intValue());
+        dup.position((int) position);
         return channel.write(dup);
     }
 
@@ -95,7 +95,6 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         Iterator<ByteBufferLogEntry> shallowIterator = shallowEntries();
         while (shallowIterator.hasNext()) {
             ByteBufferLogEntry shallowEntry = shallowIterator.next();
-            messagesRead += 1;
             bytesRead += shallowEntry.size();
 
             // We use the absolute offset to decide whether to retain the message or not (this is handled by the
@@ -133,16 +132,16 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
             if (writeOriginalEntry) {
                 // There are no messages compacted out and no message format conversion, write the original message set back
                 shallowEntry.writeTo(buffer);
-                messagesRetained += 1;
-                bytesRetained += shallowRecord.size();
+                messagesRetained += retainedEntries.size();
+                bytesRetained += shallowEntry.size();
             } else if (!retainedEntries.isEmpty()) {
                 ByteBuffer slice = buffer.slice();
                 MemoryLogBufferBuilder builder = builderWithEntries(slice, shallowRecord.timestampType(), shallowRecord.compressionType(),
                         shallowRecord.timestamp(), retainedEntries);
-                builder.close();
+                MemoryLogBuffer logBuffer = builder.build();
                 buffer.position(buffer.position() + slice.position());
-                messagesRetained += 1;
-                bytesRetained += slice.limit();
+                messagesRetained += retainedEntries.size();
+                bytesRetained += logBuffer.sizeInBytes();
             }
         }
 

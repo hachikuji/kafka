@@ -175,6 +175,14 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
     }
 
     /**
+     * Update the file reference (to be used with caution since this does not reopen the file channel)
+     * @param file The new file to use
+     */
+    public void setFile(File file) {
+        this.file = file;
+    }
+
+    /**
      * Rename the file that backs this message set
      * @throws IOException if rename fails.
      */
@@ -216,13 +224,13 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
             throw new KafkaException(String.format("Size of FileRecords %s has been truncated during write: old size %d, new size %d", file.getAbsolutePath(), size, newSize));
 
         long position = start + offset;
-        long count = Math.min(length, this.size.get());
+        long count = Math.min(length, size.get());
         final long bytesTransferred;
         if (destChannel instanceof TransportLayer) {
             TransportLayer tl = (TransportLayer) destChannel;
-            bytesTransferred = tl.transferFrom(this.channel, position, count);
+            bytesTransferred = tl.transferFrom(channel, position, count);
         } else {
-            bytesTransferred = this.channel.transferTo(position, count, destChannel);
+            bytesTransferred = channel.transferTo(position, count, destChannel);
         }
         return bytesTransferred;
     }
@@ -266,8 +274,8 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
                         return new TimestampAndOffset(timestamp, deepLogEntry.offset());
                 }
                 throw new IllegalStateException(String.format("The message set (max timestamp = %s, max offset = %s" +
-                        " should contain target timestamp $targetTimestamp but it does not.", shallowRecord.timestamp(),
-                        shallowEntry.offset()));
+                        " should contain target timestamp %s, but does not.", shallowRecord.timestamp(),
+                        shallowEntry.offset(), targetTimestamp));
             }
         }
         return null;
