@@ -188,6 +188,8 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
             builder.append("record=");
             builder.append(entry.record());
             builder.append(")");
+            if (iter.hasNext())
+                builder.append(", ");
         }
         builder.append(']');
         return builder.toString();
