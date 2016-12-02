@@ -100,9 +100,7 @@ public class MemoryRecords extends AbstractRecords {
         int messagesRetained = 0;
         int bytesRetained = 0;
 
-        Iterator<LogEntry.ShallowLogEntry> shallowIterator = shallowIterator();
-        while (shallowIterator.hasNext()) {
-            LogEntry.ShallowLogEntry entry = shallowIterator.next();
+        for (LogEntry entry : this) {
             bytesRead += entry.sizeInBytes();
 
             // We use the absolute offset to decide whether to retain the message or not Due KAFKA-4298, we have to
@@ -127,10 +125,6 @@ public class MemoryRecords extends AbstractRecords {
                         writeOriginalEntry = false;
 
                     retainedRecords.add(deepRecord);
-
-                    // We need the max timestamp and last offset for time index
-                    if (deepRecord.timestamp() > maxTimestamp)
-                        maxTimestamp = deepRecord.timestamp();
                 } else {
                     writeOriginalEntry = false;
                 }
@@ -144,16 +138,16 @@ public class MemoryRecords extends AbstractRecords {
 
                 if (entry.timestamp() > maxTimestamp) {
                     maxTimestamp = entry.timestamp();
-                    shallowOffsetOfMaxTimestamp = entry.offset();
+                    shallowOffsetOfMaxTimestamp = entry.lastOffset();
                 }
             } else if (!retainedRecords.isEmpty()) {
                 ByteBuffer slice = buffer.slice();
                 TimestampType timestampType = entry.timestampType();
-                long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? entry.timestamp() : -1L;
+                long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? entry.timestamp() : Record.NO_TIMESTAMP;
                 MemoryRecordsBuilder builder = builderWithRecords(slice, false, entry.magic(), firstOffset,
                         timestampType, entry.compressionType(), logAppendTime, retainedRecords);
                 MemoryRecords records = builder.build();
-                buffer.position(buffer.position() + slice.position());
+                buffer.position(buffer.position() + records.sizeInBytes());
                 messagesRetained += retainedRecords.size();
                 bytesRetained += records.sizeInBytes();
 
