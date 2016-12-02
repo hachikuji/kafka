@@ -143,10 +143,10 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
                 long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? entry.timestamp() : -1L;
                 MemoryLogBufferBuilder builder = builderWithRecords(slice, false, entry.magic(), firstOffset,
                         timestampType, entry.compressionType(), logAppendTime, retainedRecords);
-                MemoryLogBuffer logBuffer = builder.build();
-                buffer.position(buffer.position() + slice.limit());
+                int bytesWritten = builder.build().sizeInBytes();
+                buffer.position(buffer.position() + bytesWritten);
                 messagesRetained += retainedRecords.size();
-                bytesRetained += logBuffer.sizeInBytes();
+                bytesRetained += bytesWritten;
             }
         }
 

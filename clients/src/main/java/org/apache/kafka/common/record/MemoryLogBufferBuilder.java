@@ -296,8 +296,9 @@ public class MemoryLogBufferBuilder {
         try {
             int size = record.convertedSize(magic);
             LogEntry.writeHeader(appendStream, toInnerOffset(offset), size);
-            record.convertTo(appendStream, magic, record.timestamp(), timestampType);
-            recordWritten(offset, logAppendTime, size);
+            long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : record.timestamp();
+            record.convertTo(appendStream, magic, timestamp, timestampType);
+            recordWritten(offset, timestamp, size);
         } catch (IOException e) {
             throw new KafkaException("I/O exception when writing to the append stream, closing", e);
         }

@@ -118,7 +118,7 @@ public abstract class LogEntry implements Iterable<LogRecord> {
         };
     }
 
-    public Iterator<LogEntry> deepEntries() {
+    private Iterator<LogEntry> deepEntries() {
         final Iterator<LogEntry> iterator;
         if (isCompressed())
             iterator = new LogBufferIterator.DeepRecordsIterator(this, false, Integer.MAX_VALUE);
