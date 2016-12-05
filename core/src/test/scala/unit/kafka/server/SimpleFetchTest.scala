@@ -29,7 +29,7 @@ import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.record.{MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{MemoryRecords, Record}
 import org.easymock.EasyMock
 import org.junit.Assert._
 import scala.collection.JavaConverters._
@@ -82,12 +82,12 @@ class SimpleFetchTest {
     EasyMock.expect(log.read(0, fetchSize, Some(partitionHW), true)).andReturn(
       FetchDataInfo(
         new LogOffsetMetadata(0L, 0L, 0),
-        MemoryLogBuffer.withRecords(messagesToHW)
+        MemoryRecords.withRecords(messagesToHW)
       )).anyTimes()
     EasyMock.expect(log.read(0, fetchSize, None, true)).andReturn(
       FetchDataInfo(
         new LogOffsetMetadata(0L, 0L, 0),
-        MemoryLogBuffer.withRecords(messagesToLEO)
+        MemoryRecords.withRecords(messagesToLEO)
       )).anyTimes()
     EasyMock.replay(log)
 
@@ -111,7 +111,7 @@ class SimpleFetchTest {
     // create the follower replica with defined log end offset
     val followerReplica= new Replica(configs(1).brokerId, partition, time)
     val leo = new LogOffsetMetadata(followerLEO, 0L, followerLEO.toInt)
-    followerReplica.updateLogReadResult(new LogReadResult(FetchDataInfo(leo, MemoryLogBuffer.EMPTY), -1L, -1, true))
+    followerReplica.updateLogReadResult(new LogReadResult(FetchDataInfo(leo, MemoryRecords.EMPTY), -1L, -1, true))
 
     // add both of them to ISR
     val allReplicas = List(leaderReplica, followerReplica)
@@ -154,7 +154,7 @@ class SimpleFetchTest {
         fetchMaxBytes = Int.MaxValue,
         hardMaxBytesLimit = false,
         readPartitionInfo = fetchInfo,
-        quota = UnboundedQuota).find(_._1 == topicAndPartition).get._2.info.logBuffer.shallowIterator.next().record)
+        quota = UnboundedQuota).find(_._1 == topicAndPartition).get._2.info.records.shallowIterator.next().record)
     assertEquals("Reading any data can return messages up to the end of the log", messagesToLEO,
       replicaManager.readFromLocalLog(
         replicaId = Request.OrdinaryConsumerId,
@@ -163,7 +163,7 @@ class SimpleFetchTest {
         fetchMaxBytes = Int.MaxValue,
         hardMaxBytesLimit = false,
         readPartitionInfo = fetchInfo,
-        quota = UnboundedQuota).find(_._1 == topicAndPartition).get._2.info.logBuffer.shallowIterator().next().record)
+        quota = UnboundedQuota).find(_._1 == topicAndPartition).get._2.info.records.shallowIterator().next().record)
 
     assertEquals("Counts should increment after fetch", initialTopicCount+2, BrokerTopicStats.getBrokerTopicStats(topic).totalFetchRequestRate.count())
     assertEquals("Counts should increment after fetch", initialAllTopicsCount+2, BrokerTopicStats.getBrokerAllTopicsStats().totalFetchRequestRate.count())

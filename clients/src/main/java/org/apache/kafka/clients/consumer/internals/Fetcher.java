@@ -680,7 +680,7 @@ public class Fetcher<K, V> {
                 }
 
                 List<ConsumerRecord<K, V>> parsed = new ArrayList<>();
-                Iterator<LogEntry> deepEntries = partition.logBuffer.deepIterator();
+                Iterator<LogEntry> deepEntries = partition.records.deepIterator();
                 while (deepEntries.hasNext()) {
                     LogEntry logEntry = deepEntries.next();
                     // Skip the messages earlier than current position.

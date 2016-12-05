@@ -33,7 +33,7 @@ import org.apache.kafka.common.requests.{FetchRequest => JFetchRequest}
 import org.apache.kafka.common.{Node, TopicPartition}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
-import org.apache.kafka.common.record.MemoryLogBuffer
+import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.utils.Time
 
 import scala.collection.Map
@@ -118,7 +118,7 @@ class ReplicaFetcherThread(name: String,
       val topic = topicPartition.topic
       val partitionId = topicPartition.partition
       val replica = replicaMgr.getReplica(topic, partitionId).get
-      val entries = partitionData.toLogEntries
+      val entries = partitionData.toRecords
 
       maybeWarnIfOversizedEntries(entries, topicPartition)
 
@@ -148,7 +148,7 @@ class ReplicaFetcherThread(name: String,
     }
   }
 
-  def maybeWarnIfOversizedEntries(logEntries: MemoryLogBuffer, topicPartition: TopicPartition): Unit = {
+  def maybeWarnIfOversizedEntries(logEntries: MemoryRecords, topicPartition: TopicPartition): Unit = {
     // oversized messages don't cause replication to fail from fetch request version 3 (KIP-74)
     if (fetchRequestVersion <= 2 && logEntries.sizeInBytes > 0 && logEntries.validBytes <= 0)
       error(s"Replication is failing due to a message that is greater than replica.fetch.max.bytes for partition $topicPartition. " +
@@ -322,8 +322,8 @@ object ReplicaFetcherThread {
 
     def errorCode: Short = underlying.errorCode
 
-    def toLogEntries: MemoryLogBuffer = {
-      underlying.logBuffer.asInstanceOf[MemoryLogBuffer]
+    def toRecords: MemoryRecords = {
+      underlying.records.asInstanceOf[MemoryRecords]
     }
 
     def highWatermark: Long = underlying.highWatermark

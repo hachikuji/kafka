@@ -31,7 +31,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.InvalidRequestException
 import org.apache.kafka.common.network.Send
 import org.apache.kafka.common.protocol.{ApiKeys, Protocol, SecurityProtocol}
-import org.apache.kafka.common.record.MemoryLogBuffer
+import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.utils.Time
@@ -43,7 +43,7 @@ object RequestChannel extends Logging {
 
   def getShutdownReceive() = {
     val emptyRequestHeader = new RequestHeader(ApiKeys.PRODUCE.id, "", 0)
-    val emptyProduceRequest = new ProduceRequest(0, 0, new HashMap[TopicPartition, MemoryLogBuffer]())
+    val emptyProduceRequest = new ProduceRequest(0, 0, new HashMap[TopicPartition, MemoryRecords]())
     AbstractRequestResponse.serialize(emptyRequestHeader, emptyProduceRequest)
   }
 

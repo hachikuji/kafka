@@ -156,7 +156,7 @@ class GroupMetadataManager(val brokerId: Int,
           GroupMetadataManager.groupMetadataValue(group, groupAssignment, version = groupMetadataValueVersion))
 
         val groupMetadataPartition = new TopicPartition(Topic.GroupMetadataTopicName, partitionFor(group.groupId))
-        val groupMetadataRecords = Map(groupMetadataPartition -> MemoryLogBuffer.withRecords(compressionType, record))
+        val groupMetadataRecords = Map(groupMetadataPartition -> MemoryRecords.withRecords(compressionType, record))
         val generationId = group.generationId
 
         // set the callback function to insert the created group into cache after log append completed
@@ -252,7 +252,7 @@ class GroupMetadataManager(val brokerId: Int,
 
         val offsetTopicPartition = new TopicPartition(Topic.GroupMetadataTopicName, partitionFor(group.groupId))
 
-        val entries = Map(offsetTopicPartition -> MemoryLogBuffer.withRecords(compressionType, records:_*))
+        val entries = Map(offsetTopicPartition -> MemoryRecords.withRecords(compressionType, records:_*))
 
         // set the callback function to insert offsets into cache after log append completed
         def putCacheCallback(responseStatus: Map[TopicPartition, PartitionResponse]) {
@@ -405,10 +405,10 @@ class GroupMetadataManager(val brokerId: Int,
 
             while (currOffset < getHighWatermark(offsetsPartition) && !shuttingDown.get()) {
               buffer.clear()
-              val logBuffer = log.read(currOffset, config.loadBufferSize, minOneMessage = true).logBuffer.asInstanceOf[FileLogBuffer]
-              logBuffer.readInto(buffer, 0)
+              val fileRecords = log.read(currOffset, config.loadBufferSize, minOneMessage = true).records.asInstanceOf[FileRecords]
+              fileRecords.readInto(buffer, 0)
 
-              MemoryLogBuffer.readableRecords(buffer).deepIterator.asScala.foreach { entry =>
+              MemoryRecords.readableRecords(buffer).deepIterator.asScala.foreach { entry =>
                 val record = entry.record
 
                 require(record.hasKey, "Offset entry key should not be null")
@@ -593,7 +593,7 @@ class GroupMetadataManager(val brokerId: Int,
               try {
                 // do not need to require acks since even if the tombstone is lost,
                 // it will be appended again in the next purge cycle
-                partition.appendEntriesToLeader(MemoryLogBuffer.withRecords(compressionType, tombstones: _*))
+                partition.appendEntriesToLeader(MemoryRecords.withRecords(compressionType, tombstones: _*))
                 offsetsRemoved += expiredOffsets.size
                 trace(s"Successfully appended ${tombstones.size} tombstones to $appendPartition for expired offsets and/or metadata for group $groupId")
               } catch {
@@ -1075,7 +1075,7 @@ object GroupMetadataManager {
 
 }
 
-case class DelayedStore(entriesPerPartition: Map[TopicPartition, MemoryLogBuffer],
+case class DelayedStore(entriesPerPartition: Map[TopicPartition, MemoryRecords],
                         callback: Map[TopicPartition, PartitionResponse] => Unit)
 
 case class GroupTopicPartition(group: String, topicPartition: TopicPartition) {

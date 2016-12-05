@@ -27,7 +27,8 @@ import kafka.serializer._
 import kafka.utils._
 import kafka.log.Log
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
-import org.apache.kafka.common.record.FileLogBuffer
+import org.apache.kafka.common.record.FileRecords
+
 import scala.collection.JavaConverters._
 
 /**
@@ -138,8 +139,8 @@ object TestLogCleaning {
   def dumpLog(dir: File) {
     require(dir.exists, "Non-existent directory: " + dir.getAbsolutePath)
     for (file <- dir.list.sorted; if file.endsWith(Log.LogFileSuffix)) {
-      val fileLogBuffer = FileLogBuffer.open(new File(dir, file))
-      for (entry <- fileLogBuffer.shallowIterator.asScala) {
+      val fileRecords = FileRecords.open(new File(dir, file))
+      for (entry <- fileRecords.shallowIterator.asScala) {
         val key = TestUtils.readString(entry.record.key)
         val content = 
           if(entry.record.hasNullValue)

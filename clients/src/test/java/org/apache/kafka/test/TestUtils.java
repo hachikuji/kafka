@@ -22,10 +22,10 @@ import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.record.CompressionType;
-import org.apache.kafka.common.record.MemoryLogBuffer;
-import org.apache.kafka.common.record.MemoryLogBufferBuilder;
+import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.MemoryRecordsBuilder;
 import org.apache.kafka.common.record.Record;
-import org.apache.kafka.common.record.LogBuffer;
+import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.Utils;
 
@@ -189,9 +189,9 @@ public class TestUtils {
     public static ByteBuffer partitionRecordsBuffer(final long offset, final CompressionType compressionType, final Record... records) {
         int bufferSize = 0;
         for (final Record record : records)
-            bufferSize += LogBuffer.LOG_OVERHEAD + record.size();
+            bufferSize += Records.LOG_OVERHEAD + record.size();
         final ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
-        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(buffer, compressionType, TimestampType.CREATE_TIME);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, compressionType, TimestampType.CREATE_TIME);
         long nextOffset = offset;
         for (final Record record : records)
             builder.append(nextOffset++, record);

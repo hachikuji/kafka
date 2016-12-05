@@ -38,7 +38,7 @@ import kafka.utils.{Logging, ZKGroupTopicDirs, ZkUtils}
 import org.apache.kafka.common.errors.{ClusterAuthorizationException, NotLeaderForPartitionException, TopicExistsException, UnknownTopicOrPartitionException, UnsupportedForMessageFormatException}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.{ApiKeys, Errors, Protocol, SecurityProtocol}
-import org.apache.kafka.common.record.{MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{MemoryRecords, Record}
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -345,7 +345,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     val produceRequest = request.body.asInstanceOf[ProduceRequest]
     val numBytesAppended = request.header.sizeOf + produceRequest.sizeOf
 
-    val (existingAndAuthorizedForDescribeTopics, nonExistingOrUnauthorizedForDescribeTopics) = produceRequest.partitionLogBuffers.asScala.partition {
+    val (existingAndAuthorizedForDescribeTopics, nonExistingOrUnauthorizedForDescribeTopics) = produceRequest.partitionRecords.asScala.partition {
       case (topicPartition, _) => authorize(request.session, Describe, new Resource(auth.Topic, topicPartition.topic)) && metadataCache.contains(topicPartition.topic)
     }
 
@@ -453,11 +453,11 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
 
     val nonExistingOrUnauthorizedForDescribePartitionData = nonExistingOrUnauthorizedForDescribeTopics.map {
-      case (tp, _) => (tp, new FetchResponse.PartitionData(Errors.UNKNOWN_TOPIC_OR_PARTITION.code, -1, MemoryLogBuffer.EMPTY))
+      case (tp, _) => (tp, new FetchResponse.PartitionData(Errors.UNKNOWN_TOPIC_OR_PARTITION.code, -1, MemoryRecords.EMPTY))
     }
 
     val unauthorizedForReadPartitionData = unauthorizedForReadRequestInfo.map {
-      case (tp, _) => (tp, new FetchResponse.PartitionData(Errors.TOPIC_AUTHORIZATION_FAILED.code, -1, MemoryLogBuffer.EMPTY))
+      case (tp, _) => (tp, new FetchResponse.PartitionData(Errors.TOPIC_AUTHORIZATION_FAILED.code, -1, MemoryRecords.EMPTY))
     }
 
     // the callback for sending a fetch response
@@ -475,12 +475,12 @@ class KafkaApis(val requestChannel: RequestChannel,
           // test might break because some messages in new message format can be delivered to consumers before 0.10.0.0
           // without format down conversion.
           val convertedData = if (versionId <= 1 && replicaManager.getMessageFormatVersion(tp).exists(_ > Record.MAGIC_VALUE_V0) &&
-            !data.logBuffer.hasMatchingShallowMagic(Record.MAGIC_VALUE_V0)) {
+            !data.records.hasMatchingShallowMagic(Record.MAGIC_VALUE_V0)) {
             trace(s"Down converting message to V0 for fetch request from $clientId")
-            FetchPartitionData(data.error, data.hw, data.logBuffer.toMessageFormat(Record.MAGIC_VALUE_V0))
+            FetchPartitionData(data.error, data.hw, data.records.toMessageFormat(Record.MAGIC_VALUE_V0))
           } else data
 
-          new TopicPartition(tp.topic, tp.partition) -> new FetchResponse.PartitionData(convertedData.error, convertedData.hw, convertedData.logBuffer)
+          new TopicPartition(tp.topic, tp.partition) -> new FetchResponse.PartitionData(convertedData.error, convertedData.hw, convertedData.records)
         }
       }
 
@@ -496,15 +496,15 @@ class KafkaApis(val requestChannel: RequestChannel,
         fetchedPartitionData.put(topicPartition, data)
 
         // record the bytes out metrics only when the response is being sent
-        BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).bytesOutRate.mark(data.logBuffer.sizeInBytes)
-        BrokerTopicStats.getBrokerAllTopicsStats().bytesOutRate.mark(data.logBuffer.sizeInBytes)
+        BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).bytesOutRate.mark(data.records.sizeInBytes)
+        BrokerTopicStats.getBrokerAllTopicsStats().bytesOutRate.mark(data.records.sizeInBytes)
       }
 
       val response = new FetchResponse(versionId, fetchedPartitionData, 0)
 
       def fetchResponseCallback(delayTimeMs: Int) {
         trace(s"Sending fetch response to client $clientId of " +
-          s"${convertedPartitionData.map { case (_, v) => v.logBuffer.sizeInBytes }.sum} bytes")
+          s"${convertedPartitionData.map { case (_, v) => v.records.sizeInBytes }.sum} bytes")
         val fetchResponse = if (delayTimeMs > 0) new FetchResponse(versionId, fetchedPartitionData, delayTimeMs) else response
         requestChannel.sendResponse(new RequestChannel.Response(request, fetchResponse))
       }

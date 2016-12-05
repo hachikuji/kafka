@@ -29,11 +29,11 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 /**
- * This class is used to write new log data in memory, i.e. this is the write path for {@link MemoryLogBuffer}.
+ * This class is used to write new log data in memory, i.e. this is the write path for {@link MemoryRecords}.
  * It transparently handles compression and exposes methods for appending new entries, possibly with message
  * format conversion.
  */
-public class MemoryLogBufferBuilder {
+public class MemoryRecordsBuilder {
 
     static private final float COMPRESSION_RATE_DAMPING_FACTOR = 0.9f;
     static private final float COMPRESSION_RATE_ESTIMATION_FACTOR = 1.05f;
@@ -96,7 +96,7 @@ public class MemoryLogBufferBuilder {
     private final long logAppendTime;
     private final int writeLimit;
 
-    private MemoryLogBuffer builtLogBuffer;
+    private MemoryRecords builtRecords;
     private long writtenUncompressed;
     private long numRecords;
     private float compressionRate;
@@ -104,13 +104,13 @@ public class MemoryLogBufferBuilder {
     private long offsetOfMaxTimestamp;
     private long lastOffset = -1;
 
-    public MemoryLogBufferBuilder(ByteBuffer buffer,
-                                  byte magic,
-                                  CompressionType compressionType,
-                                  TimestampType timestampType,
-                                  long baseOffset,
-                                  long logAppendTime,
-                                  int writeLimit) {
+    public MemoryRecordsBuilder(ByteBuffer buffer,
+                                byte magic,
+                                CompressionType compressionType,
+                                TimestampType timestampType,
+                                long baseOffset,
+                                long logAppendTime,
+                                int writeLimit) {
         this.magic = magic;
         this.timestampType = timestampType;
         this.compressionType = compressionType;
@@ -127,7 +127,7 @@ public class MemoryLogBufferBuilder {
         if (compressionType != CompressionType.NONE) {
             // for compressed records, leave space for the header and the shallow message metadata
             // and move the starting position to the value payload offset
-            buffer.position(initPos + LogBuffer.LOG_OVERHEAD + Record.recordOverhead(magic));
+            buffer.position(initPos + Records.LOG_OVERHEAD + Record.recordOverhead(magic));
         }
 
         // create the stream
@@ -151,9 +151,9 @@ public class MemoryLogBufferBuilder {
      * Close this builder and return the resulting buffer.
      * @return The built log buffer
      */
-    public MemoryLogBuffer build() {
+    public MemoryRecords build() {
         close();
-        return builtLogBuffer;
+        return builtRecords;
     }
 
     /**
@@ -161,16 +161,16 @@ public class MemoryLogBufferBuilder {
      * be either the first offset in the set if no compression is used or the last offset otherwise.
      * @return The max timestamp and its offset
      */
-    public MemoryLogBuffer.RecordsInfo info() {
+    public MemoryRecords.RecordsInfo info() {
         if (timestampType == TimestampType.LOG_APPEND_TIME) {
             long offsetOfMaxTimestamp = compressionType == CompressionType.NONE ? baseOffset : lastOffset;
-            return new MemoryLogBuffer.RecordsInfo(logAppendTime,  offsetOfMaxTimestamp);
+            return new MemoryRecords.RecordsInfo(logAppendTime,  offsetOfMaxTimestamp);
         }
-        return new MemoryLogBuffer.RecordsInfo(maxTimestamp, offsetOfMaxTimestamp);
+        return new MemoryRecords.RecordsInfo(maxTimestamp, offsetOfMaxTimestamp);
     }
 
     public void close() {
-        if (builtLogBuffer != null)
+        if (builtRecords != null)
             return;
 
         try {
@@ -185,7 +185,7 @@ public class MemoryLogBufferBuilder {
         ByteBuffer buffer = buffer().duplicate();
         buffer.flip();
         buffer.position(initPos);
-        builtLogBuffer = MemoryLogBuffer.readableRecords(buffer);
+        builtRecords = MemoryRecords.readableRecords(buffer);
     }
 
     private void writerCompressedWrapperHeader() {
@@ -193,7 +193,7 @@ public class MemoryLogBufferBuilder {
         int pos = buffer.position();
         buffer.position(initPos);
 
-        int wrapperSize = pos - initPos - LogBuffer.LOG_OVERHEAD;
+        int wrapperSize = pos - initPos - Records.LOG_OVERHEAD;
         LogEntry.writeHeader(buffer, lastOffset, wrapperSize);
 
         long timestamp = timestampType == TimestampType.LOG_APPEND_TIME ? logAppendTime : maxTimestamp;
@@ -226,7 +226,7 @@ public class MemoryLogBufferBuilder {
             if (timestampType == TimestampType.LOG_APPEND_TIME)
                 timestamp = logAppendTime;
             long crc = Record.write(appendStream, magic, timestamp, key, value, CompressionType.NONE, timestampType);
-            recordWritten(offset, timestamp, size + LogBuffer.LOG_OVERHEAD);
+            recordWritten(offset, timestamp, size + Records.LOG_OVERHEAD);
             return crc;
         } catch (IOException e) {
             throw new KafkaException("I/O exception when writing to the append stream, closing", e);
@@ -345,12 +345,12 @@ public class MemoryLogBufferBuilder {
      */
     public boolean hasRoomFor(byte[] key, byte[] value) {
         return !isFull() && (numRecords == 0 ?
-                this.initialBuffer.capacity() >= LogBuffer.LOG_OVERHEAD + Record.recordSize(magic, key, value) :
-                this.writeLimit >= estimatedBytesWritten() + LogBuffer.LOG_OVERHEAD + Record.recordSize(magic, key, value));
+                this.initialBuffer.capacity() >= Records.LOG_OVERHEAD + Record.recordSize(magic, key, value) :
+                this.writeLimit >= estimatedBytesWritten() + Records.LOG_OVERHEAD + Record.recordSize(magic, key, value));
     }
 
     public boolean isClosed() {
-        return builtLogBuffer != null;
+        return builtRecords != null;
     }
 
     public boolean isFull() {
@@ -358,7 +358,7 @@ public class MemoryLogBufferBuilder {
     }
 
     public int sizeInBytes() {
-        return builtLogBuffer != null ? builtLogBuffer.sizeInBytes() : buffer().position();
+        return builtRecords != null ? builtRecords.sizeInBytes() : buffer().position();
     }
 
     private static DataOutputStream wrapForOutput(ByteBufferOutputStream buffer, CompressionType type, byte messageVersion, int bufferSize) {

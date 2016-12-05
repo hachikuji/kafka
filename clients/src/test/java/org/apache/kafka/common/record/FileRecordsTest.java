@@ -37,18 +37,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-public class FileLogBufferTest {
+public class FileRecordsTest {
 
     private Record[] records = new Record[] {
             Record.create("abcd".getBytes()),
             Record.create("efgh".getBytes()),
             Record.create("ijkl".getBytes())
     };
-    private FileLogBuffer logBuffer;
+    private FileRecords fileRecords;
 
     @Before
     public void setup() throws IOException {
-        this.logBuffer = createLogBuffer(records);
+        this.fileRecords = createFileRecords(records);
     }
 
     /**
@@ -56,10 +56,10 @@ public class FileLogBufferTest {
      */
     @Test
     public void testFileSize() throws IOException {
-        assertEquals(logBuffer.channel().size(), logBuffer.sizeInBytes());
+        assertEquals(fileRecords.channel().size(), fileRecords.sizeInBytes());
         for (int i = 0; i < 20; i++) {
-            logBuffer.append(MemoryLogBuffer.withRecords(Record.create("abcd".getBytes())));
-            assertEquals(logBuffer.channel().size(), logBuffer.sizeInBytes());
+            fileRecords.append(MemoryRecords.withRecords(Record.create("abcd".getBytes())));
+            assertEquals(fileRecords.channel().size(), fileRecords.sizeInBytes());
         }
     }
 
@@ -68,24 +68,24 @@ public class FileLogBufferTest {
      */
     @Test
     public void testIterationOverPartialAndTruncation() throws IOException {
-        testPartialWrite(0, logBuffer);
-        testPartialWrite(2, logBuffer);
-        testPartialWrite(4, logBuffer);
-        testPartialWrite(5, logBuffer);
-        testPartialWrite(6, logBuffer);
+        testPartialWrite(0, fileRecords);
+        testPartialWrite(2, fileRecords);
+        testPartialWrite(4, fileRecords);
+        testPartialWrite(5, fileRecords);
+        testPartialWrite(6, fileRecords);
     }
 
-    private void testPartialWrite(int size, FileLogBuffer logBuffer) throws IOException {
+    private void testPartialWrite(int size, FileRecords fileRecords) throws IOException {
         ByteBuffer buffer = ByteBuffer.allocate(size);
         for (int i = 0; i < size; i++)
             buffer.put((byte) 0);
 
         buffer.rewind();
 
-        logBuffer.channel().write(buffer);
+        fileRecords.channel().write(buffer);
 
         // appending those bytes should not change the contents
-        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.records());
+        TestUtils.checkEquals(Arrays.asList(records).iterator(), fileRecords.records());
     }
 
     /**
@@ -93,9 +93,9 @@ public class FileLogBufferTest {
      */
     @Test
     public void testIterationDoesntChangePosition() throws IOException {
-        long position = logBuffer.channel().position();
-        TestUtils.checkEquals(Arrays.asList(records).iterator(), logBuffer.records());
-        assertEquals(position, logBuffer.channel().position());
+        long position = fileRecords.channel().position();
+        TestUtils.checkEquals(Arrays.asList(records).iterator(), fileRecords.records());
+        assertEquals(position, fileRecords.channel().position());
     }
 
     /**
@@ -103,17 +103,17 @@ public class FileLogBufferTest {
      */
     @Test
     public void testRead() throws IOException {
-        FileLogBuffer read = logBuffer.read(0, logBuffer.sizeInBytes());
-        TestUtils.checkEquals(logBuffer.shallowIterator(), read.shallowIterator());
+        FileRecords read = fileRecords.read(0, fileRecords.sizeInBytes());
+        TestUtils.checkEquals(fileRecords.shallowIterator(), read.shallowIterator());
 
         List<LogEntry> items = shallowEntries(read);
         LogEntry second = items.get(1);
 
-        read = logBuffer.read(second.size(), logBuffer.sizeInBytes());
+        read = fileRecords.read(second.size(), fileRecords.sizeInBytes());
         assertEquals("Try a read starting from the second message",
                 items.subList(1, 3), shallowEntries(read));
 
-        read = logBuffer.read(second.size(), second.size());
+        read = fileRecords.read(second.size(), second.size());
         assertEquals("Try a read of a single message starting from the second message",
                 Collections.singletonList(second), shallowEntries(read));
     }
@@ -125,33 +125,33 @@ public class FileLogBufferTest {
     public void testSearch() throws IOException {
         // append a new message with a high offset
         Record lastMessage = Record.create("test".getBytes());
-        logBuffer.append(MemoryLogBuffer.withRecords(50L, lastMessage));
+        fileRecords.append(MemoryRecords.withRecords(50L, lastMessage));
 
-        List<LogEntry> entries = shallowEntries(logBuffer);
+        List<LogEntry> entries = shallowEntries(fileRecords);
         int position = 0;
 
         int message1Size = entries.get(0).size();
         assertEquals("Should be able to find the first message by its offset",
-                new FileLogBuffer.LogEntryPosition(0L, position, message1Size),
-                logBuffer.searchForOffsetWithSize(0, 0));
+                new FileRecords.LogEntryPosition(0L, position, message1Size),
+                fileRecords.searchForOffsetWithSize(0, 0));
         position += message1Size;
 
         int message2Size = entries.get(1).size();
         assertEquals("Should be able to find second message when starting from 0",
-                new FileLogBuffer.LogEntryPosition(1L, position, message2Size),
-                logBuffer.searchForOffsetWithSize(1, 0));
+                new FileRecords.LogEntryPosition(1L, position, message2Size),
+                fileRecords.searchForOffsetWithSize(1, 0));
         assertEquals("Should be able to find second message starting from its offset",
-                new FileLogBuffer.LogEntryPosition(1L, position, message2Size),
-                logBuffer.searchForOffsetWithSize(1, position));
+                new FileRecords.LogEntryPosition(1L, position, message2Size),
+                fileRecords.searchForOffsetWithSize(1, position));
         position += message2Size + entries.get(2).size();
 
         int message4Size = entries.get(3).size();
         assertEquals("Should be able to find fourth message from a non-existant offset",
-                new FileLogBuffer.LogEntryPosition(50L, position, message4Size),
-                logBuffer.searchForOffsetWithSize(3, position));
+                new FileRecords.LogEntryPosition(50L, position, message4Size),
+                fileRecords.searchForOffsetWithSize(3, position));
         assertEquals("Should be able to find fourth message by correct offset",
-                new FileLogBuffer.LogEntryPosition(50L, position, message4Size),
-                logBuffer.searchForOffsetWithSize(50,  position));
+                new FileRecords.LogEntryPosition(50L, position, message4Size),
+                fileRecords.searchForOffsetWithSize(50,  position));
     }
 
     /**
@@ -159,12 +159,12 @@ public class FileLogBufferTest {
      */
     @Test
     public void testIteratorWithLimits() throws IOException {
-        LogEntry entry = shallowEntries(logBuffer).get(1);
-        long start = logBuffer.searchForOffsetWithSize(1, 0).position;
+        LogEntry entry = shallowEntries(fileRecords).get(1);
+        long start = fileRecords.searchForOffsetWithSize(1, 0).position;
         int size = entry.size();
-        FileLogBuffer slice = logBuffer.read(start, size);
+        FileRecords slice = fileRecords.read(start, size);
         assertEquals(Collections.singletonList(entry), shallowEntries(slice));
-        FileLogBuffer slice2 = logBuffer.read(start, size - 1);
+        FileRecords slice2 = fileRecords.read(start, size - 1);
         assertEquals(Collections.emptyList(), shallowEntries(slice2));
     }
 
@@ -173,11 +173,11 @@ public class FileLogBufferTest {
      */
     @Test
     public void testTruncate() throws IOException {
-        LogEntry entry = shallowEntries(logBuffer).get(0);
-        long end = logBuffer.searchForOffsetWithSize(1, 0).position;
-        logBuffer.truncateTo((int) end);
-        assertEquals(Collections.singletonList(entry), shallowEntries(logBuffer));
-        assertEquals(entry.size(), logBuffer.sizeInBytes());
+        LogEntry entry = shallowEntries(fileRecords).get(0);
+        long end = fileRecords.searchForOffsetWithSize(1, 0).position;
+        fileRecords.truncateTo((int) end);
+        assertEquals(Collections.singletonList(entry), shallowEntries(fileRecords));
+        assertEquals(entry.size(), fileRecords.sizeInBytes());
     }
 
     /**
@@ -193,8 +193,8 @@ public class FileLogBufferTest {
         EasyMock.expect(channelMock.position(42L)).andReturn(null);
         EasyMock.replay(channelMock);
 
-        FileLogBuffer logBuffer = new FileLogBuffer(tempFile(), channelMock, 0, Integer.MAX_VALUE, false);
-        logBuffer.truncateTo(42);
+        FileRecords fileRecords = new FileRecords(tempFile(), channelMock, 0, Integer.MAX_VALUE, false);
+        fileRecords.truncateTo(42);
 
         EasyMock.verify(channelMock);
     }
@@ -211,10 +211,10 @@ public class FileLogBufferTest {
         EasyMock.expect(channelMock.position(42L)).andReturn(null);
         EasyMock.replay(channelMock);
 
-        FileLogBuffer logBuffer = new FileLogBuffer(tempFile(), channelMock, 0, Integer.MAX_VALUE, false);
+        FileRecords fileRecords = new FileRecords(tempFile(), channelMock, 0, Integer.MAX_VALUE, false);
 
         try {
-            logBuffer.truncateTo(43);
+            fileRecords.truncateTo(43);
             fail("Should throw KafkaException");
         } catch (KafkaException e) {
             // expected
@@ -236,8 +236,8 @@ public class FileLogBufferTest {
         EasyMock.expect(channelMock.position(23L)).andReturn(null).once();
         EasyMock.replay(channelMock);
 
-        FileLogBuffer logBuffer = new FileLogBuffer(tempFile(), channelMock, 0, Integer.MAX_VALUE, false);
-        logBuffer.truncateTo(23);
+        FileRecords fileRecords = new FileRecords(tempFile(), channelMock, 0, Integer.MAX_VALUE, false);
+        fileRecords.truncateTo(23);
 
         EasyMock.verify(channelMock);
     }
@@ -248,9 +248,9 @@ public class FileLogBufferTest {
     @Test
     public void testPreallocateTrue() throws IOException {
         File temp = tempFile();
-        FileLogBuffer logBuffer = FileLogBuffer.open(temp, false, 512 * 1024 * 1024, true);
-        long position = logBuffer.channel().position();
-        int size = logBuffer.sizeInBytes();
+        FileRecords fileRecords = FileRecords.open(temp, false, 512 * 1024 * 1024, true);
+        long position = fileRecords.channel().position();
+        int size = fileRecords.sizeInBytes();
         assertEquals(0, position);
         assertEquals(0, size);
         assertEquals(512 * 1024 * 1024, temp.length());
@@ -262,7 +262,7 @@ public class FileLogBufferTest {
     @Test
     public void testPreallocateFalse() throws IOException {
         File temp = tempFile();
-        FileLogBuffer set = FileLogBuffer.open(temp, false, 512 * 1024 * 1024, false);
+        FileRecords set = FileRecords.open(temp, false, 512 * 1024 * 1024, false);
         long position = set.channel().position();
         int size = set.sizeInBytes();
         assertEquals(0, position);
@@ -276,17 +276,17 @@ public class FileLogBufferTest {
     @Test
     public void testPreallocateClearShutdown() throws IOException {
         File temp = tempFile();
-        FileLogBuffer set = FileLogBuffer.open(temp, false, 512 * 1024 * 1024, true);
-        set.append(MemoryLogBuffer.withRecords(records));
+        FileRecords set = FileRecords.open(temp, false, 512 * 1024 * 1024, true);
+        set.append(MemoryRecords.withRecords(records));
 
         int oldPosition = (int) set.channel().position();
         int oldSize = set.sizeInBytes();
-        assertEquals(logBuffer.sizeInBytes(), oldPosition);
-        assertEquals(logBuffer.sizeInBytes(), oldSize);
+        assertEquals(fileRecords.sizeInBytes(), oldPosition);
+        assertEquals(fileRecords.sizeInBytes(), oldSize);
         set.close();
 
         File tempReopen = new File(temp.getAbsolutePath());
-        FileLogBuffer setReopen = FileLogBuffer.open(tempReopen, true, 512 * 1024 * 1024, true);
+        FileRecords setReopen = FileRecords.open(tempReopen, true, 512 * 1024 * 1024, true);
         int position = (int) setReopen.channel().position();
         int size = setReopen.sizeInBytes();
 
@@ -297,11 +297,11 @@ public class FileLogBufferTest {
 
     @Test
     public void testFormatConversionWithPartialMessage() throws IOException {
-        LogEntry entry = shallowEntries(logBuffer).get(1);
-        long start = logBuffer.searchForOffsetWithSize(1, 0).position;
+        LogEntry entry = shallowEntries(fileRecords).get(1);
+        long start = fileRecords.searchForOffsetWithSize(1, 0).position;
         int size = entry.size();
-        FileLogBuffer slice = logBuffer.read(start, size - 1);
-        LogBuffer messageV0 = slice.toMessageFormat(Record.MAGIC_VALUE_V0);
+        FileRecords slice = fileRecords.read(start, size - 1);
+        Records messageV0 = slice.toMessageFormat(Record.MAGIC_VALUE_V0);
         assertTrue("No message should be there", shallowEntries(messageV0).isEmpty());
         assertEquals("There should be " + (size - 1) + " bytes", size - 1, messageV0.sizeInBytes());
     }
@@ -311,15 +311,15 @@ public class FileLogBufferTest {
         List<LogEntry> entries = Arrays.asList(
                 LogEntry.create(0L, Record.create(Record.MAGIC_VALUE_V0, Record.NO_TIMESTAMP, "k1".getBytes(), "hello".getBytes())),
                 LogEntry.create(2L, Record.create(Record.MAGIC_VALUE_V0, Record.NO_TIMESTAMP, "k2".getBytes(), "goodbye".getBytes())));
-        MemoryLogBuffer logBuffer = MemoryLogBuffer.withLogEntries(CompressionType.NONE, entries);
+        MemoryRecords records = MemoryRecords.withLogEntries(CompressionType.NONE, entries);
 
         // Up conversion. In reality we only do down conversion, but up conversion should work as well.
         // up conversion for non-compressed messages
-        try (FileLogBuffer fileLogBuffer = FileLogBuffer.open(tempFile())) {
-            fileLogBuffer.append(logBuffer);
-            fileLogBuffer.flush();
-            LogBuffer convertedLogBuffer = fileLogBuffer.toMessageFormat(Record.MAGIC_VALUE_V1);
-            verifyConvertedMessageSet(entries, convertedLogBuffer, Record.MAGIC_VALUE_V1);
+        try (FileRecords fileRecords = FileRecords.open(tempFile())) {
+            fileRecords.append(records);
+            fileRecords.flush();
+            Records convertedRecords = fileRecords.toMessageFormat(Record.MAGIC_VALUE_V1);
+            verifyConvertedMessageSet(entries, convertedRecords, Record.MAGIC_VALUE_V1);
         }
     }
 
@@ -328,14 +328,14 @@ public class FileLogBufferTest {
         List<LogEntry> entries = Arrays.asList(
                 LogEntry.create(0L, Record.create(Record.MAGIC_VALUE_V0, Record.NO_TIMESTAMP, "k1".getBytes(), "hello".getBytes())),
                 LogEntry.create(2L, Record.create(Record.MAGIC_VALUE_V0, Record.NO_TIMESTAMP, "k2".getBytes(), "goodbye".getBytes())));
-        MemoryLogBuffer logBuffer = MemoryLogBuffer.withLogEntries(CompressionType.GZIP, entries);
+        MemoryRecords records = MemoryRecords.withLogEntries(CompressionType.GZIP, entries);
 
         // up conversion for compressed messages
-        try (FileLogBuffer fileLogBuffer = FileLogBuffer.open(tempFile())) {
-            fileLogBuffer.append(logBuffer);
-            fileLogBuffer.flush();
-            LogBuffer convertedLogBuffer = fileLogBuffer.toMessageFormat(Record.MAGIC_VALUE_V1);
-            verifyConvertedMessageSet(entries, convertedLogBuffer, Record.MAGIC_VALUE_V1);
+        try (FileRecords fileRecords = FileRecords.open(tempFile())) {
+            fileRecords.append(records);
+            fileRecords.flush();
+            Records convertedRecords = fileRecords.toMessageFormat(Record.MAGIC_VALUE_V1);
+            verifyConvertedMessageSet(entries, convertedRecords, Record.MAGIC_VALUE_V1);
         }
     }
 
@@ -344,14 +344,14 @@ public class FileLogBufferTest {
         List<LogEntry> entries = Arrays.asList(
                 LogEntry.create(0L, Record.create(Record.MAGIC_VALUE_V1, 1L, "k1".getBytes(), "hello".getBytes())),
                 LogEntry.create(2L, Record.create(Record.MAGIC_VALUE_V1, 2L, "k2".getBytes(), "goodbye".getBytes())));
-        MemoryLogBuffer logBuffer = MemoryLogBuffer.withLogEntries(CompressionType.NONE, entries);
+        MemoryRecords records = MemoryRecords.withLogEntries(CompressionType.NONE, entries);
 
         // down conversion for non-compressed messages
-        try (FileLogBuffer fileLogBuffer = FileLogBuffer.open(tempFile())) {
-            fileLogBuffer.append(logBuffer);
-            fileLogBuffer.flush();
-            LogBuffer convertedLogBuffer = fileLogBuffer.toMessageFormat(Record.MAGIC_VALUE_V0);
-            verifyConvertedMessageSet(entries, convertedLogBuffer, Record.MAGIC_VALUE_V0);
+        try (FileRecords fileRecords = FileRecords.open(tempFile())) {
+            fileRecords.append(records);
+            fileRecords.flush();
+            Records convertedRecords = fileRecords.toMessageFormat(Record.MAGIC_VALUE_V0);
+            verifyConvertedMessageSet(entries, convertedRecords, Record.MAGIC_VALUE_V0);
         }
     }
 
@@ -360,20 +360,20 @@ public class FileLogBufferTest {
         List<LogEntry> entries = Arrays.asList(
                 LogEntry.create(0L, Record.create(Record.MAGIC_VALUE_V1, 1L, "k1".getBytes(), "hello".getBytes())),
                 LogEntry.create(2L, Record.create(Record.MAGIC_VALUE_V1, 2L, "k2".getBytes(), "goodbye".getBytes())));
-        MemoryLogBuffer logBuffer = MemoryLogBuffer.withLogEntries(CompressionType.GZIP, entries);
+        MemoryRecords records = MemoryRecords.withLogEntries(CompressionType.GZIP, entries);
 
         // down conversion for compressed messages
-        try (FileLogBuffer fileLogBuffer = FileLogBuffer.open(tempFile())) {
-            fileLogBuffer.append(logBuffer);
-            fileLogBuffer.flush();
-            LogBuffer convertedLogBuffer = fileLogBuffer.toMessageFormat(Record.MAGIC_VALUE_V0);
-            verifyConvertedMessageSet(entries, convertedLogBuffer, Record.MAGIC_VALUE_V0);
+        try (FileRecords fileRecords = FileRecords.open(tempFile())) {
+            fileRecords.append(records);
+            fileRecords.flush();
+            Records convertedRecords = fileRecords.toMessageFormat(Record.MAGIC_VALUE_V0);
+            verifyConvertedMessageSet(entries, convertedRecords, Record.MAGIC_VALUE_V0);
         }
     }
 
-    private void verifyConvertedMessageSet(List<LogEntry> initialEntries, LogBuffer convertedLogBuffer, byte magicByte) {
+    private void verifyConvertedMessageSet(List<LogEntry> initialEntries, Records convertedRecords, byte magicByte) {
         int i = 0;
-        for (LogEntry logEntry : deepEntries(convertedLogBuffer)) {
+        for (LogEntry logEntry : deepEntries(convertedRecords)) {
             assertEquals("magic byte should be " + magicByte, magicByte, logEntry.record().magic());
             assertEquals("offset should not change", initialEntries.get(i).offset(), logEntry.offset());
             assertEquals("key should not change", initialEntries.get(i).record().key(), logEntry.record().key());
@@ -382,7 +382,7 @@ public class FileLogBufferTest {
         }
     }
 
-    private static List<LogEntry> shallowEntries(LogBuffer buffer) {
+    private static List<LogEntry> shallowEntries(Records buffer) {
         List<LogEntry> entries = new ArrayList<>();
         Iterator<? extends LogEntry> iterator = buffer.shallowIterator();
         while (iterator.hasNext())
@@ -390,7 +390,7 @@ public class FileLogBufferTest {
         return entries;
     }
 
-    private static List<LogEntry> deepEntries(LogBuffer buffer) {
+    private static List<LogEntry> deepEntries(Records buffer) {
         List<LogEntry> entries = new ArrayList<>();
         Iterator<? extends LogEntry> iterator = buffer.shallowIterator();
         while (iterator.hasNext()) {
@@ -400,11 +400,11 @@ public class FileLogBufferTest {
         return entries;
     }
 
-    private FileLogBuffer createLogBuffer(Record ... records) throws IOException {
-        FileLogBuffer logBuffer = FileLogBuffer.open(tempFile());
-        logBuffer.append(MemoryLogBuffer.withRecords(records));
-        logBuffer.flush();
-        return logBuffer;
+    private FileRecords createFileRecords(Record ... records) throws IOException {
+        FileRecords fileRecords = FileRecords.open(tempFile());
+        fileRecords.append(MemoryRecords.withRecords(records));
+        fileRecords.flush();
+        return fileRecords;
     }
 
 }

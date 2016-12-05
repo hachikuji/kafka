@@ -24,7 +24,7 @@ import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.utils.Utils
-import org.apache.kafka.common.record.{MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{MemoryRecords, Record}
 import org.junit.Assert.{assertFalse, assertTrue}
 import org.junit.{Before, Test}
 
@@ -91,10 +91,10 @@ class AbstractFetcherThreadTest {
     override def offset(topicAndPartition: TopicPartition): Long = offsets(topicAndPartition)
   }
 
-  class TestPartitionData(logBuffer: MemoryLogBuffer = MemoryLogBuffer.EMPTY) extends PartitionData {
+  class TestPartitionData(records: MemoryRecords = MemoryRecords.EMPTY) extends PartitionData {
     override def errorCode: Short = Errors.NONE.code
 
-    override def toLogEntries: MemoryLogBuffer = logBuffer
+    override def toRecords: MemoryRecords = records
 
     override def highWatermark: Long = 0L
 
@@ -156,8 +156,8 @@ class AbstractFetcherThreadTest {
     @volatile var fetchCount = 0
 
     private val normalPartitionDataSet = List(
-      new TestPartitionData(MemoryLogBuffer.withRecords(0L, Record.create("hello".getBytes()))),
-      new TestPartitionData(MemoryLogBuffer.withRecords(1L, Record.create("hello".getBytes())))
+      new TestPartitionData(MemoryRecords.withRecords(0L, Record.create("hello".getBytes()))),
+      new TestPartitionData(MemoryRecords.withRecords(1L, Record.create("hello".getBytes())))
     )
 
     override def processPartitionData(topicAndPartition: TopicPartition,
@@ -170,10 +170,10 @@ class AbstractFetcherThreadTest {
             .format(topicAndPartition, fetchOffset, logEndOffset))
 
       // Now check message's crc
-      val logBuffer = partitionData.toLogEntries
-      for (logEntry <- logBuffer.shallowIterator.asScala) {
-        logEntry.record.ensureValid()
-        logEndOffset = logEntry.nextOffset
+      val records = partitionData.toRecords
+      for (entry <- records.shallowIterator.asScala) {
+        entry.record.ensureValid()
+        logEndOffset = entry.nextOffset
       }
     }
 
@@ -185,8 +185,8 @@ class AbstractFetcherThreadTest {
         val badChecksum = (corruptedRecord.checksum + 1 % Int.MaxValue).toInt
         // Garble checksum
         Utils.writeUnsignedInt(corruptedRecord.buffer, Record.CRC_OFFSET, badChecksum)
-        val logBuffer = MemoryLogBuffer.withRecords(corruptedRecord)
-        fetchRequest.offsets.mapValues(_ => new TestPartitionData(logBuffer)).toSeq
+        val records = MemoryRecords.withRecords(corruptedRecord)
+        fetchRequest.offsets.mapValues(_ => new TestPartitionData(records)).toSeq
       } else
       // Then, the following fetches get the normal data
         fetchRequest.offsets.mapValues(v => normalPartitionDataSet(v.toInt)).toSeq

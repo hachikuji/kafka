@@ -27,7 +27,7 @@ import kafka.serializer.Decoder
 import kafka.utils._
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol
 import org.apache.kafka.common.KafkaException
-import org.apache.kafka.common.record.{CompressionType, FileLogBuffer, LogEntry, Record}
+import org.apache.kafka.common.record.{CompressionType, FileRecords, LogEntry, Record}
 import org.apache.kafka.common.utils.Utils
 
 import scala.collection.mutable
@@ -133,7 +133,7 @@ object DumpLogSegments {
                         maxMessageSize: Int) {
     val startOffset = file.getName().split("\\.")(0).toLong
     val logFile = new File(file.getAbsoluteFile.getParent, file.getName.split("\\.")(0) + Log.LogFileSuffix)
-    val logBuffer = FileLogBuffer.open(logFile, false)
+    val fileRecords = FileRecords.open(logFile, false)
     val index = new OffsetIndex(file, baseOffset = startOffset)
 
     //Check that index passes sanityCheck, this is the check that determines if indexes will be rebuilt on startup or not.
@@ -145,7 +145,7 @@ object DumpLogSegments {
 
     for(i <- 0 until index.entries) {
       val entry = index.entry(i)
-      val slice = logBuffer.read(entry.position, maxMessageSize)
+      val slice = fileRecords.read(entry.position, maxMessageSize)
       val logEntry = getIterator(slice.shallowIterator.next, isDeepIteration = true).next()
       if (logEntry.offset != entry.offset + index.baseOffset) {
         var misMatchesSeq = misMatchesForIndexFilesMap.getOrElse(file.getAbsolutePath, List[(Long, Long)]())
@@ -167,7 +167,7 @@ object DumpLogSegments {
                             maxMessageSize: Int) {
     val startOffset = file.getName.split("\\.")(0).toLong
     val logFile = new File(file.getAbsoluteFile.getParent, file.getName.split("\\.")(0) + Log.LogFileSuffix)
-    val logBuffer = FileLogBuffer.open(logFile, false)
+    val fileRecords = FileRecords.open(logFile, false)
     val indexFile = new File(file.getAbsoluteFile.getParent, file.getName.split("\\.")(0) + Log.IndexFileSuffix)
     val index = new OffsetIndex(indexFile, baseOffset = startOffset)
     val timeIndex = new TimeIndex(file, baseOffset = startOffset)
@@ -183,8 +183,8 @@ object DumpLogSegments {
     for(i <- 0 until timeIndex.entries) {
       val entry = timeIndex.entry(i)
       val position = index.lookup(entry.offset + timeIndex.baseOffset).position
-      val partialFileLogBuffer = logBuffer.read(position, Int.MaxValue)
-      val shallowEntries = partialFileLogBuffer.shallowIterator.asScala
+      val partialFileRecords = fileRecords.read(position, Int.MaxValue)
+      val shallowEntries = partialFileRecords.shallowIterator.asScala
       var maxTimestamp = Record.NO_TIMESTAMP
       // We first find the message by offset then check if the timestamp is correct.
       val maybeLogEntry = shallowEntries.find(_.offset >= entry.offset + timeIndex.baseOffset)
@@ -308,7 +308,7 @@ object DumpLogSegments {
                       parser: MessageParser[_, _]) {
     val startOffset = file.getName().split("\\.")(0).toLong
     println("Starting offset: " + startOffset)
-    val messageSet = FileLogBuffer.open(file, false)
+    val messageSet = FileRecords.open(file, false)
     var validBytes = 0L
     var lastOffset = -1l
     val shallowIterator = messageSet.shallowEntries(maxMessageSize).asScala

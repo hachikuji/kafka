@@ -18,7 +18,7 @@
 package kafka.coordinator
 
 import kafka.utils.timer.MockTimer
-import org.apache.kafka.common.record.{MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{MemoryRecords, Record}
 import org.junit.Assert._
 import kafka.common.{OffsetAndMetadata, Topic}
 import kafka.message.Message
@@ -992,7 +992,7 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.expect(replicaManager.appendLogEntries(EasyMock.anyLong(),
       EasyMock.anyShort(),
       EasyMock.anyBoolean(),
-      EasyMock.anyObject().asInstanceOf[Map[TopicPartition, MemoryLogBuffer]],
+      EasyMock.anyObject().asInstanceOf[Map[TopicPartition, MemoryRecords]],
       EasyMock.capture(capturedArgument))).andAnswer(new IAnswer[Unit] {
       override def answer = capturedArgument.getValue.apply(
         Map(new TopicPartition(Topic.GroupMetadataTopicName, groupPartitionId) ->
@@ -1073,7 +1073,7 @@ class GroupCoordinatorResponseTest extends JUnitSuite {
     EasyMock.expect(replicaManager.appendLogEntries(EasyMock.anyLong(),
       EasyMock.anyShort(),
       EasyMock.anyBoolean(),
-      EasyMock.anyObject().asInstanceOf[Map[TopicPartition, MemoryLogBuffer]],
+      EasyMock.anyObject().asInstanceOf[Map[TopicPartition, MemoryRecords]],
       EasyMock.capture(capturedArgument))).andAnswer(new IAnswer[Unit] {
       override def answer = capturedArgument.getValue.apply(
         Map(new TopicPartition(Topic.GroupMetadataTopicName, groupPartitionId) ->

@@ -26,7 +26,7 @@ import kafka.utils.{MockScheduler, MockTime, TestUtils, ZkUtils}
 import org.I0Itec.zkclient.ZkClient
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.record.{LogBuffer, MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{MemoryRecords, Record, Records}
 import org.apache.kafka.common.requests.{LeaderAndIsrRequest, PartitionState}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
@@ -107,7 +107,7 @@ class ReplicaManagerTest {
         timeout = 0,
         requiredAcks = 3,
         internalTopicsAllowed = false,
-        entriesPerPartition = Map(new TopicPartition("test1", 0) -> MemoryLogBuffer.withRecords(Record.create("first message".getBytes()))),
+        entriesPerPartition = Map(new TopicPartition("test1", 0) -> MemoryRecords.withRecords(Record.create("first message".getBytes()))),
         responseCallback = callback)
     } finally {
       rm.shutdown(checkpointHW = false)
@@ -160,7 +160,7 @@ class ReplicaManagerTest {
         timeout = 1000,
         requiredAcks = -1,
         internalTopicsAllowed = false,
-        entriesPerPartition = Map(new TopicPartition(topic, 0) -> MemoryLogBuffer.withRecords(Record.create("first message".getBytes()))),
+        entriesPerPartition = Map(new TopicPartition(topic, 0) -> MemoryRecords.withRecords(Record.create("first message".getBytes()))),
         responseCallback = produceCallback)
 
       // Fetch some messages
@@ -222,15 +222,15 @@ class ReplicaManagerTest {
           timeout = 1000,
           requiredAcks = -1,
           internalTopicsAllowed = false,
-          entriesPerPartition = Map(new TopicPartition(topic, 0) -> MemoryLogBuffer.withRecords(Record.create("message %d".format(i).getBytes))),
+          entriesPerPartition = Map(new TopicPartition(topic, 0) -> MemoryRecords.withRecords(Record.create("message %d".format(i).getBytes))),
           responseCallback = produceCallback)
       
       var fetchCallbackFired = false
       var fetchError = 0
-      var fetchedMessages: LogBuffer = null
+      var fetchedRecords: Records = null
       def fetchCallback(responseStatus: Seq[(TopicAndPartition, FetchPartitionData)]) = {
         fetchError = responseStatus.map(_._2).head.error
-        fetchedMessages = responseStatus.map(_._2).head.logBuffer
+        fetchedRecords = responseStatus.map(_._2).head.records
         fetchCallbackFired = true
       }
       
@@ -247,7 +247,7 @@ class ReplicaManagerTest {
       
       assertTrue(fetchCallbackFired)
       assertEquals("Should not give an exception", Errors.NONE.code, fetchError)
-      assertTrue("Should return some data", fetchedMessages.shallowIterator.hasNext)
+      assertTrue("Should return some data", fetchedRecords.shallowIterator.hasNext)
       fetchCallbackFired = false
       
       // Fetch a message above the high watermark as a consumer
@@ -262,7 +262,7 @@ class ReplicaManagerTest {
           
         assertTrue(fetchCallbackFired)
         assertEquals("Should not give an exception", Errors.NONE.code, fetchError)
-        assertEquals("Should return empty response", MemoryLogBuffer.EMPTY, fetchedMessages)
+        assertEquals("Should return empty response", MemoryRecords.EMPTY, fetchedRecords)
     } finally {
       rm.shutdown(checkpointHW = false)
     }

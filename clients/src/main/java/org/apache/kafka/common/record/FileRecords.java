@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * An on-disk log buffer. An optional start and end position can be applied to the message set
  * which will allow slicing a subset of the file.File-backed log buffer.
  */
-public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
+public class FileRecords extends AbstractRecords implements Closeable {
     private final boolean isSlice;
     private final FileChannel channel;
     private final long start;
@@ -44,11 +44,11 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
     private volatile File file;
     private final AtomicLong size;
 
-    public FileLogBuffer(File file,
-                         FileChannel channel,
-                         long start,
-                         long end,
-                         boolean isSlice) throws IOException {
+    public FileRecords(File file,
+                       FileChannel channel,
+                       long start,
+                       long end,
+                       boolean isSlice) throws IOException {
         this.file = file;
         this.channel = channel;
         this.start = start;
@@ -117,7 +117,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
      * @param size The number of bytes after the start position to include
      * @return A sliced wrapper on this message set limited based on the given position and size
      */
-    public FileLogBuffer read(long position, int size) throws IOException {
+    public FileRecords read(long position, int size) throws IOException {
         if (position < 0)
             throw new IllegalArgumentException("Invalid position: " + position);
         if (size < 0)
@@ -128,16 +128,16 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
             end = sizeInBytes();
         else
             end = Math.min(this.start + position + size, sizeInBytes());
-        return new FileLogBuffer(file, channel, this.start + position, end, true);
+        return new FileRecords(file, channel, this.start + position, end, true);
     }
 
     /**
      * Append log entries to the buffer
-     * @param logBuffer The buffer containing the entries to append
+     * @param records The records to append
      * @return the number of bytes written to the underlying file
      */
-    public int append(MemoryLogBuffer logBuffer) throws IOException {
-        int written = logBuffer.writeFullyTo(channel);
+    public int append(MemoryRecords records) throws IOException {
+        int written = records.writeFullyTo(channel);
         size.getAndAdd(written);
         return written;
     }
@@ -150,7 +150,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
     }
 
     /**
-     * Close this message set
+     * Close this record set
      */
     public void close() throws IOException {
         flush();
@@ -331,7 +331,7 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
         else
             end = this.sizeInBytes();
         FileLogInputStream inputStream = new FileLogInputStream(channel, maxMessageSize, start, end, eagerLoadRecords);
-        return LogBufferIterator.shallowIterator(inputStream);
+        return RecordsIterator.shallowIterator(inputStream);
     }
 
     @Override
@@ -342,31 +342,31 @@ public class FileLogBuffer extends AbstractLogBuffer implements Closeable {
         else
             end = this.sizeInBytes();
         FileLogInputStream inputStream = new FileLogInputStream(channel, Integer.MAX_VALUE, start, end, true);
-        return new LogBufferIterator(inputStream, false, false, Integer.MAX_VALUE);
+        return new RecordsIterator(inputStream, false, false, Integer.MAX_VALUE);
     }
 
-    public static FileLogBuffer open(File file,
-                                     boolean mutable,
-                                     boolean fileAlreadyExists,
-                                     int initFileSize,
-                                     boolean preallocate) throws IOException {
+    public static FileRecords open(File file,
+                                   boolean mutable,
+                                   boolean fileAlreadyExists,
+                                   int initFileSize,
+                                   boolean preallocate) throws IOException {
         FileChannel channel = openChannel(file, mutable, fileAlreadyExists, initFileSize, preallocate);
         int end = (!fileAlreadyExists && preallocate) ? 0 : Integer.MAX_VALUE;
-        return new FileLogBuffer(file, channel, 0, end, false);
+        return new FileRecords(file, channel, 0, end, false);
     }
 
-    public static FileLogBuffer open(File file,
-                                     boolean fileAlreadyExists,
-                                     int initFileSize,
-                                     boolean preallocate) throws IOException {
+    public static FileRecords open(File file,
+                                   boolean fileAlreadyExists,
+                                   int initFileSize,
+                                   boolean preallocate) throws IOException {
         return open(file, true, fileAlreadyExists, initFileSize, preallocate);
     }
 
-    public static FileLogBuffer open(File file, boolean mutable) throws IOException {
+    public static FileRecords open(File file, boolean mutable) throws IOException {
         return open(file, mutable, false, 0, false);
     }
 
-    public static FileLogBuffer open(File file) throws IOException {
+    public static FileRecords open(File file) throws IOException {
         return open(file, true);
     }
 

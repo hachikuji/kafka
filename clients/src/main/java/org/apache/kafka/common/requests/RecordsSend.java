@@ -18,7 +18,7 @@ package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.network.Send;
 import org.apache.kafka.common.network.TransportLayer;
-import org.apache.kafka.common.record.LogBuffer;
+import org.apache.kafka.common.record.Records;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -29,11 +29,11 @@ public class RecordsSend implements Send {
     private static final ByteBuffer EMPTY_BYTE_BUFFER = ByteBuffer.allocate(0);
 
     private final String destination;
-    private final LogBuffer records;
+    private final Records records;
     private int remaining;
     private boolean pending = false;
 
-    public RecordsSend(String destination, LogBuffer records) {
+    public RecordsSend(String destination, Records records) {
         this.destination = destination;
         this.records = records;
         this.remaining = records.sizeInBytes();

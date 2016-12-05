@@ -12,7 +12,7 @@
  */
 package org.apache.kafka.common.protocol.types;
 
-import org.apache.kafka.common.record.LogBuffer;
+import org.apache.kafka.common.record.Records;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -110,8 +110,8 @@ public class Struct {
         return (Byte) get(name);
     }
 
-    public LogBuffer getLogBuffer(String name) {
-        return (LogBuffer) get(name);
+    public Records getRecords(String name) {
+        return (Records) get(name);
     }
 
     public Short getShort(Field field) {

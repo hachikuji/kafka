@@ -22,7 +22,7 @@ import java.util.Properties
 
 import kafka.common._
 import kafka.utils._
-import org.apache.kafka.common.record.{MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{MemoryRecords, Record}
 import org.apache.kafka.common.utils.Utils
 import org.junit.Assert._
 import org.junit.{After, Test}
@@ -54,8 +54,8 @@ class LogCleanerManagerTest extends JUnitSuite with Logging {
     */
   @Test
   def testLogsWithSegmentsToDeleteShouldNotConsiderCleanupPolicyDeleteLogs(): Unit = {
-    val logBuffer = TestUtils.singletonLogBuffer("test".getBytes)
-    val log: Log = createLog(logBuffer.sizeInBytes * 5, LogConfig.Delete)
+    val records = TestUtils.singletonRecords("test".getBytes)
+    val log: Log = createLog(records.sizeInBytes * 5, LogConfig.Delete)
     val cleanerManager: LogCleanerManager = createCleanerManager(log)
 
     val readyToDelete = cleanerManager.deletableLogs().size
@@ -67,8 +67,8 @@ class LogCleanerManagerTest extends JUnitSuite with Logging {
     */
   @Test
   def testLogsWithSegmentsToDeleteShouldConsiderCleanupPolicyCompactDeleteLogs(): Unit = {
-    val logBuffer = TestUtils.singletonLogBuffer("test".getBytes, key="test".getBytes)
-    val log: Log = createLog(logBuffer.sizeInBytes * 5, LogConfig.Compact + "," + LogConfig.Delete)
+    val records = TestUtils.singletonRecords("test".getBytes, key="test".getBytes)
+    val log: Log = createLog(records.sizeInBytes * 5, LogConfig.Compact + "," + LogConfig.Delete)
     val cleanerManager: LogCleanerManager = createCleanerManager(log)
 
     val readyToDelete = cleanerManager.deletableLogs().size
@@ -81,8 +81,8 @@ class LogCleanerManagerTest extends JUnitSuite with Logging {
     */
   @Test
   def testLogsWithSegmentsToDeleteShouldNotConsiderCleanupPolicyCompactLogs(): Unit = {
-    val logBuffer = TestUtils.singletonLogBuffer("test".getBytes, key="test".getBytes)
-    val log: Log = createLog(logBuffer.sizeInBytes * 5, LogConfig.Compact)
+    val records = TestUtils.singletonRecords("test".getBytes, key="test".getBytes)
+    val log: Log = createLog(records.sizeInBytes * 5, LogConfig.Compact)
     val cleanerManager: LogCleanerManager = createCleanerManager(log)
 
     val readyToDelete = cleanerManager.deletableLogs().size
@@ -193,6 +193,6 @@ class LogCleanerManagerTest extends JUnitSuite with Logging {
     new Log(dir = dir, config = config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
 
   private def logEntries(key: Int, value: Int, timestamp: Long) =
-    MemoryLogBuffer.withRecords(Record.create(timestamp, key.toString.getBytes, value.toString.getBytes))
+    MemoryRecords.withRecords(Record.create(timestamp, key.toString.getBytes, value.toString.getBytes))
 
 }

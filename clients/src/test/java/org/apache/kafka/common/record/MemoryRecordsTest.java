@@ -34,13 +34,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 @RunWith(value = Parameterized.class)
-public class MemoryLogBufferTest {
+public class MemoryRecordsTest {
 
     private CompressionType compression;
     private byte magic;
     private long firstOffset;
 
-    public MemoryLogBufferTest(byte magic, long firstOffset, CompressionType compression) {
+    public MemoryRecordsTest(byte magic, long firstOffset, CompressionType compression) {
         this.magic = magic;
         this.compression = compression;
         this.firstOffset = firstOffset;
@@ -48,8 +48,8 @@ public class MemoryLogBufferTest {
 
     @Test
     public void testIterator() {
-        MemoryLogBufferBuilder builder1 = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
-        MemoryLogBufferBuilder builder2 = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
+        MemoryRecordsBuilder builder1 = MemoryRecords.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
+        MemoryRecordsBuilder builder2 = MemoryRecords.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME, firstOffset);
         List<Record> list = asList(
                 Record.create(magic, 1L, "a".getBytes(), "1".getBytes()),
                 Record.create(magic, 2L, "b".getBytes(), "2".getBytes()),
@@ -64,11 +64,11 @@ public class MemoryLogBufferTest {
             builder2.append(firstOffset + i, i + 1, toNullableArray(r.key()), toNullableArray(r.value()));
         }
 
-        MemoryLogBuffer recs1 = builder1.build();
-        MemoryLogBuffer recs2 = builder2.build();
+        MemoryRecords recs1 = builder1.build();
+        MemoryRecords recs2 = builder2.build();
 
         for (int iteration = 0; iteration < 2; iteration++) {
-            for (MemoryLogBuffer recs : asList(recs1, recs2)) {
+            for (MemoryRecords recs : asList(recs1, recs2)) {
                 Iterator<LogEntry> iter = recs.deepIterator();
                 for (int i = 0; i < list.size(); i++) {
                     assertTrue(iter.hasNext());
@@ -84,7 +84,7 @@ public class MemoryLogBufferTest {
 
     @Test
     public void testHasRoomForMethod() {
-        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(ByteBuffer.allocate(1024), magic, compression, TimestampType.CREATE_TIME);
         builder.append(0, Record.create(magic, 0L, "a".getBytes(), "1".getBytes()));
 
         assertTrue(builder.hasRoomFor("b".getBytes(), "2".getBytes()));
@@ -95,29 +95,29 @@ public class MemoryLogBufferTest {
     @Test
     public void testFilterTo() {
         ByteBuffer buffer = ByteBuffer.allocate(2048);
-        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(buffer, magic, compression, TimestampType.CREATE_TIME);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, magic, compression, TimestampType.CREATE_TIME);
         builder.append(0L, 10L, null, "a".getBytes());
         builder.close();
 
-        builder = MemoryLogBuffer.builder(buffer, magic, compression, TimestampType.CREATE_TIME, 1L);
+        builder = MemoryRecords.builder(buffer, magic, compression, TimestampType.CREATE_TIME, 1L);
         builder.append(1L, 11L, "1".getBytes(), "b".getBytes());
         builder.append(2L, 12L, null, "c".getBytes());
         builder.close();
 
-        builder = MemoryLogBuffer.builder(buffer, magic, compression, TimestampType.CREATE_TIME, 3L);
+        builder = MemoryRecords.builder(buffer, magic, compression, TimestampType.CREATE_TIME, 3L);
         builder.append(3L, 13L, null, "d".getBytes());
         builder.append(4L, 14L, "4".getBytes(), "e".getBytes());
         builder.append(5L, 15L, "5".getBytes(), "f".getBytes());
         builder.close();
 
-        builder = MemoryLogBuffer.builder(buffer, magic, compression, TimestampType.CREATE_TIME, 6L);
+        builder = MemoryRecords.builder(buffer, magic, compression, TimestampType.CREATE_TIME, 6L);
         builder.append(6L, 16L, "6".getBytes(), "g".getBytes());
         builder.close();
 
         buffer.flip();
 
         ByteBuffer filtered = ByteBuffer.allocate(2048);
-        MemoryLogBuffer.FilterResult result = MemoryLogBuffer.readableRecords(buffer).filterTo(new RetainNonNullKeysFilter(), filtered);
+        MemoryRecords.FilterResult result = MemoryRecords.readableRecords(buffer).filterTo(new RetainNonNullKeysFilter(), filtered);
 
         filtered.flip();
 
@@ -130,7 +130,7 @@ public class MemoryLogBufferTest {
             assertEquals(6L, result.offsetOfMaxTimestamp);
         }
 
-        MemoryLogBuffer filteredRecords = MemoryLogBuffer.readableRecords(filtered);
+        MemoryRecords filteredRecords = MemoryRecords.readableRecords(filtered);
 
         List<ByteBufferLogInputStream.ByteBufferLogEntry> shallowEntries = TestUtils.toList(filteredRecords.shallowIterator());
         List<Long> expectedOffsets = compression == CompressionType.NONE ? asList(1L, 4L, 5L, 6L) : asList(1L, 5L, 6L);
@@ -170,17 +170,17 @@ public class MemoryLogBufferTest {
         long logAppendTime = System.currentTimeMillis();
 
         ByteBuffer buffer = ByteBuffer.allocate(2048);
-        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(buffer, magic, compression,
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, magic, compression,
                 TimestampType.LOG_APPEND_TIME, 0L, logAppendTime);
         builder.append(0L, 10L, null, "a".getBytes());
         builder.close();
 
-        builder = MemoryLogBuffer.builder(buffer, magic, compression, TimestampType.LOG_APPEND_TIME, 1L, logAppendTime);
+        builder = MemoryRecords.builder(buffer, magic, compression, TimestampType.LOG_APPEND_TIME, 1L, logAppendTime);
         builder.append(1L, 11L, "1".getBytes(), "b".getBytes());
         builder.append(2L, 12L, null, "c".getBytes());
         builder.close();
 
-        builder = MemoryLogBuffer.builder(buffer, magic, compression, TimestampType.LOG_APPEND_TIME, 3L, logAppendTime);
+        builder = MemoryRecords.builder(buffer, magic, compression, TimestampType.LOG_APPEND_TIME, 3L, logAppendTime);
         builder.append(3L, 13L, null, "d".getBytes());
         builder.append(4L, 14L, "4".getBytes(), "e".getBytes());
         builder.append(5L, 15L, "5".getBytes(), "f".getBytes());
@@ -189,10 +189,10 @@ public class MemoryLogBufferTest {
         buffer.flip();
 
         ByteBuffer filtered = ByteBuffer.allocate(2048);
-        MemoryLogBuffer.readableRecords(buffer).filterTo(new RetainNonNullKeysFilter(), filtered);
+        MemoryRecords.readableRecords(buffer).filterTo(new RetainNonNullKeysFilter(), filtered);
 
         filtered.flip();
-        MemoryLogBuffer filteredRecords = MemoryLogBuffer.readableRecords(filtered);
+        MemoryRecords filteredRecords = MemoryRecords.readableRecords(filtered);
 
         List<ByteBufferLogInputStream.ByteBufferLogEntry> shallowEntries = TestUtils.toList(filteredRecords.shallowIterator());
         assertEquals(compression == CompressionType.NONE ? 3 : 2, shallowEntries.size());
@@ -216,7 +216,7 @@ public class MemoryLogBufferTest {
         return values;
     }
 
-    private static class RetainNonNullKeysFilter implements MemoryLogBuffer.LogEntryFilter {
+    private static class RetainNonNullKeysFilter implements MemoryRecords.LogEntryFilter {
         @Override
         public boolean shouldRetain(LogEntry entry) {
             return entry.record().hasKey();

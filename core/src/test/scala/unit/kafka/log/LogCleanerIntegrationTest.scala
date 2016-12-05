@@ -24,7 +24,7 @@ import kafka.api.{KAFKA_0_10_0_IV1, KAFKA_0_9_0}
 import kafka.common.TopicAndPartition
 import kafka.server.OffsetCheckpoint
 import kafka.utils._
-import org.apache.kafka.common.record.{CompressionType, MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{CompressionType, MemoryRecords, Record}
 import org.apache.kafka.common.utils.Utils
 import org.junit.Assert._
 import org.junit._
@@ -132,13 +132,13 @@ class LogCleanerIntegrationTest(compressionCodec: String) {
   }
 
   // returns (value, ByteBufferMessageSet)
-  private def createLargeSingleMessageSet(key: Int, messageFormatVersion: Byte): (String, MemoryLogBuffer) = {
+  private def createLargeSingleMessageSet(key: Int, messageFormatVersion: Byte): (String, MemoryRecords) = {
     def messageValue(length: Int): String = {
       val random = new Random(0)
       new String(random.alphanumeric.take(length).toArray)
     }
     val value = messageValue(128)
-    val messageSet = TestUtils.singletonLogBuffer(value = value.getBytes, codec = codec, key = key.toString.getBytes,
+    val messageSet = TestUtils.singletonRecords(value = value.getBytes, codec = codec, key = key.toString.getBytes,
       magicValue = messageFormatVersion)
     (value, messageSet)
   }
@@ -261,7 +261,7 @@ class LogCleanerIntegrationTest(compressionCodec: String) {
                         startKey: Int = 0, magicValue: Byte = Record.CURRENT_MAGIC_VALUE): Seq[(Int, String, Long)] = {
     for(_ <- 0 until numDups; key <- startKey until (startKey + numKeys)) yield {
       val value = counter.toString
-      val appendInfo = log.append(TestUtils.singletonLogBuffer(value = value.toString.getBytes, codec = codec,
+      val appendInfo = log.append(TestUtils.singletonRecords(value = value.toString.getBytes, codec = codec,
         key = key.toString.getBytes, magicValue = magicValue), assignOffsets = true)
       counter += 1
       (key, value, appendInfo.firstOffset)
@@ -280,8 +280,8 @@ class LogCleanerIntegrationTest(compressionCodec: String) {
       Record.create(magicValue, key.toString.getBytes, payload.toString.getBytes)
     }
 
-    val logBuffer = MemoryLogBuffer.withRecords(codec, messages: _*)
-    val appendInfo = log.append(logBuffer, assignOffsets = true)
+    val records = MemoryRecords.withRecords(codec, messages: _*)
+    val appendInfo = log.append(records, assignOffsets = true)
     val offsets = appendInfo.firstOffset to appendInfo.lastOffset
 
     kvs.zip(offsets).map { case (kv, offset) => (kv._1, kv._2, offset) }

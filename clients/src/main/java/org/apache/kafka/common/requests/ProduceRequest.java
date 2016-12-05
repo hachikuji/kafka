@@ -19,7 +19,7 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.record.MemoryLogBuffer;
+import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.utils.CollectionUtils;
 
@@ -46,23 +46,23 @@ public class ProduceRequest extends AbstractRequest {
 
     private final short acks;
     private final int timeout;
-    private final Map<TopicPartition, MemoryLogBuffer> partitionRecords;
+    private final Map<TopicPartition, MemoryRecords> partitionRecords;
 
-    public ProduceRequest(short acks, int timeout, Map<TopicPartition, MemoryLogBuffer> logBufferPerPartition) {
+    public ProduceRequest(short acks, int timeout, Map<TopicPartition, MemoryRecords> recordsPerPartition) {
         super(new Struct(CURRENT_SCHEMA));
-        Map<String, Map<Integer, MemoryLogBuffer>> logBuffersByTopic = CollectionUtils.groupDataByTopic(logBufferPerPartition);
+        Map<String, Map<Integer, MemoryRecords>> recordsByTopic = CollectionUtils.groupDataByTopic(recordsPerPartition);
         struct.set(ACKS_KEY_NAME, acks);
         struct.set(TIMEOUT_KEY_NAME, timeout);
-        List<Struct> topicDatas = new ArrayList<>(logBuffersByTopic.size());
-        for (Map.Entry<String, Map<Integer, MemoryLogBuffer>> entry : logBuffersByTopic.entrySet()) {
+        List<Struct> topicDatas = new ArrayList<>(recordsByTopic.size());
+        for (Map.Entry<String, Map<Integer, MemoryRecords>> entry : recordsByTopic.entrySet()) {
             Struct topicData = struct.instance(TOPIC_DATA_KEY_NAME);
             topicData.set(TOPIC_KEY_NAME, entry.getKey());
             List<Struct> partitionArray = new ArrayList<>();
-            for (Map.Entry<Integer, MemoryLogBuffer> partitionEntry : entry.getValue().entrySet()) {
-                MemoryLogBuffer logBuffer = partitionEntry.getValue();
+            for (Map.Entry<Integer, MemoryRecords> partitionEntry : entry.getValue().entrySet()) {
+                MemoryRecords records = partitionEntry.getValue();
                 Struct part = topicData.instance(PARTITION_DATA_KEY_NAME)
                                        .set(PARTITION_KEY_NAME, partitionEntry.getKey())
-                                       .set(RECORD_SET_KEY_NAME, logBuffer);
+                                       .set(RECORD_SET_KEY_NAME, records);
                 partitionArray.add(part);
             }
             topicData.set(PARTITION_DATA_KEY_NAME, partitionArray.toArray());
@@ -71,7 +71,7 @@ public class ProduceRequest extends AbstractRequest {
         struct.set(TOPIC_DATA_KEY_NAME, topicDatas.toArray());
         this.acks = acks;
         this.timeout = timeout;
-        this.partitionRecords = logBufferPerPartition;
+        this.partitionRecords = recordsPerPartition;
     }
 
     public ProduceRequest(Struct struct) {
@@ -83,8 +83,8 @@ public class ProduceRequest extends AbstractRequest {
             for (Object partitionResponseObj : topicData.getArray(PARTITION_DATA_KEY_NAME)) {
                 Struct partitionResponse = (Struct) partitionResponseObj;
                 int partition = partitionResponse.getInt(PARTITION_KEY_NAME);
-                MemoryLogBuffer logBuffer = (MemoryLogBuffer) partitionResponse.getLogBuffer(RECORD_SET_KEY_NAME);
-                partitionRecords.put(new TopicPartition(topic, partition), logBuffer);
+                MemoryRecords records = (MemoryRecords) partitionResponse.getRecords(RECORD_SET_KEY_NAME);
+                partitionRecords.put(new TopicPartition(topic, partition), records);
             }
         }
         acks = struct.getShort(ACKS_KEY_NAME);
@@ -99,7 +99,7 @@ public class ProduceRequest extends AbstractRequest {
 
         Map<TopicPartition, ProduceResponse.PartitionResponse> responseMap = new HashMap<>();
 
-        for (Map.Entry<TopicPartition, MemoryLogBuffer> entry : partitionRecords.entrySet()) {
+        for (Map.Entry<TopicPartition, MemoryRecords> entry : partitionRecords.entrySet()) {
             responseMap.put(entry.getKey(), new ProduceResponse.PartitionResponse(Errors.forException(e).code(), ProduceResponse.INVALID_OFFSET, Record.NO_TIMESTAMP));
         }
 
@@ -123,7 +123,7 @@ public class ProduceRequest extends AbstractRequest {
         return timeout;
     }
 
-    public Map<TopicPartition, MemoryLogBuffer> partitionLogBuffers() {
+    public Map<TopicPartition, MemoryRecords> partitionRecords() {
         return partitionRecords;
     }
 

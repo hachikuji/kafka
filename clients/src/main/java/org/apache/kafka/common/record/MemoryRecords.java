@@ -23,19 +23,19 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * A {@link LogBuffer} implementation backed by a ByteBuffer. This is used only for reading or
- * modifying in-place an existing buffer of log entries. To create a new buffer see {@link MemoryLogBufferBuilder},
+ * A {@link Records} implementation backed by a ByteBuffer. This is used only for reading or
+ * modifying in-place an existing buffer of log entries. To create a new buffer see {@link MemoryRecordsBuilder},
  * or one of the {@link #builder(ByteBuffer, byte, CompressionType, TimestampType) builder} variants.
  */
-public class MemoryLogBuffer extends AbstractLogBuffer {
+public class MemoryRecords extends AbstractRecords {
 
-    public final static MemoryLogBuffer EMPTY = MemoryLogBuffer.readableRecords(ByteBuffer.allocate(0));
+    public final static MemoryRecords EMPTY = MemoryRecords.readableRecords(ByteBuffer.allocate(0));
 
     // the underlying buffer used for read; while the records are still writable it is null
     private ByteBuffer buffer;
 
     // Construct a writable memory records
-    private MemoryLogBuffer(ByteBuffer buffer) {
+    private MemoryRecords(ByteBuffer buffer) {
         this.buffer = buffer;
     }
 
@@ -138,12 +138,12 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
                 bytesRetained += shallowEntry.size();
             } else if (!retainedEntries.isEmpty()) {
                 ByteBuffer slice = buffer.slice();
-                MemoryLogBufferBuilder builder = builderWithEntries(slice, shallowRecord.timestampType(), shallowRecord.compressionType(),
+                MemoryRecordsBuilder builder = builderWithEntries(slice, shallowRecord.timestampType(), shallowRecord.compressionType(),
                         shallowRecord.timestamp(), retainedEntries);
-                MemoryLogBuffer logBuffer = builder.build();
+                MemoryRecords records = builder.build();
                 buffer.position(buffer.position() + slice.position());
                 messagesRetained += retainedEntries.size();
-                bytesRetained += logBuffer.sizeInBytes();
+                bytesRetained += records.sizeInBytes();
             }
         }
 
@@ -159,7 +159,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
 
     @Override
     public Iterator<ByteBufferLogEntry> shallowIterator() {
-        return LogBufferIterator.shallowIterator(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
+        return RecordsIterator.shallowIterator(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
     }
 
     @Override
@@ -172,7 +172,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
     }
 
     public Iterator<LogEntry> deepEntries(boolean ensureMatchingMagic, int maxMessageSize) {
-        return new LogBufferIterator(new ByteBufferLogInputStream(buffer.duplicate(), maxMessageSize), false,
+        return new RecordsIterator(new ByteBufferLogInputStream(buffer.duplicate(), maxMessageSize), false,
                 ensureMatchingMagic, maxMessageSize);
     }
 
@@ -202,7 +202,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
-        MemoryLogBuffer that = (MemoryLogBuffer) o;
+        MemoryRecords that = (MemoryRecords) o;
 
         return buffer.equals(that.buffer);
     }
@@ -250,78 +250,78 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         }
     }
 
-    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                                 CompressionType compressionType,
-                                                 TimestampType timestampType,
-                                                 int writeLimit) {
-        return new MemoryLogBufferBuilder(buffer, Record.CURRENT_MAGIC_VALUE, compressionType, timestampType, 0L, System.currentTimeMillis(), writeLimit);
+    public static MemoryRecordsBuilder builder(ByteBuffer buffer,
+                                               CompressionType compressionType,
+                                               TimestampType timestampType,
+                                               int writeLimit) {
+        return new MemoryRecordsBuilder(buffer, Record.CURRENT_MAGIC_VALUE, compressionType, timestampType, 0L, System.currentTimeMillis(), writeLimit);
     }
 
-    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                                 byte magic,
-                                                 CompressionType compressionType,
-                                                 TimestampType timestampType,
-                                                 long baseOffset,
-                                                 long logAppendTime) {
-        return new MemoryLogBufferBuilder(buffer, magic, compressionType, timestampType, baseOffset, logAppendTime, buffer.capacity());
+    public static MemoryRecordsBuilder builder(ByteBuffer buffer,
+                                               byte magic,
+                                               CompressionType compressionType,
+                                               TimestampType timestampType,
+                                               long baseOffset,
+                                               long logAppendTime) {
+        return new MemoryRecordsBuilder(buffer, magic, compressionType, timestampType, baseOffset, logAppendTime, buffer.capacity());
     }
 
-    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                                 CompressionType compressionType,
-                                                 TimestampType timestampType) {
+    public static MemoryRecordsBuilder builder(ByteBuffer buffer,
+                                               CompressionType compressionType,
+                                               TimestampType timestampType) {
         // use the buffer capacity as the default write limit
         return builder(buffer, compressionType, timestampType, buffer.capacity());
     }
 
-    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                                 byte magic,
-                                                 CompressionType compressionType,
-                                                 TimestampType timestampType) {
+    public static MemoryRecordsBuilder builder(ByteBuffer buffer,
+                                               byte magic,
+                                               CompressionType compressionType,
+                                               TimestampType timestampType) {
         return builder(buffer, magic, compressionType, timestampType, 0L);
     }
 
-    public static MemoryLogBufferBuilder builder(ByteBuffer buffer,
-                                                 byte magic,
-                                                 CompressionType compressionType,
-                                                 TimestampType timestampType,
-                                                 long baseOffset) {
+    public static MemoryRecordsBuilder builder(ByteBuffer buffer,
+                                               byte magic,
+                                               CompressionType compressionType,
+                                               TimestampType timestampType,
+                                               long baseOffset) {
         return builder(buffer, magic, compressionType, timestampType, baseOffset, System.currentTimeMillis());
     }
 
-    public static MemoryLogBuffer readableRecords(ByteBuffer buffer) {
-        return new MemoryLogBuffer(buffer);
+    public static MemoryRecords readableRecords(ByteBuffer buffer) {
+        return new MemoryRecords(buffer);
     }
 
-    public static MemoryLogBuffer withLogEntries(CompressionType compressionType, List<LogEntry> entries) {
+    public static MemoryRecords withLogEntries(CompressionType compressionType, List<LogEntry> entries) {
         return withLogEntries(TimestampType.CREATE_TIME, compressionType, System.currentTimeMillis(), entries);
     }
 
-    public static MemoryLogBuffer withLogEntries(LogEntry ... entries) {
+    public static MemoryRecords withLogEntries(LogEntry ... entries) {
         return withLogEntries(CompressionType.NONE, Arrays.asList(entries));
     }
 
-    public static MemoryLogBuffer withRecords(CompressionType compressionType, long initialOffset, List<Record> records) {
+    public static MemoryRecords withRecords(CompressionType compressionType, long initialOffset, List<Record> records) {
         return withLogEntries(compressionType, buildLogEntries(initialOffset, records));
     }
 
-    public static MemoryLogBuffer withRecords(Record ... records) {
+    public static MemoryRecords withRecords(Record ... records) {
         return withRecords(CompressionType.NONE, 0L, Arrays.asList(records));
     }
 
-    public static MemoryLogBuffer withRecords(long initialOffset, Record ... records) {
+    public static MemoryRecords withRecords(long initialOffset, Record ... records) {
         return withRecords(CompressionType.NONE, initialOffset, Arrays.asList(records));
     }
 
-    public static MemoryLogBuffer withRecords(CompressionType compressionType, Record ... records) {
+    public static MemoryRecords withRecords(CompressionType compressionType, Record ... records) {
         return withRecords(compressionType, 0L, Arrays.asList(records));
     }
 
-    private static MemoryLogBuffer withLogEntries(TimestampType timestampType,
-                                                  CompressionType compressionType,
-                                                  long logAppendTime,
-                                                  List<LogEntry> entries) {
+    private static MemoryRecords withLogEntries(TimestampType timestampType,
+                                                CompressionType compressionType,
+                                                long logAppendTime,
+                                                List<LogEntry> entries) {
         if (entries.isEmpty())
-            return MemoryLogBuffer.EMPTY;
+            return MemoryRecords.EMPTY;
         return builderWithEntries(timestampType, compressionType, logAppendTime, entries).build();
     }
 
@@ -332,19 +332,19 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         return entries;
     }
 
-    public static MemoryLogBufferBuilder builderWithEntries(TimestampType timestampType,
-                                                            CompressionType compressionType,
-                                                            long logAppendTime,
-                                                            List<LogEntry> entries) {
+    public static MemoryRecordsBuilder builderWithEntries(TimestampType timestampType,
+                                                          CompressionType compressionType,
+                                                          long logAppendTime,
+                                                          List<LogEntry> entries) {
         ByteBuffer buffer = ByteBuffer.allocate(estimatedSize(compressionType, entries));
         return builderWithEntries(buffer, timestampType, compressionType, logAppendTime, entries);
     }
 
-    private static MemoryLogBufferBuilder builderWithEntries(ByteBuffer buffer,
-                                                             TimestampType timestampType,
-                                                             CompressionType compressionType,
-                                                             long logAppendTime,
-                                                             List<LogEntry> entries) {
+    private static MemoryRecordsBuilder builderWithEntries(ByteBuffer buffer,
+                                                           TimestampType timestampType,
+                                                           CompressionType compressionType,
+                                                           long logAppendTime,
+                                                           List<LogEntry> entries) {
         if (entries.isEmpty())
             throw new IllegalArgumentException();
 
@@ -352,7 +352,7 @@ public class MemoryLogBuffer extends AbstractLogBuffer {
         long firstOffset = firstEntry.offset();
         byte magic = firstEntry.record().magic();
 
-        MemoryLogBufferBuilder builder = MemoryLogBuffer.builder(buffer, magic, compressionType, timestampType,
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, magic, compressionType, timestampType,
                 firstOffset, logAppendTime);
         for (LogEntry entry : entries)
             builder.append(entry);

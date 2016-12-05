@@ -151,7 +151,7 @@ class DelayedFetch(delayMs: Long,
     )
 
     val fetchPartitionData = logReadResults.map { case (tp, result) =>
-      tp -> FetchPartitionData(result.errorCode, result.hw, result.info.logBuffer)
+      tp -> FetchPartitionData(result.errorCode, result.hw, result.info.records)
     }
 
     responseCallback(fetchPartitionData)

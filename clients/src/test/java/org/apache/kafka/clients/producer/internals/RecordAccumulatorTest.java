@@ -22,7 +22,7 @@ import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.record.Record;
-import org.apache.kafka.common.record.LogBuffer;
+import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.junit.After;
@@ -62,7 +62,7 @@ public class RecordAccumulatorTest {
     private MockTime time = new MockTime();
     private byte[] key = "key".getBytes();
     private byte[] value = "value".getBytes();
-    private int msgSize = LogBuffer.LOG_OVERHEAD + Record.recordSize(key, value);
+    private int msgSize = Records.LOG_OVERHEAD + Record.recordSize(key, value);
     private Cluster cluster = new Cluster(null, Arrays.asList(node1, node2), Arrays.asList(part1, part2, part3),
             Collections.<String>emptySet(), Collections.<String>emptySet());
     private Metrics metrics = new Metrics(time);
@@ -101,7 +101,7 @@ public class RecordAccumulatorTest {
         assertEquals(1, batches.size());
         RecordBatch batch = batches.get(0);
 
-        Iterator<LogEntry> iter = batch.logBuffer().deepIterator();
+        Iterator<LogEntry> iter = batch.records().deepIterator();
         for (int i = 0; i < appends; i++) {
             LogEntry entry = iter.next();
             assertEquals("Keys should match", ByteBuffer.wrap(key), entry.record().key());
@@ -130,7 +130,7 @@ public class RecordAccumulatorTest {
         assertEquals(1, batches.size());
         RecordBatch batch = batches.get(0);
 
-        Iterator<LogEntry> iter = batch.logBuffer().deepIterator();
+        Iterator<LogEntry> iter = batch.records().deepIterator();
         LogEntry entry = iter.next();
         assertEquals("Keys should match", ByteBuffer.wrap(key), entry.record().key());
         assertEquals("Values should match", ByteBuffer.wrap(value), entry.record().value());
@@ -182,7 +182,7 @@ public class RecordAccumulatorTest {
             List<RecordBatch> batches = accum.drain(cluster, nodes, 5 * 1024, 0).get(node1.id());
             if (batches != null) {
                 for (RecordBatch batch : batches) {
-                    Iterator<LogEntry> deepEntries = batch.logBuffer().deepIterator();
+                    Iterator<LogEntry> deepEntries = batch.records().deepIterator();
                     while (deepEntries.hasNext()) {
                         deepEntries.next();
                         read++;

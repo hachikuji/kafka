@@ -22,7 +22,7 @@ import java.nio.channels.GatheringByteChannel
 
 import org.junit.Assert._
 import kafka.utils.TestUtils._
-import org.apache.kafka.common.record.FileLogBuffer
+import org.apache.kafka.common.record.FileRecords
 import org.scalatest.junit.JUnitSuite
 import org.junit.Test
 
@@ -101,7 +101,7 @@ trait BaseMessageSetTestCases extends JUnitSuite {
     var remaining = messageSetSize
     var iterations = 0
     while (remaining > 0) {
-      remaining -= messageSet.asLogBuffer.writeTo(channel, messageSetSize - remaining, remaining).toInt
+      remaining -= messageSet.asRecords.writeTo(channel, messageSetSize - remaining, remaining).toInt
       iterations += 1
     }
 
@@ -110,21 +110,21 @@ trait BaseMessageSetTestCases extends JUnitSuite {
   }
 
   def checkWriteToWithMessageSet(messageSet: MessageSet) {
-    checkWriteWithMessageSet(messageSet, messageSet.asLogBuffer.writeTo(_, 0, messageSet.sizeInBytes))
+    checkWriteWithMessageSet(messageSet, messageSet.asRecords.writeTo(_, 0, messageSet.sizeInBytes))
   }
 
   def checkWriteWithMessageSet(set: MessageSet, write: GatheringByteChannel => Long) {
     // do the write twice to ensure the message set is restored to its original state
     for (_ <- 0 to 1) {
       val file = tempFile()
-      val logBuffer = FileLogBuffer.open(file, true)
+      val fileRecords = FileRecords.open(file, true)
       try {
-        val written = write(logBuffer.channel)
-        logBuffer.resize() // resize since we wrote to the channel directly
+        val written = write(fileRecords.channel)
+        fileRecords.resize() // resize since we wrote to the channel directly
 
         assertEquals("Expect to write the number of bytes in the set.", set.sizeInBytes, written)
-        checkEquals(set.asLogBuffer.deepIterator, logBuffer.deepIterator())
-      } finally logBuffer.close()
+        checkEquals(set.asRecords.deepIterator, fileRecords.deepIterator())
+      } finally fileRecords.close()
     }
   }
   

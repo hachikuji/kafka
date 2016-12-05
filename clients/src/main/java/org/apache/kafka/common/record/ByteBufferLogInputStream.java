@@ -22,7 +22,7 @@ import org.apache.kafka.common.utils.Utils;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import static org.apache.kafka.common.record.LogBuffer.LOG_OVERHEAD;
+import static org.apache.kafka.common.record.Records.LOG_OVERHEAD;
 
 /**
  * A byte buffer backed log input stream. This class avoids the need to copy records by returning
@@ -39,16 +39,16 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
 
     public ByteBufferLogEntry nextEntry() throws IOException {
         int remaining = buffer.remaining();
-        if (LogBuffer.LOG_OVERHEAD > remaining)
+        if (Records.LOG_OVERHEAD > remaining)
             return null;
 
-        int size = buffer.getInt(buffer.position() + LogBuffer.SIZE_OFFSET);
+        int size = buffer.getInt(buffer.position() + Records.SIZE_OFFSET);
         if (size < Record.RECORD_OVERHEAD_V0)
             throw new CorruptRecordException(String.format("Record size is less than the minimum record overhead (%d)", Record.RECORD_OVERHEAD_V0));
         if (size > maxMessageSize)
             throw new CorruptRecordException(String.format("Record size exceeds the largest allowable message size (%d).", maxMessageSize));
 
-        if (size + LogBuffer.LOG_OVERHEAD > remaining)
+        if (size + Records.LOG_OVERHEAD > remaining)
             return null;
 
         ByteBufferLogEntry slice = new ByteBufferLogEntry(buffer);
@@ -61,7 +61,7 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
 
         public ByteBufferLogEntry(ByteBuffer buffer) {
             ByteBuffer dup = buffer.duplicate();
-            int size = dup.getInt(dup.position() + LogBuffer.SIZE_OFFSET);
+            int size = dup.getInt(dup.position() + Records.SIZE_OFFSET);
             dup.limit(dup.position() + LOG_OVERHEAD + size);
             this.buffer = dup.slice();
         }
@@ -79,7 +79,7 @@ class ByteBufferLogInputStream implements LogInputStream<ByteBufferLogInputStrea
         }
 
         public void setOffset(long offset) {
-            buffer.putLong(LogBuffer.OFFSET_OFFSET, offset);
+            buffer.putLong(Records.OFFSET_OFFSET, offset);
         }
 
         public void setCreateTime(long timestamp) {

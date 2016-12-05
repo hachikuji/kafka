@@ -22,9 +22,9 @@ import java.util.Iterator;
 
 /**
  * A log buffer is a sequence of log entries. Each log entry consists of a 4 byte size, an 8 byte offset,
- * and the record bytes. See {@link MemoryLogBuffer} for the in-memory representation.
+ * and the record bytes. See {@link MemoryRecords} for the in-memory representation.
  */
-public interface LogBuffer {
+public interface Records {
 
     int OFFSET_OFFSET = 0;
     int OFFSET_LENGTH = 8;
@@ -71,8 +71,8 @@ public interface LogBuffer {
     /**
      * Convert all entries in this buffer to a certain magic value.
      * @param toMagic The magic value to convert to
-     * @return A LogBuffer (which may or may not be the same instance)
+     * @return A Records (which may or may not be the same instance)
      */
-    LogBuffer toMessageFormat(byte toMagic);
+    Records toMessageFormat(byte toMagic);
 
 }

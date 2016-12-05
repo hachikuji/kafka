@@ -18,9 +18,9 @@ package org.apache.kafka.common.protocol.types;
 
 import java.nio.ByteBuffer;
 
-import org.apache.kafka.common.record.FileLogBuffer;
-import org.apache.kafka.common.record.LogBuffer;
-import org.apache.kafka.common.record.MemoryLogBuffer;
+import org.apache.kafka.common.record.FileRecords;
+import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.utils.Utils;
 
 /**
@@ -427,7 +427,7 @@ public abstract class Type {
         }
     };
 
-    public static final Type LOG_BUFFER = new Type() {
+    public static final Type RECORDS = new Type() {
         @Override
         public boolean isNullable() {
             return true;
@@ -435,16 +435,16 @@ public abstract class Type {
 
         @Override
         public void write(ByteBuffer buffer, Object o) {
-            if (o instanceof FileLogBuffer)
+            if (o instanceof FileRecords)
                 throw new IllegalArgumentException("FileRecords must be written to the channel directly");
-            MemoryLogBuffer records = (MemoryLogBuffer) o;
+            MemoryRecords records = (MemoryRecords) o;
             NULLABLE_BYTES.write(buffer, records.buffer().duplicate());
         }
 
         @Override
         public Object read(ByteBuffer buffer) {
             ByteBuffer recordsBuffer = (ByteBuffer) NULLABLE_BYTES.read(buffer);
-            return MemoryLogBuffer.readableRecords(recordsBuffer);
+            return MemoryRecords.readableRecords(recordsBuffer);
         }
 
         @Override
@@ -452,24 +452,24 @@ public abstract class Type {
             if (o == null)
                 return 4;
 
-            LogBuffer records = (LogBuffer) o;
+            Records records = (Records) o;
             return 4 + records.sizeInBytes();
         }
 
         @Override
         public String toString() {
-            return "LOG_BUFFER";
+            return "RECORDS";
         }
 
         @Override
-        public LogBuffer validate(Object item) {
+        public Records validate(Object item) {
             if (item == null)
                 return null;
 
-            if (item instanceof LogBuffer)
-                return (LogBuffer) item;
+            if (item instanceof Records)
+                return (Records) item;
 
-            throw new SchemaException(item + " is not an instance of " + LogBuffer.class.getName());
+            throw new SchemaException(item + " is not an instance of " + Records.class.getName());
         }
     };
 

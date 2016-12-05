@@ -34,7 +34,7 @@ import org.apache.kafka.common.errors.{ControllerMovedException, CorruptRecordEx
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.record.{InvalidRecordException, LogBuffer, MemoryLogBuffer, Record}
+import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.{LeaderAndIsrRequest, PartitionState, StopReplicaRequest, UpdateMetadataRequest}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.utils.Time
@@ -79,11 +79,11 @@ case class LogReadResult(info: FetchDataInfo,
   }
 }
 
-case class FetchPartitionData(error: Short = Errors.NONE.code, hw: Long = -1L, logBuffer: LogBuffer)
+case class FetchPartitionData(error: Short = Errors.NONE.code, hw: Long = -1L, records: Records)
 
 object LogReadResult {
   val UnknownLogReadResult = LogReadResult(FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata,
-                                                         MemoryLogBuffer.EMPTY),
+                                                         MemoryRecords.EMPTY),
                                            -1L,
                                            -1,
                                            false)
@@ -320,7 +320,7 @@ class ReplicaManager(val config: KafkaConfig,
   def appendLogEntries(timeout: Long,
                        requiredAcks: Short,
                        internalTopicsAllowed: Boolean,
-                       entriesPerPartition: Map[TopicPartition, MemoryLogBuffer],
+                       entriesPerPartition: Map[TopicPartition, MemoryRecords],
                        responseCallback: Map[TopicPartition, PartitionResponse] => Unit) {
 
     if (isValidRequiredAcks(requiredAcks)) {
@@ -370,7 +370,7 @@ class ReplicaManager(val config: KafkaConfig,
   // 2. there is data to append
   // 3. at least one partition append was successful (fewer errors than partitions)
   private def delayedRequestRequired(requiredAcks: Short,
-                                     entriesPerPartition: Map[TopicPartition, MemoryLogBuffer],
+                                     entriesPerPartition: Map[TopicPartition, MemoryRecords],
                                      localProduceResults: Map[TopicPartition, LogAppendResult]): Boolean = {
     requiredAcks == -1 &&
     entriesPerPartition.nonEmpty &&
@@ -385,7 +385,7 @@ class ReplicaManager(val config: KafkaConfig,
    * Append the messages to the local replica logs
    */
   private def appendToLocalLog(internalTopicsAllowed: Boolean,
-                               entriesPerPartition: Map[TopicPartition, MemoryLogBuffer],
+                               entriesPerPartition: Map[TopicPartition, MemoryRecords],
                                requiredAcks: Short): Map[TopicPartition, LogAppendResult] = {
     trace("Append [%s] to local log ".format(entriesPerPartition))
     entriesPerPartition.map { case (topicPartition, records) =>
@@ -481,7 +481,7 @@ class ReplicaManager(val config: KafkaConfig,
 
     // check if this fetch request can be satisfied right away
     val logReadResultValues = logReadResults.map { case (_, v) => v }
-    val bytesReadable = logReadResultValues.map(_.info.logBuffer.sizeInBytes).sum
+    val bytesReadable = logReadResultValues.map(_.info.records.sizeInBytes).sum
     val errorReadingData = logReadResultValues.foldLeft(false) ((errorIncurred, readResult) =>
       errorIncurred || (readResult.errorCode != Errors.NONE.code))
 
@@ -491,7 +491,7 @@ class ReplicaManager(val config: KafkaConfig,
     //                        4) some error happens while reading data
     if (timeout <= 0 || fetchInfos.isEmpty || bytesReadable >= fetchMinBytes || errorReadingData) {
       val fetchPartitionData = logReadResults.map { case (tp, result) =>
-        tp -> FetchPartitionData(result.errorCode, result.hw, result.info.logBuffer)
+        tp -> FetchPartitionData(result.errorCode, result.hw, result.info.records)
       }
       responseCallback(fetchPartitionData)
     } else {
@@ -569,16 +569,16 @@ class ReplicaManager(val config: KafkaConfig,
 
             // If the partition is being throttled, simply return an empty set.
             if (shouldLeaderThrottle(quota, TopicAndPartition(tp.topic, tp.partition), replicaId))
-              FetchDataInfo(fetch.fetchOffsetMetadata, MemoryLogBuffer.EMPTY)
+              FetchDataInfo(fetch.fetchOffsetMetadata, MemoryRecords.EMPTY)
             // For FetchRequest version 3, we replace incomplete message sets with an empty one as consumers can make
             // progress in such cases and don't need to report a `RecordTooLargeException`
-            else if (!hardMaxBytesLimit && fetch.firstMessageSetIncomplete)
-              FetchDataInfo(fetch.fetchOffsetMetadata, MemoryLogBuffer.EMPTY)
+            else if (!hardMaxBytesLimit && fetch.firstEntryIncomplete)
+              FetchDataInfo(fetch.fetchOffsetMetadata, MemoryRecords.EMPTY)
             else fetch
 
           case None =>
             error(s"Leader for partition $tp does not have a local log")
-            FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryLogBuffer.EMPTY)
+            FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY)
         }
 
         val readToEndOfLog = initialLogEndOffset.messageOffset - logReadInfo.fetchOffsetMetadata.messageOffset <= 0
@@ -591,13 +591,13 @@ class ReplicaManager(val config: KafkaConfig,
                  _: NotLeaderForPartitionException |
                  _: ReplicaNotAvailableException |
                  _: OffsetOutOfRangeException) =>
-          LogReadResult(FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryLogBuffer.EMPTY), -1L,
+          LogReadResult(FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY), -1L,
             partitionFetchSize, false, Some(e))
         case e: Throwable =>
           BrokerTopicStats.getBrokerTopicStats(topic).failedFetchRequestRate.mark()
           BrokerTopicStats.getBrokerAllTopicsStats().failedFetchRequestRate.mark()
           error(s"Error processing fetch operation on partition $tp, offset $offset", e)
-          LogReadResult(FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryLogBuffer.EMPTY), -1L,
+          LogReadResult(FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY), -1L,
             partitionFetchSize, false, Some(e))
       }
     }
@@ -607,7 +607,7 @@ class ReplicaManager(val config: KafkaConfig,
     var minOneMessage = !hardMaxBytesLimit
     readPartitionInfo.foreach { case (tp, fetchInfo) =>
       val readResult = read(tp, fetchInfo, limitBytes, minOneMessage)
-      val messageSetSize = readResult.info.logBuffer.sizeInBytes
+      val messageSetSize = readResult.info.records.sizeInBytes
       // Once we read from a non-empty partition, we stop ignoring request and partition level size limits
       if (messageSetSize > 0)
         minOneMessage = false

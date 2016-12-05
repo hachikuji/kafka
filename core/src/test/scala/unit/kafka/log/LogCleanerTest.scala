@@ -253,7 +253,7 @@ class LogCleanerTest extends JUnitSuite {
     val log = makeLog(config = LogConfig.fromProps(logConfig.originals, logProps))
 
     // create 6 segments with only one message in each segment
-    val messageSet = TestUtils.singletonLogBuffer(value = Array.fill[Byte](50)(0), key = 1.toString.getBytes)
+    val messageSet = TestUtils.singletonRecords(value = Array.fill[Byte](50)(0), key = 1.toString.getBytes)
     for (_ <- 0 until 6)
       log.append(messageSet, assignOffsets = true)
 
@@ -271,7 +271,7 @@ class LogCleanerTest extends JUnitSuite {
     val log = makeLog(config = LogConfig.fromProps(logConfig.originals, logProps))
 
     // create 6 segments with only one message in each segment
-    val messageSet = TestUtils.singletonLogBuffer(value = Array.fill[Byte](50)(0), key = 1.toString.getBytes)
+    val messageSet = TestUtils.singletonRecords(value = Array.fill[Byte](50)(0), key = 1.toString.getBytes)
     for (_ <- 0 until 6)
       log.append(messageSet, assignOffsets = true)
 
@@ -375,7 +375,7 @@ class LogCleanerTest extends JUnitSuite {
     // append some messages to the log
     var i = 0
     while(log.numberOfSegments < 10) {
-      log.append(TestUtils.singletonLogBuffer(value = "hello".getBytes, key = "hello".getBytes))
+      log.append(TestUtils.singletonRecords(value = "hello".getBytes, key = "hello".getBytes))
       i += 1
     }
 
@@ -428,12 +428,12 @@ class LogCleanerTest extends JUnitSuite {
 
     // fill up first segment
     while (log.numberOfSegments == 1)
-      log.append(TestUtils.singletonLogBuffer(value = "hello".getBytes, key = "hello".getBytes))
+      log.append(TestUtils.singletonRecords(value = "hello".getBytes, key = "hello".getBytes))
 
     // forward offset and append message to next segment at offset Int.MaxValue
-    val records = MemoryLogBuffer.withLogEntries(LogEntry.create(Int.MaxValue - 1, Record.create("hello".getBytes, "hello".getBytes)))
+    val records = MemoryRecords.withLogEntries(LogEntry.create(Int.MaxValue - 1, Record.create("hello".getBytes, "hello".getBytes)))
     log.append(records, assignOffsets = false)
-    log.append(TestUtils.singletonLogBuffer(value = "hello".getBytes, key = "hello".getBytes))
+    log.append(TestUtils.singletonRecords(value = "hello".getBytes, key = "hello".getBytes))
     assertEquals(Int.MaxValue, log.activeSegment.index.lastOffset)
 
     // grouping should result in a single group with maximum relative offset of Int.MaxValue
@@ -441,7 +441,7 @@ class LogCleanerTest extends JUnitSuite {
     assertEquals(1, groups.size)
 
     // append another message, making last offset of second segment > Int.MaxValue
-    log.append(TestUtils.singletonLogBuffer(value = "hello".getBytes, key = "hello".getBytes))
+    log.append(TestUtils.singletonRecords(value = "hello".getBytes, key = "hello".getBytes))
 
     // grouping should not group the two segments to ensure that maximum relative offset in each group <= Int.MaxValue
     groups = cleaner.groupSegmentsBySize(log.logSegments, maxSize = Int.MaxValue, maxIndexSize = Int.MaxValue)
@@ -450,7 +450,7 @@ class LogCleanerTest extends JUnitSuite {
 
     // append more messages, creating new segments, further grouping should still occur
     while (log.numberOfSegments < 4)
-      log.append(TestUtils.singletonLogBuffer(value = "hello".getBytes, key = "hello".getBytes))
+      log.append(TestUtils.singletonRecords(value = "hello".getBytes, key = "hello".getBytes))
 
     groups = cleaner.groupSegmentsBySize(log.logSegments, maxSize = Int.MaxValue, maxIndexSize = Int.MaxValue)
     assertEquals(log.numberOfSegments - 1, groups.size)
@@ -699,7 +699,7 @@ class LogCleanerTest extends JUnitSuite {
     val set = keys zip (offset until offset + keys.size)
 
     val corruptedMessage = invalidCleanedMessage(offset, set)
-    val records = MemoryLogBuffer.readableRecords(corruptedMessage.buffer)
+    val records = MemoryRecords.readableRecords(corruptedMessage.buffer)
 
     for (logEntry <- records.deepIterator.asScala) {
       val offset = logEntry.offset
@@ -715,7 +715,7 @@ class LogCleanerTest extends JUnitSuite {
 
   private def invalidCleanedMessage(initialOffset: Long,
                                     keysAndValues: Iterable[(Int, Int)],
-                                    codec: CompressionType = CompressionType.GZIP): MemoryLogBuffer = {
+                                    codec: CompressionType = CompressionType.GZIP): MemoryRecords = {
     // this function replicates the old versions of the cleaner which under some circumstances
     // would write invalid compressed message sets with the outer magic set to 1 and the inner
     // magic set to 0
@@ -726,7 +726,7 @@ class LogCleanerTest extends JUnitSuite {
         kv._2.toString.getBytes))
 
     val buffer = ByteBuffer.allocate(math.min(math.max(records.map(_.size()).sum / 2, 1024), 1 << 16))
-    val builder = MemoryLogBuffer.builder(buffer, Record.MAGIC_VALUE_V1, codec, TimestampType.CREATE_TIME)
+    val builder = MemoryRecords.builder(buffer, Record.MAGIC_VALUE_V1, codec, TimestampType.CREATE_TIME)
 
     var offset = initialOffset
     records.foreach { record =>
@@ -738,7 +738,7 @@ class LogCleanerTest extends JUnitSuite {
   }
 
   private def messageWithOffset(key: Int, value: Int, offset: Long) =
-    MemoryLogBuffer.withLogEntries(LogEntry.create(offset, Record.create(key.toString.getBytes, value.toString.getBytes)))
+    MemoryRecords.withLogEntries(LogEntry.create(offset, Record.create(key.toString.getBytes, value.toString.getBytes)))
 
   def makeLog(dir: File = dir, config: LogConfig = logConfig) =
     new Log(dir = dir, config = config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
@@ -762,14 +762,14 @@ class LogCleanerTest extends JUnitSuite {
 
   def key(id: Int) = ByteBuffer.wrap(id.toString.getBytes)
 
-  def record(key: Int, value: Int): MemoryLogBuffer =
+  def record(key: Int, value: Int): MemoryRecords =
     record(key, value.toString.getBytes)
 
   def record(key: Int, value: Array[Byte]) =
-    MemoryLogBuffer.withRecords(Record.create(key.toString.getBytes, value))
+    MemoryRecords.withRecords(Record.create(key.toString.getBytes, value))
 
   def unkeyedRecord(value: Int) =
-    MemoryLogBuffer.withRecords(Record.create(value.toString.getBytes))
+    MemoryRecords.withRecords(Record.create(value.toString.getBytes))
 
   def tombstoneRecord(key: Int) = record(key, null)
 

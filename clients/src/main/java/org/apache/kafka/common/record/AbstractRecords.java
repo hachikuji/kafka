@@ -22,7 +22,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-public abstract class AbstractLogBuffer implements LogBuffer {
+public abstract class AbstractRecords implements Records {
 
     @Override
     public boolean hasMatchingShallowMagic(byte magic) {
@@ -37,7 +37,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
      * Convert this message set to use the specified message format.
      */
     @Override
-    public LogBuffer toMessageFormat(byte toMagic) {
+    public Records toMessageFormat(byte toMagic) {
         List<LogEntry> converted = new ArrayList<>();
         Iterator<LogEntry> deepIterator = deepIterator();
         while (deepIterator.hasNext()) {
@@ -61,7 +61,7 @@ public abstract class AbstractLogBuffer implements LogBuffer {
             // we are essentially merging multiple message sets. However, currently this method is only
             // used for down-conversion, so we've ignored the problem.
             CompressionType compressionType = shallowIterator().next().record().compressionType();
-            return MemoryLogBuffer.withLogEntries(compressionType, converted);
+            return MemoryRecords.withLogEntries(compressionType, converted);
         }
     }
 

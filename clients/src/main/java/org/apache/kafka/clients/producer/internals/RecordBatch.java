@@ -16,8 +16,8 @@ import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.TimeoutException;
-import org.apache.kafka.common.record.MemoryLogBuffer;
-import org.apache.kafka.common.record.MemoryLogBufferBuilder;
+import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.MemoryRecordsBuilder;
 import org.apache.kafka.common.record.Record;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,12 +47,12 @@ public final class RecordBatch {
     private final List<Thunk> thunks;
     private long offsetCounter = 0L;
     private boolean retry;
-    private final MemoryLogBufferBuilder logBufferBuilder;
+    private final MemoryRecordsBuilder recordsBuilder;
 
-    public RecordBatch(TopicPartition tp, MemoryLogBufferBuilder logBufferBuilder, long now) {
+    public RecordBatch(TopicPartition tp, MemoryRecordsBuilder recordsBuilder, long now) {
         this.createdMs = now;
         this.lastAttemptMs = now;
-        this.logBufferBuilder = logBufferBuilder;
+        this.recordsBuilder = recordsBuilder;
         this.topicPartition = tp;
         this.produceFuture = new ProduceRequestResult();
         this.thunks = new ArrayList<>();
@@ -69,7 +69,7 @@ public final class RecordBatch {
         if (!hasRoomFor(key, value)) {
             return null;
         } else {
-            long checksum = this.logBufferBuilder.append(offsetCounter++, timestamp, key, value);
+            long checksum = this.recordsBuilder.append(offsetCounter++, timestamp, key, value);
             this.maxRecordSize = Math.max(this.maxRecordSize, Record.recordSize(key, value));
             this.lastAppendTime = now;
             FutureRecordMetadata future = new FutureRecordMetadata(this.produceFuture, this.recordCount,
@@ -179,36 +179,36 @@ public final class RecordBatch {
         this.retry = true;
     }
 
-    public MemoryLogBuffer logBuffer() {
-        return logBufferBuilder.build();
+    public MemoryRecords records() {
+        return recordsBuilder.build();
     }
 
     public int sizeInBytes() {
-        return logBufferBuilder.sizeInBytes();
+        return recordsBuilder.sizeInBytes();
     }
 
     public double compressionRate() {
-        return logBufferBuilder.compressionRate();
+        return recordsBuilder.compressionRate();
     }
 
     public boolean isFull() {
-        return logBufferBuilder.isFull();
+        return recordsBuilder.isFull();
     }
 
     public void close() {
-        logBufferBuilder.close();
+        recordsBuilder.close();
     }
 
     public ByteBuffer initialBuffer() {
-        return logBufferBuilder.initialBuffer();
+        return recordsBuilder.initialBuffer();
     }
 
     public boolean isWritable() {
-        return !logBufferBuilder.isClosed();
+        return !recordsBuilder.isClosed();
     }
 
     private boolean hasRoomFor(byte[] key, byte[] value) {
-        return logBufferBuilder.hasRoomFor(key, value);
+        return recordsBuilder.hasRoomFor(key, value);
     }
 
 }

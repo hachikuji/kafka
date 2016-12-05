@@ -22,7 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Iterator;
 
-import static org.apache.kafka.common.record.LogBuffer.LOG_OVERHEAD;
+import static org.apache.kafka.common.record.Records.LOG_OVERHEAD;
 
 /**
  * An offset and record pair
@@ -62,7 +62,7 @@ public abstract class LogEntry implements Iterable<LogEntry> {
     @Override
     public Iterator<LogEntry> iterator() {
         if (isCompressed())
-            return new LogBufferIterator.DeepRecordsIterator(this, false, Integer.MAX_VALUE);
+            return new RecordsIterator.DeepRecordsIterator(this, false, Integer.MAX_VALUE);
         return Collections.singletonList(this).iterator();
     }
 

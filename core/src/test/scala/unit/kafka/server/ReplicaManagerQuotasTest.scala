@@ -25,7 +25,7 @@ import kafka.log.Log
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.record.{MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{MemoryRecords, Record}
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.easymock.EasyMock
 import EasyMock._
@@ -64,10 +64,10 @@ class ReplicaManagerQuotasTest {
       readPartitionInfo = fetchInfo,
       quota = quota)
     assertEquals("Given two partitions, with only one throttled, we should get the first", 1,
-      fetch.find(_._1 == topicAndPartition1).get._2.info.logBuffer.shallowIterator.asScala.size)
+      fetch.find(_._1 == topicAndPartition1).get._2.info.records.shallowIterator.asScala.size)
 
     assertEquals("But we shouldn't get the second", 0,
-      fetch.find(_._1 == topicAndPartition2).get._2.info.logBuffer.shallowIterator.asScala.size)
+      fetch.find(_._1 == topicAndPartition2).get._2.info.records.shallowIterator.asScala.size)
   }
 
   @Test
@@ -89,9 +89,9 @@ class ReplicaManagerQuotasTest {
       readPartitionInfo = fetchInfo,
       quota = quota)
     assertEquals("Given two partitions, with both throttled, we should get no messages", 0,
-      fetch.find(_._1 == topicAndPartition1).get._2.info.logBuffer.shallowIterator.asScala.size)
+      fetch.find(_._1 == topicAndPartition1).get._2.info.records.shallowIterator.asScala.size)
     assertEquals("Given two partitions, with both throttled, we should get no messages", 0,
-      fetch.find(_._1 == topicAndPartition2).get._2.info.logBuffer.shallowIterator.asScala.size)
+      fetch.find(_._1 == topicAndPartition2).get._2.info.records.shallowIterator.asScala.size)
   }
 
   @Test
@@ -113,9 +113,9 @@ class ReplicaManagerQuotasTest {
       readPartitionInfo = fetchInfo,
       quota = quota)
     assertEquals("Given two partitions, with both non-throttled, we should get both messages", 1,
-      fetch.find(_._1 == topicAndPartition1).get._2.info.logBuffer.shallowIterator.asScala.size)
+      fetch.find(_._1 == topicAndPartition1).get._2.info.records.shallowIterator.asScala.size)
     assertEquals("Given two partitions, with both non-throttled, we should get both messages", 1,
-      fetch.find(_._1 == topicAndPartition2).get._2.info.logBuffer.shallowIterator.asScala.size)
+      fetch.find(_._1 == topicAndPartition2).get._2.info.records.shallowIterator.asScala.size)
   }
 
   @Test
@@ -137,10 +137,10 @@ class ReplicaManagerQuotasTest {
       readPartitionInfo = fetchInfo,
       quota = quota)
     assertEquals("Given two partitions, with only one throttled, we should get the first", 1,
-      fetch.find(_._1 == topicAndPartition1).get._2.info.logBuffer.shallowIterator.asScala.size)
+      fetch.find(_._1 == topicAndPartition1).get._2.info.records.shallowIterator.asScala.size)
 
     assertEquals("But we should get the second too since it's throttled but in sync", 1,
-      fetch.find(_._1 == topicAndPartition2).get._2.info.logBuffer.shallowIterator.asScala.size)
+      fetch.find(_._1 == topicAndPartition2).get._2.info.records.shallowIterator.asScala.size)
   }
 
   def setUpMocks(fetchInfo: Seq[(TopicPartition, PartitionData)], record: Record = this.record, bothReplicasInSync: Boolean = false) {
@@ -156,14 +156,14 @@ class ReplicaManagerQuotasTest {
     expect(log.read(anyObject(), geq(1), anyObject(), anyObject())).andReturn(
       FetchDataInfo(
         new LogOffsetMetadata(0L, 0L, 0),
-        MemoryLogBuffer.withRecords(record)
+        MemoryRecords.withRecords(record)
       )).anyTimes()
 
     //if we ask for len = 0, return 0 messages
     expect(log.read(anyObject(), EasyMock.eq(0), anyObject(), anyObject())).andReturn(
       FetchDataInfo(
         new LogOffsetMetadata(0L, 0L, 0),
-        MemoryLogBuffer.EMPTY
+        MemoryRecords.EMPTY
       )).anyTimes()
     replay(log)
 

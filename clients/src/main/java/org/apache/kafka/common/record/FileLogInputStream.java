@@ -32,7 +32,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
     protected final FileChannel channel;
     private final int maxRecordSize;
     private final boolean eagerLoadRecords;
-    private final ByteBuffer logHeaderBuffer = ByteBuffer.allocate(LogBuffer.LOG_OVERHEAD);
+    private final ByteBuffer logHeaderBuffer = ByteBuffer.allocate(Records.LOG_OVERHEAD);
 
     /**
      * Create a new log input stream over the FileChannel
@@ -52,7 +52,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
 
     @Override
     public FileChannelLogEntry nextEntry() throws IOException {
-        if (position + LogBuffer.LOG_OVERHEAD >= end)
+        if (position + Records.LOG_OVERHEAD >= end)
             return null;
 
         logHeaderBuffer.rewind();
@@ -70,7 +70,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
         if (size > maxRecordSize)
             throw new CorruptRecordException(String.format("Record size exceeds the largest allowable message size (%d).", maxRecordSize));
 
-        if (position + LogBuffer.LOG_OVERHEAD + size > end)
+        if (position + Records.LOG_OVERHEAD + size > end)
             return null;
 
         FileChannelLogEntry logEntry = new FileChannelLogEntry(offset, channel, position, size);
@@ -84,7 +84,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
     /**
      * Log entry backed by an underlying FileChannel. This allows iteration over the shallow log
      * entries without needing to read the record data into memory until it is needed. See
-     * {@link FileLogBuffer#hasMatchingShallowMagic(byte)} for example usage.
+     * {@link FileRecords#hasMatchingShallowMagic(byte)} for example usage.
      */
     public static class FileChannelLogEntry extends LogEntry {
         private final long offset;
@@ -119,7 +119,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
             try {
                 byte[] magic = new byte[1];
                 ByteBuffer buf = ByteBuffer.wrap(magic);
-                channel.read(buf, position + LogBuffer.LOG_OVERHEAD + Record.MAGIC_OFFSET);
+                channel.read(buf, position + Records.LOG_OVERHEAD + Record.MAGIC_OFFSET);
                 if (buf.hasRemaining())
                     throw new KafkaException("Failed to read magic byte from FileChannel " + channel);
                 return magic[0];
@@ -133,7 +133,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
                 return record;
 
             ByteBuffer recordBuffer = ByteBuffer.allocate(recordSize);
-            channel.read(recordBuffer, position + LogBuffer.LOG_OVERHEAD);
+            channel.read(recordBuffer, position + Records.LOG_OVERHEAD);
             if (recordBuffer.hasRemaining())
                 throw new IOException("Failed to read full record from channel " + channel);
 
@@ -156,7 +156,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
 
         @Override
         public int size() {
-            return LogBuffer.LOG_OVERHEAD + recordSize;
+            return Records.LOG_OVERHEAD + recordSize;
         }
 
     }

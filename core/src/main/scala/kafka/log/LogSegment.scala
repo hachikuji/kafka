@@ -24,8 +24,8 @@ import kafka.metrics.{KafkaMetricsGroup, KafkaTimer}
 import kafka.server.{FetchDataInfo, LogOffsetMetadata}
 import kafka.utils._
 import org.apache.kafka.common.errors.CorruptRecordException
-import org.apache.kafka.common.record.FileLogBuffer.LogEntryPosition
-import org.apache.kafka.common.record.{FileLogBuffer, MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.FileRecords.LogEntryPosition
+import org.apache.kafka.common.record._
 import org.apache.kafka.common.utils.Time
 
 import scala.collection.JavaConverters._
@@ -47,7 +47,7 @@ import scala.math._
  * @param time The time instance
  */
 @nonthreadsafe
-class LogSegment(val log: FileLogBuffer,
+class LogSegment(val log: FileRecords,
                  val index: OffsetIndex,
                  val timeIndex: TimeIndex,
                  val baseOffset: Long,
@@ -68,7 +68,7 @@ class LogSegment(val log: FileLogBuffer,
   @volatile private var offsetOfMaxTimestamp = timeIndex.lastEntry.offset
 
   def this(dir: File, startOffset: Long, indexIntervalBytes: Int, maxIndexSize: Int, rollJitterMs: Long, time: Time, fileAlreadyExists: Boolean = false, initFileSize: Int = 0, preallocate: Boolean = false) =
-    this(FileLogBuffer.open(Log.logFilename(dir, startOffset), fileAlreadyExists, initFileSize, preallocate),
+    this(FileRecords.open(Log.logFilename(dir, startOffset), fileAlreadyExists, initFileSize, preallocate),
          new OffsetIndex(Log.indexFilename(dir, startOffset), baseOffset = startOffset, maxIndexSize = maxIndexSize),
          new TimeIndex(Log.timeIndexFilename(dir, startOffset), baseOffset = startOffset, maxIndexSize = maxIndexSize),
          startOffset,
@@ -91,7 +91,7 @@ class LogSegment(val log: FileLogBuffer,
    * @param entries The log entries to append.
    */
   @nonthreadsafe
-  def append(firstOffset: Long, largestTimestamp: Long, offsetOfLargestTimestamp: Long, entries: MemoryLogBuffer) {
+  def append(firstOffset: Long, largestTimestamp: Long, offsetOfLargestTimestamp: Long, entries: MemoryRecords) {
     if (entries.sizeInBytes > 0) {
       trace("Inserting %d bytes at offset %d at position %d with largest timestamp %d at offset %d"
           .format(entries.sizeInBytes, firstOffset, log.sizeInBytes(), largestTimestamp, offsetOfLargestTimestamp))
@@ -168,7 +168,7 @@ class LogSegment(val log: FileLogBuffer,
 
     // return a log segment but with zero size in the case below
     if (adjustedMaxSize == 0)
-      return FetchDataInfo(offsetMetadata, MemoryLogBuffer.EMPTY)
+      return FetchDataInfo(offsetMetadata, MemoryRecords.EMPTY)
 
     // calculate the length of the message set to read based on whether or not they gave us a maxOffset
     val length = maxOffset match {
@@ -181,7 +181,7 @@ class LogSegment(val log: FileLogBuffer,
         // true high watermark in the previous leader for a short window. In this window, if a consumer fetches on an
         // offset between new leader's high watermark and the log end offset, we want to return an empty response.
         if (offset < startOffset)
-          return FetchDataInfo(offsetMetadata, MemoryLogBuffer.EMPTY, firstMessageSetIncomplete = false)
+          return FetchDataInfo(offsetMetadata, MemoryRecords.EMPTY, firstEntryIncomplete = false)
         val mapping = translateOffset(offset, startPosition)
         val endPosition =
           if (mapping == null)
@@ -192,7 +192,7 @@ class LogSegment(val log: FileLogBuffer,
     }
 
     FetchDataInfo(offsetMetadata, log.read(startPosition, length),
-      firstMessageSetIncomplete = adjustedMaxSize < startOffsetAndSize.size)
+      firstEntryIncomplete = adjustedMaxSize < startOffsetAndSize.size)
   }
 
   /**
@@ -303,7 +303,7 @@ class LogSegment(val log: FileLogBuffer,
     if (ms == null) {
       baseOffset
     } else {
-      ms.logBuffer.shallowIterator.asScala.toSeq.lastOption match {
+      ms.records.shallowIterator.asScala.toSeq.lastOption match {
         case None => baseOffset
         case Some(last) => last.nextOffset
       }

@@ -272,13 +272,13 @@ object TestUtils extends Logging {
   /**
    * Wrap a single record log buffer.
    */
-  def singletonLogBuffer(value: Array[Byte],
-                         key: Array[Byte] = null,
-                         codec: CompressionType = CompressionType.NONE,
-                         timestamp: Long = Record.NO_TIMESTAMP,
-                         magicValue: Byte = Record.CURRENT_MAGIC_VALUE) = {
+  def singletonRecords(value: Array[Byte],
+                       key: Array[Byte] = null,
+                       codec: CompressionType = CompressionType.NONE,
+                       timestamp: Long = Record.NO_TIMESTAMP,
+                       magicValue: Byte = Record.CURRENT_MAGIC_VALUE) = {
     val record = Record.create(magicValue, timestamp, key, value)
-    MemoryLogBuffer.withRecords(codec, record)
+    MemoryRecords.withRecords(codec, record)
   }
 
   /**

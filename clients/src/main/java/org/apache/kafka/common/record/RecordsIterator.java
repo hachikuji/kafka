@@ -31,17 +31,17 @@ import java.util.Iterator;
 /**
  * An iterator which handles both the shallow and deep iteration of a log buffer.
  */
-public class LogBufferIterator extends AbstractIterator<LogEntry> {
+public class RecordsIterator extends AbstractIterator<LogEntry> {
     private final boolean shallow;
     private final boolean ensureMatchingMagic;
     private final int maxMessageSize;
     private final ShallowRecordsIterator<?> shallowIter;
     private DeepRecordsIterator innerIter;
 
-    public LogBufferIterator(LogInputStream<?> logInputStream,
-                             boolean shallow,
-                             boolean ensureMatchingMagic,
-                             int maxMessageSize) {
+    public RecordsIterator(LogInputStream<?> logInputStream,
+                           boolean shallow,
+                           boolean ensureMatchingMagic,
+                           int maxMessageSize) {
         this.shallowIter = new ShallowRecordsIterator<>(logInputStream);
         this.shallow = shallow;
         this.ensureMatchingMagic = ensureMatchingMagic;
@@ -149,7 +149,7 @@ public class LogBufferIterator extends AbstractIterator<LogEntry> {
 
             CompressionType compressionType = wrapperRecord.compressionType();
             ByteBuffer buffer = wrapperRecord.value();
-            DataInputStream stream = MemoryLogBufferBuilder.wrapForInput(new ByteBufferInputStream(buffer), compressionType, wrapperRecord.magic());
+            DataInputStream stream = MemoryRecordsBuilder.wrapForInput(new ByteBufferInputStream(buffer), compressionType, wrapperRecord.magic());
             LogInputStream logStream = new DataLogInputStream(stream, maxMessageSize);
 
             long wrapperRecordOffset = wrapperEntry.offset();

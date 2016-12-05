@@ -22,7 +22,7 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.SecurityProtocol;
 import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.record.MemoryLogBuffer;
+import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.Record;
 import org.junit.Test;
 
@@ -186,7 +186,7 @@ public class RequestResponseTest {
     public void fetchResponseVersionTest() {
         Map<TopicPartition, FetchResponse.PartitionData> responseData = new HashMap<>();
 
-        MemoryLogBuffer records = MemoryLogBuffer.readableRecords(ByteBuffer.allocate(10));
+        MemoryRecords records = MemoryRecords.readableRecords(ByteBuffer.allocate(10));
         responseData.put(new TopicPartition("test", 0), new FetchResponse.PartitionData(Errors.NONE.code(), 1000000, records));
 
         FetchResponse v0Response = new FetchResponse(responseData);
@@ -280,7 +280,7 @@ public class RequestResponseTest {
 
     private FetchResponse createFetchResponse() {
         Map<TopicPartition, FetchResponse.PartitionData> responseData = new HashMap<>();
-        MemoryLogBuffer records = MemoryLogBuffer.readableRecords(ByteBuffer.allocate(10));
+        MemoryRecords records = MemoryRecords.readableRecords(ByteBuffer.allocate(10));
         responseData.put(new TopicPartition("test", 0), new FetchResponse.PartitionData(Errors.NONE.code(), 1000000, records));
         return new FetchResponse(responseData, 25);
     }
@@ -425,8 +425,8 @@ public class RequestResponseTest {
     }
 
     private ProduceRequest createProduceRequest() {
-        Map<TopicPartition, MemoryLogBuffer> produceData = new HashMap<>();
-        produceData.put(new TopicPartition("test", 0), MemoryLogBuffer.readableRecords(ByteBuffer.allocate(10)));
+        Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
+        produceData.put(new TopicPartition("test", 0), MemoryRecords.readableRecords(ByteBuffer.allocate(10)));
         return new ProduceRequest((short) 1, 5000, produceData);
     }
 

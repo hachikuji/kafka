@@ -31,7 +31,7 @@ import static org.apache.kafka.common.protocol.types.Type.BYTES;
 import static org.apache.kafka.common.protocol.types.Type.INT16;
 import static org.apache.kafka.common.protocol.types.Type.INT32;
 import static org.apache.kafka.common.protocol.types.Type.INT64;
-import static org.apache.kafka.common.protocol.types.Type.LOG_BUFFER;
+import static org.apache.kafka.common.protocol.types.Type.RECORDS;
 import static org.apache.kafka.common.protocol.types.Type.STRING;
 import static org.apache.kafka.common.protocol.types.Type.NULLABLE_STRING;
 
@@ -136,7 +136,7 @@ public class Protocol {
 
     public static final Schema TOPIC_PRODUCE_DATA_V0 = new Schema(new Field("topic", STRING),
                                                                   new Field("data", new ArrayOf(new Schema(new Field("partition", INT32),
-                                                                                                     new Field("record_set", LOG_BUFFER)))));
+                                                                                                     new Field("record_set", RECORDS)))));
 
     public static final Schema PRODUCE_REQUEST_V0 = new Schema(new Field("acks",
                                                                    INT16,
@@ -509,7 +509,7 @@ public class Protocol {
                                                                                          INT64,
                                                                                          "Last committed offset."));
     public static final Schema FETCH_RESPONSE_PARTITION_V0 = new Schema(new Field("partition_header", FETCH_RESPONSE_PARTITION_HEADER_V0),
-                                                                        new Field("record_set", LOG_BUFFER));
+                                                                        new Field("record_set", RECORDS));
 
     public static final Schema FETCH_RESPONSE_TOPIC_V0 = new Schema(new Field("topic", STRING),
                                                                     new Field("partition_responses",

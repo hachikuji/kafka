@@ -41,7 +41,7 @@ object ByteBufferMessageSet {
       }
 
       val entries = messages.map(message => LogEntry.create(offsetAssigner.nextAbsoluteOffset(), message.asRecord))
-      val builder = MemoryLogBuffer.builderWithEntries(timestampType, CompressionType.forId(compressionCodec.codec),
+      val builder = MemoryRecords.builderWithEntries(timestampType, CompressionType.forId(compressionCodec.codec),
         magicAndTimestamp.timestamp, entries.asJava)
       builder.build().buffer
     }
@@ -156,10 +156,10 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
 
   def getBuffer = buffer
 
-  override def asLogBuffer: MemoryLogBuffer = MemoryLogBuffer.readableRecords(buffer.duplicate())
+  override def asRecords: MemoryRecords = MemoryRecords.readableRecords(buffer.duplicate())
 
   override def isMagicValueInAllWrapperMessages(expectedMagicValue: Byte): Boolean =
-    asLogBuffer.hasMatchingShallowMagic(expectedMagicValue)
+    asRecords.hasMatchingShallowMagic(expectedMagicValue)
 
   /** default iterator that iterates over decompressed messages */
   override def iterator: Iterator[MessageAndOffset] = internalIterator()
@@ -170,9 +170,9 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
   /** When flag isShallow is set to be true, we do a shallow iteration: just traverse the first level of messages. **/
   private def internalIterator(isShallow: Boolean = false): Iterator[MessageAndOffset] = {
     val entries = if (isShallow)
-      asLogBuffer.shallowIterator
+      asRecords.shallowIterator
     else
-      asLogBuffer.deepIterator
+      asRecords.deepIterator
     entries.asScala.map(MessageAndOffset.fromLogEntry)
   }
 
@@ -184,7 +184,7 @@ class ByteBufferMessageSet(val buffer: ByteBuffer) extends MessageSet with Loggi
   /**
    * The total number of bytes in this message set not including any partial, trailing messages
    */
-  def validBytes: Int = asLogBuffer.validBytes
+  def validBytes: Int = asRecords.validBytes
 
   /**
    * Two message sets are equal if their respective byte buffers are equal

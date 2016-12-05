@@ -26,9 +26,9 @@ import com.yammer.metrics.core.Gauge
 import kafka.common._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.utils._
-import org.apache.kafka.common.record.{FileLogBuffer, LogEntry, MemoryLogBuffer}
+import org.apache.kafka.common.record.{FileRecords, LogEntry, MemoryRecords}
 import org.apache.kafka.common.utils.Time
-import MemoryLogBuffer.LogEntryFilter
+import MemoryRecords.LogEntryFilter
 
 import scala.collection._
 import JavaConverters._
@@ -391,7 +391,7 @@ private[log] class Cleaner(val id: Int,
     val timeIndexFile = new File(segments.head.timeIndex.file.getPath + Log.CleanedFileSuffix)
     indexFile.delete()
     timeIndexFile.delete()
-    val records = FileLogBuffer.open(logFile, false, log.initFileSize(), log.config.preallocate)
+    val records = FileRecords.open(logFile, false, log.initFileSize(), log.config.preallocate)
     val index = new OffsetIndex(indexFile, segments.head.baseOffset, segments.head.index.maxIndexSize)
     val timeIndex = new TimeIndex(timeIndexFile, segments.head.baseOffset, segments.head.timeIndex.maxIndexSize)
     val cleaned = new LogSegment(records, index, timeIndex, segments.head.baseOffset, segments.head.indexIntervalBytes, log.config.randomSegmentJitter, time)
@@ -465,9 +465,9 @@ private[log] class Cleaner(val id: Int,
       writeBuffer.clear()
 
       source.log.readInto(readBuffer, position)
-      val logBuffer = MemoryLogBuffer.readableRecords(readBuffer)
-      throttler.maybeThrottle(logBuffer.sizeInBytes)
-      val result = logBuffer.filterTo(new LogCleanerFilter, writeBuffer)
+      val records = MemoryRecords.readableRecords(readBuffer)
+      throttler.maybeThrottle(records.sizeInBytes)
+      val result = records.filterTo(new LogCleanerFilter, writeBuffer)
       stats.readMessages(result.messagesRead, result.bytesRead)
       stats.recopyMessages(result.messagesRetained, result.bytesRetained)
 
@@ -477,7 +477,7 @@ private[log] class Cleaner(val id: Int,
       if (writeBuffer.position > 0) {
         writeBuffer.flip()
 
-        val retained = MemoryLogBuffer.readableRecords(writeBuffer)
+        val retained = MemoryRecords.readableRecords(writeBuffer)
         dest.append(firstOffset = retained.deepIterator().next().offset, largestTimestamp = result.maxTimestamp,
           offsetOfLargestTimestamp = result.offsetOfMaxTimestamp, entries = retained)
         throttler.maybeThrottle(writeBuffer.limit)
@@ -626,11 +626,11 @@ private[log] class Cleaner(val id: Int,
       checkDone(topicAndPartition)
       readBuffer.clear()
       segment.log.readInto(readBuffer, position)
-      val logBuffer = MemoryLogBuffer.readableRecords(readBuffer)
-      throttler.maybeThrottle(logBuffer.sizeInBytes)
+      val records = MemoryRecords.readableRecords(readBuffer)
+      throttler.maybeThrottle(records.sizeInBytes)
 
       val startPosition = position
-      for (entry <- logBuffer.deepIterator.asScala) {
+      for (entry <- records.deepIterator.asScala) {
         val message = entry.record
         if (message.hasKey && entry.offset >= start) {
           if (map.size < maxDesiredMapSize)
@@ -640,7 +640,7 @@ private[log] class Cleaner(val id: Int,
         }
         stats.indexMessagesRead(1)
       }
-      val bytesRead = logBuffer.validBytes
+      val bytesRead = records.validBytes
       position += bytesRead
       stats.indexBytesRead(bytesRead)
 

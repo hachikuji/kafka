@@ -26,10 +26,10 @@ import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.record.CompressionType;
-import org.apache.kafka.common.record.MemoryLogBuffer;
-import org.apache.kafka.common.record.MemoryLogBufferBuilder;
+import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.MemoryRecordsBuilder;
 import org.apache.kafka.common.record.Record;
-import org.apache.kafka.common.record.LogBuffer;
+import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.CopyOnWriteMap;
 import org.apache.kafka.common.utils.Time;
@@ -51,7 +51,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * This class acts as a queue that accumulates records into {@link MemoryLogBuffer}
+ * This class acts as a queue that accumulates records into {@link MemoryRecords}
  * instances to be sent to the server.
  * <p>
  * The accumulator uses a bounded amount of memory and append calls will block when that memory is exhausted, unless
@@ -79,7 +79,7 @@ public final class RecordAccumulator {
     /**
      * Create a new record accumulator
      * 
-     * @param batchSize The size to use when allocating {@link MemoryLogBuffer} instances
+     * @param batchSize The size to use when allocating {@link MemoryRecords} instances
      * @param totalSize The maximum memory the record accumulator can use.
      * @param compression The compression codec for the records
      * @param lingerMs An artificial delay time to add before declaring a records instance that isn't full ready for
@@ -178,7 +178,7 @@ public final class RecordAccumulator {
             }
 
             // we don't have an in-progress record batch try to allocate a new batch
-            int size = Math.max(this.batchSize, LogBuffer.LOG_OVERHEAD + Record.recordSize(key, value));
+            int size = Math.max(this.batchSize, Records.LOG_OVERHEAD + Record.recordSize(key, value));
             log.trace("Allocating a new {} byte message buffer for topic {} partition {}", size, tp.topic(), tp.partition());
             ByteBuffer buffer = free.allocate(size, maxTimeToBlock);
             synchronized (dq) {
@@ -192,8 +192,8 @@ public final class RecordAccumulator {
                     free.deallocate(buffer);
                     return appendResult;
                 }
-                MemoryLogBufferBuilder logBufferBuilder = MemoryLogBuffer.builder(buffer, compression, TimestampType.CREATE_TIME, this.batchSize);
-                RecordBatch batch = new RecordBatch(tp, logBufferBuilder, time.milliseconds());
+                MemoryRecordsBuilder recordsBuilder = MemoryRecords.builder(buffer, compression, TimestampType.CREATE_TIME, this.batchSize);
+                RecordBatch batch = new RecordBatch(tp, recordsBuilder, time.milliseconds());
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, callback, time.milliseconds()));
 
                 dq.addLast(batch);

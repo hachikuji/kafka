@@ -24,12 +24,12 @@ import kafka.utils.TestUtils
 import kafka.utils.TestUtils._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.protocol.{ApiKeys, Errors, ProtoUtils}
-import org.apache.kafka.common.record.{LogEntry, MemoryLogBuffer}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.record.LogEntry
 import org.apache.kafka.common.requests.{FetchRequest, FetchResponse}
 import org.apache.kafka.common.serialization.StringSerializer
-import org.junit.Test
 import org.junit.Assert._
+import org.junit.Test
 
 import scala.collection.JavaConverters._
 import scala.util.Random
@@ -129,7 +129,7 @@ class FetchRequestTest extends BaseRequestTest {
     val size3 = logEntries(partitionData3).map(_.size).sum
     assertTrue(s"Expected $size3 to be smaller than $maxResponseBytes", size3 <= maxResponseBytes)
     assertTrue(s"Expected $size3 to be larger than $maxPartitionBytes", size3 > maxPartitionBytes)
-    assertTrue(maxPartitionBytes < partitionData3.logBuffer.sizeInBytes)
+    assertTrue(maxPartitionBytes < partitionData3.records.sizeInBytes)
 
     // 4. Partition with message larger than the response limit at the start of the list
     val shuffledTopicPartitions4 = Seq(partitionWithLargeMessage2, partitionWithLargeMessage1) ++
@@ -146,7 +146,7 @@ class FetchRequestTest extends BaseRequestTest {
     assertTrue(partitionData4.highWatermark > 0)
     val size4 = logEntries(partitionData4).map(_.size).sum
     assertTrue(s"Expected $size4 to be larger than $maxResponseBytes", size4 > maxResponseBytes)
-    assertTrue(maxResponseBytes < partitionData4.logBuffer.sizeInBytes)
+    assertTrue(maxResponseBytes < partitionData4.records.sizeInBytes)
   }
 
   @Test
@@ -160,12 +160,12 @@ class FetchRequestTest extends BaseRequestTest {
     val partitionData = fetchResponse.responseData.get(topicPartition)
     assertEquals(Errors.NONE.code, partitionData.errorCode)
     assertTrue(partitionData.highWatermark > 0)
-    assertEquals(maxPartitionBytes, partitionData.logBuffer.sizeInBytes)
+    assertEquals(maxPartitionBytes, partitionData.records.sizeInBytes)
     assertEquals(0, logEntries(partitionData).map(_.size).sum)
   }
 
   private def logEntries(partitionData: FetchResponse.PartitionData): Seq[LogEntry] = {
-    partitionData.logBuffer.deepIterator.asScala.toIndexedSeq
+    partitionData.records.deepIterator.asScala.toIndexedSeq
   }
 
   private def checkFetchResponse(expectedPartitions: Seq[TopicPartition], fetchResponse: FetchResponse,
@@ -180,25 +180,25 @@ class FetchRequestTest extends BaseRequestTest {
       assertEquals(Errors.NONE.code, partitionData.errorCode)
       assertTrue(partitionData.highWatermark > 0)
 
-      val logBuffer = partitionData.logBuffer
-      responseBufferSize += logBuffer.sizeInBytes
+      val records = partitionData.records
+      responseBufferSize += records.sizeInBytes
 
-      val entries = logBuffer.shallowIterator.asScala.toIndexedSeq
+      val entries = records.shallowIterator.asScala.toIndexedSeq
       assertTrue(entries.size < numMessagesPerPartition)
       val entriesSize = entries.map(_.size).sum
       responseSize += entriesSize
       if (entriesSize == 0 && !emptyResponseSeen) {
-        assertEquals(0, logBuffer.sizeInBytes)
+        assertEquals(0, records.sizeInBytes)
         emptyResponseSeen = true
       }
       else if (entriesSize != 0 && !emptyResponseSeen) {
         assertTrue(entriesSize <= maxPartitionBytes)
-        assertEquals(maxPartitionBytes, logBuffer.sizeInBytes)
+        assertEquals(maxPartitionBytes, records.sizeInBytes)
       }
       else if (entriesSize != 0 && emptyResponseSeen)
         fail(s"Expected partition with size 0, but found $tp with size $entriesSize")
-      else if (logBuffer.sizeInBytes != 0 && emptyResponseSeen)
-        fail(s"Expected partition buffer with size 0, but found $tp with size ${logBuffer.sizeInBytes}")
+      else if (records.sizeInBytes != 0 && emptyResponseSeen)
+        fail(s"Expected partition buffer with size 0, but found $tp with size ${records.sizeInBytes}")
 
     }
 

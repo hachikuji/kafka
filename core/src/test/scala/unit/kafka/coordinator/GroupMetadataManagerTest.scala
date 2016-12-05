@@ -25,7 +25,7 @@ import kafka.server.{KafkaConfig, ReplicaManager}
 import kafka.utils.{KafkaScheduler, MockTime, TestUtils, ZkUtils}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.Errors
-import org.apache.kafka.common.record.{MemoryLogBuffer, Record}
+import org.apache.kafka.common.record.{MemoryRecords, Record}
 import org.apache.kafka.common.requests.OffsetFetchResponse
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.easymock.{Capture, EasyMock, IAnswer}
@@ -362,7 +362,7 @@ class GroupMetadataManagerTest {
     time.sleep(2)
 
     EasyMock.reset(partition)
-    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.anyObject(classOf[MemoryLogBuffer]), EasyMock.anyInt()))
+    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.anyObject(classOf[MemoryRecords]), EasyMock.anyInt()))
       .andReturn(LogAppendInfo.UnknownLogAppendInfo)
     EasyMock.replay(partition)
 
@@ -390,22 +390,22 @@ class GroupMetadataManagerTest {
 
     // expect the group metadata tombstone
     EasyMock.reset(partition)
-    val logBufferCapture: Capture[MemoryLogBuffer] = EasyMock.newCapture()
+    val recordsCapture: Capture[MemoryRecords] = EasyMock.newCapture()
 
     EasyMock.expect(replicaManager.getMessageFormatVersion(EasyMock.anyObject())).andStubReturn(Some(Record.MAGIC_VALUE_V1))
     EasyMock.expect(replicaManager.getPartition(Topic.GroupMetadataTopicName, groupPartitionId)).andStubReturn(Some(partition))
-    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.capture(logBufferCapture), EasyMock.anyInt()))
+    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.capture(recordsCapture), EasyMock.anyInt()))
       .andReturn(LogAppendInfo.UnknownLogAppendInfo)
     EasyMock.replay(replicaManager, partition)
 
     groupMetadataManager.cleanupGroupMetadata()
 
-    assertTrue(logBufferCapture.hasCaptured)
+    assertTrue(recordsCapture.hasCaptured)
 
-    val logBuffer = logBufferCapture.getValue.records.asScala.toList
-    assertEquals(1, logBuffer.size)
+    val records = recordsCapture.getValue.records.asScala.toList
+    assertEquals(1, records.size)
 
-    val metadataTombstone = logBuffer.head
+    val metadataTombstone = records.head
     assertTrue(metadataTombstone.hasKey)
     assertTrue(metadataTombstone.hasNullValue)
 
@@ -462,20 +462,20 @@ class GroupMetadataManagerTest {
 
     // expect the offset tombstone
     EasyMock.reset(partition)
-    val logBufferCapture: Capture[MemoryLogBuffer] = EasyMock.newCapture()
+    val recordsCapture: Capture[MemoryRecords] = EasyMock.newCapture()
 
-    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.capture(logBufferCapture), EasyMock.anyInt()))
+    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.capture(recordsCapture), EasyMock.anyInt()))
       .andReturn(LogAppendInfo.UnknownLogAppendInfo)
     EasyMock.replay(partition)
 
     groupMetadataManager.cleanupGroupMetadata()
 
-    assertTrue(logBufferCapture.hasCaptured)
+    assertTrue(recordsCapture.hasCaptured)
 
     // verify the tombstones are correct and only for the expired offsets
-    val logBuffer = logBufferCapture.getValue.records.asScala.toList
-    assertEquals(2, logBuffer.size)
-    logBuffer.foreach { message =>
+    val records = recordsCapture.getValue.records.asScala.toList
+    assertEquals(2, records.size)
+    records.foreach { message =>
       assertTrue(message.hasKey)
       assertTrue(message.hasNullValue)
       val offsetKey = GroupMetadataManager.readMessageKey(message.key).asInstanceOf[OffsetKey]
@@ -538,7 +538,7 @@ class GroupMetadataManagerTest {
 
     // expect the offset tombstone
     EasyMock.reset(partition)
-    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.anyObject(classOf[MemoryLogBuffer]), EasyMock.anyInt()))
+    EasyMock.expect(partition.appendEntriesToLeader(EasyMock.anyObject(classOf[MemoryRecords]), EasyMock.anyInt()))
       .andReturn(LogAppendInfo.UnknownLogAppendInfo)
     EasyMock.replay(partition)
 
@@ -559,7 +559,7 @@ class GroupMetadataManagerTest {
     EasyMock.expect(replicaManager.appendLogEntries(EasyMock.anyLong(),
       EasyMock.anyShort(),
       EasyMock.anyBoolean(),
-      EasyMock.anyObject().asInstanceOf[Map[TopicPartition, MemoryLogBuffer]],
+      EasyMock.anyObject().asInstanceOf[Map[TopicPartition, MemoryRecords]],
       EasyMock.capture(capturedArgument))).andAnswer(new IAnswer[Unit] {
       override def answer = capturedArgument.getValue.apply(
         Map(new TopicPartition(Topic.GroupMetadataTopicName, groupPartitionId) ->

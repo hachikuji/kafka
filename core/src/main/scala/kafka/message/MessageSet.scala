@@ -19,7 +19,7 @@ package kafka.message
 
 import java.nio._
 
-import org.apache.kafka.common.record.LogBuffer
+import org.apache.kafka.common.record.Records
 
 /**
  * Message set helper functions
@@ -89,7 +89,7 @@ abstract class MessageSet extends Iterable[MessageAndOffset] {
   /**
    * Get the client representation of the message set
    */
-  def asLogBuffer: LogBuffer
+  def asRecords: Records
 
   /**
    * Print this message set's contents. If the message set has more than 100 messages, just
@@ -98,7 +98,7 @@ abstract class MessageSet extends Iterable[MessageAndOffset] {
   override def toString: String = {
     val builder = new StringBuilder()
     builder.append(getClass.getSimpleName + "(")
-    val iter = this.asLogBuffer.shallowIterator()
+    val iter = this.asRecords.shallowIterator()
     var i = 0
     while(iter.hasNext && i < 100) {
       val message = iter.next
