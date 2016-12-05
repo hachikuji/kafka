@@ -50,7 +50,6 @@ class GroupMetadataManagerTest {
   val rebalanceTimeout = 60000
   val sessionTimeout = 10000
 
-
   @Before
   def setUp() {
     val config = KafkaConfig.fromProps(TestUtils.createBrokerConfig(nodeId = 0, zkConnect = ""))
@@ -403,10 +402,10 @@ class GroupMetadataManagerTest {
 
     assertTrue(logBufferCapture.hasCaptured)
 
-    val logBuffer = logBufferCapture.getValue.asScala
+    val logBuffer = logBufferCapture.getValue.records.asScala.toList
     assertEquals(1, logBuffer.size)
 
-    val metadataTombstone = logBuffer.head.record
+    val metadataTombstone = logBuffer.head
     assertTrue(metadataTombstone.hasKey)
     assertTrue(metadataTombstone.hasNullValue)
 
@@ -474,9 +473,9 @@ class GroupMetadataManagerTest {
     assertTrue(logBufferCapture.hasCaptured)
 
     // verify the tombstones are correct and only for the expired offsets
-    val logBuffer = logBufferCapture.getValue.asScala
+    val logBuffer = logBufferCapture.getValue.records.asScala.toList
     assertEquals(2, logBuffer.size)
-    logBuffer.map(_.record).foreach { message =>
+    logBuffer.foreach { message =>
       assertTrue(message.hasKey)
       assertTrue(message.hasNullValue)
       val offsetKey = GroupMetadataManager.readMessageKey(message.key).asInstanceOf[OffsetKey]
