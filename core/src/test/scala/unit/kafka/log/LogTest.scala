@@ -21,7 +21,7 @@ import java.io._
 import java.nio.ByteBuffer
 import java.util.Properties
 
-import org.apache.kafka.common.errors.{CorruptRecordException, OffsetOutOfRangeException, RecordBatchTooLargeException, RecordTooLargeException}
+import org.apache.kafka.common.errors._
 import kafka.api.ApiVersion
 import org.junit.Assert._
 import org.scalatest.junit.JUnitSuite
@@ -115,6 +115,57 @@ class LogTest extends JUnitSuite {
     time.sleep(log.config.segmentMs + 1)
     log.append(MemoryRecords.withLogEntries())
     assertEquals("Appending an empty message set should not roll log even if sufficient time has passed.", numSegments, log.numberOfSegments)
+  }
+
+  @Test(expected = classOf[InvalidSequenceNumberException])
+  def testNonSequentialAppend(): Unit = {
+    val logProps = new Properties()
+
+    // create a log
+    val log = new Log(logDir,
+      LogConfig(logProps),
+      recoveryPoint = 0L,
+      scheduler = time.scheduler,
+      time = time)
+
+    val pid = 1L
+    val epoch: Short = 0
+
+    val records = TestUtils.records(pid = pid, epoch = epoch, sequence = 0,
+      records = List(("key".getBytes, "value".getBytes, 1L)))
+
+    log.append(records, assignOffsets = true)
+
+    val nextRecords = TestUtils.records(pid = pid, epoch = epoch, sequence = 2,
+      records = List(("key".getBytes, "value".getBytes, 1L)))
+
+    log.append(nextRecords, assignOffsets = true)
+  }
+
+  @Test(expected = classOf[ProducerFencedException])
+  def testOldProducerEpoch(): Unit = {
+    val logProps = new Properties()
+
+    // create a log
+    val log = new Log(logDir,
+      LogConfig(logProps),
+      recoveryPoint = 0L,
+      scheduler = time.scheduler,
+      time = time)
+
+    val pid = 1L
+    val newEpoch: Short = 1
+    val oldEpoch: Short = 0
+
+    val records = TestUtils.records(pid = pid, epoch = newEpoch, sequence = 0,
+      records = List(("key".getBytes, "value".getBytes, 1L)))
+
+    log.append(records, assignOffsets = true)
+
+    val nextRecords = TestUtils.records(pid = pid, epoch = oldEpoch, sequence = 0,
+      records = List(("key".getBytes, "value".getBytes, 1L)))
+
+    log.append(nextRecords, assignOffsets = true)
   }
 
   /**

@@ -39,10 +39,12 @@ import org.apache.kafka.common.errors.InvalidReplicaAssignmentException;
 import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.InvalidRequiredAcksException;
+import org.apache.kafka.common.errors.InvalidSequenceNumberException;
 import org.apache.kafka.common.errors.InvalidSessionTimeoutException;
 import org.apache.kafka.common.errors.InvalidTimestampException;
 import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.LeaderNotAvailableException;
+import org.apache.kafka.common.errors.ProducerFencedException;
 import org.apache.kafka.common.errors.UnsupportedForMessageFormatException;
 import org.apache.kafka.common.errors.NetworkException;
 import org.apache.kafka.common.errors.NotControllerException;
@@ -164,7 +166,9 @@ public enum Errors {
         new InvalidRequestException("This most likely occurs because of a request being malformed by the client library or" +
             " the message was sent to an incompatible broker. See the broker logs for more details.")),
     UNSUPPORTED_FOR_MESSAGE_FORMAT(43,
-        new UnsupportedForMessageFormatException("The message format version on the broker does not support the request."));
+        new UnsupportedForMessageFormatException("The message format version on the broker does not support the request.")),
+    INVALID_SEQUENCE_NUMBER(44, new InvalidSequenceNumberException("The broker received an out of order sequence number")),
+    PRODUCER_FENCED(45, new ProducerFencedException("Producer attempted an operation with an old epoch"));
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 

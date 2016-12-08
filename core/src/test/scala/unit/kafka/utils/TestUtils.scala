@@ -49,6 +49,7 @@ import org.apache.kafka.clients.consumer.{KafkaConsumer, RangeAssignor}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.network.Mode
 import org.apache.kafka.common.record._
+import org.apache.kafka.common.requests.InitPIDResponse
 import org.apache.kafka.common.serialization.{ByteArraySerializer, Serializer}
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.test.{TestUtils => JTestUtils}
@@ -280,6 +281,7 @@ object TestUtils extends Logging {
     records(magicValue = magicValue, codec = codec, (key, value, timestamp))
   }
 
+
   def recordsWithValues(magicValue: Byte,
                         codec: CompressionType,
                         values: Array[Byte]*): MemoryRecords = {
@@ -291,12 +293,22 @@ object TestUtils extends Logging {
               records: (Array[Byte], Array[Byte], Long)*): MemoryRecords = {
     val buf = ByteBuffer.allocate(EosLogEntry.LOG_ENTRY_OVERHEAD + records.map(r => EosLogRecord.sizeOf(r._1, r._2)).sum)
     val builder = MemoryRecords.builder(buf, magicValue, codec, TimestampType.CREATE_TIME)
+    builder.build()
+  }
+
+  def records(magicValue: Byte = Record.CURRENT_MAGIC_VALUE,
+              codec: CompressionType = CompressionType.NONE,
+              pid: Long = InitPIDResponse.INVALID_PID,
+              epoch: Short = 0,
+              sequence: Int = 0,
+              records: Iterable[(Array[Byte], Array[Byte], Long)]): MemoryRecords = {
+    val buf = ByteBuffer.allocate(EosLogEntry.LOG_ENTRY_OVERHEAD + records.map(r => EosLogRecord.sizeOf(r._1, r._2)).sum)
+    val builder = MemoryRecords.builder(buf, magicValue, codec, TimestampType.CREATE_TIME, 0L, pid, epoch, sequence)
     records.foreach { case (key, value, timestamp) =>
       builder.append(0, timestamp, key, value)
     }
     builder.build()
   }
-
 
   /**
    * Generate an array of random bytes
