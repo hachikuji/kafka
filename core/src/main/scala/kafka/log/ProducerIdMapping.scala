@@ -15,14 +15,13 @@
   * limitations under the License.
   */
 
-package kafka.idempotence
+package kafka.log
 
 import java.io._
 import java.nio.ByteBuffer
 import java.nio.file.Files
 
 import kafka.common.{KafkaException, TopicAndPartition}
-import kafka.log.LogConfig
 import kafka.utils.{Logging, nonthreadsafe}
 import org.apache.kafka.common.errors.{InvalidSequenceNumberException, ProducerFencedException}
 import org.apache.kafka.common.protocol.types._

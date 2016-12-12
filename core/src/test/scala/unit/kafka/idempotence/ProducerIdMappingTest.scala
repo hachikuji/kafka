@@ -21,8 +21,7 @@ import java.io.File
 import java.util.Properties
 
 import kafka.common.TopicAndPartition
-import kafka.idempotence.ProducerIdMapping
-import kafka.log.LogConfig
+import kafka.log.{LogConfig, ProducerIdMapping}
 import kafka.utils.TestUtils
 import org.apache.kafka.common.errors.{InvalidSequenceNumberException, ProducerFencedException}
 import org.junit.Assert._

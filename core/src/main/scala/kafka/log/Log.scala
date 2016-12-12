@@ -24,7 +24,6 @@ import java.util.concurrent.{ConcurrentNavigableMap, ConcurrentSkipListMap}
 
 import kafka.api.KAFKA_0_10_0_IV0
 import kafka.common._
-import kafka.idempotence.ProducerIdMapping
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{BrokerTopicStats, FetchDataInfo, LogOffsetMetadata}
 import kafka.utils._
