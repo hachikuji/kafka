@@ -188,7 +188,7 @@ class ProducerIdMapping(val topicPartition: TopicAndPartition,
     }
   }
 
-  def truncateTo(logEndOffset: Long) = {
+  def truncateAndReload(logEndOffset: Long) = {
     truncateSnapshotFiles(logEndOffset)
     loadFromSnapshot(logEndOffset)
   }

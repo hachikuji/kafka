@@ -97,7 +97,7 @@ class ProducerIdMappingTest extends JUnitSuite {
 
     idMapping.maybeTakeSnapshot()
     val recoveredMapping = new ProducerIdMapping(partition, config, idMappingDir)
-    recoveredMapping.truncateTo(1L)
+    recoveredMapping.truncateAndReload(1L)
 
     // entry added after recovery
     checkAndUpdate(recoveredMapping, pid, 2, 0, 2L)
@@ -142,7 +142,7 @@ class ProducerIdMappingTest extends JUnitSuite {
 
     intercept[InvalidSequenceNumberException] {
       val recoveredMapping = new ProducerIdMapping(partition, config, idMappingDir)
-      recoveredMapping.truncateTo(1L)
+      recoveredMapping.truncateAndReload(1L)
       checkAndUpdate(recoveredMapping, pid2, 1, 0, 4L)
     }
   }

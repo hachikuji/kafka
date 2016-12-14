@@ -41,7 +41,7 @@ import scala.collection.Seq
 object LogAppendInfo {
   val UnknownLogAppendInfo = LogAppendInfo(-1, -1, Record.NO_TIMESTAMP, -1L, Record.NO_TIMESTAMP,
     NoCompressionCodec, NoCompressionCodec, -1, -1, offsetsMonotonic = false, pid = 0L, epoch = 0,
-    firstSequence = -1, lastSequence = -1, consecutiveSequenceNumbers = false)
+    firstSequence = -1, lastSequence = -1)
 }
 
 /**
@@ -71,8 +71,7 @@ case class LogAppendInfo(var firstOffset: Long,
                          pid: Long,
                          epoch: Short,
                          firstSequence: Int,
-                         lastSequence: Int,
-                         consecutiveSequenceNumbers: Boolean)
+                         lastSequence: Int)
 
 /**
  * An append-only log for storing messages.
@@ -337,7 +336,7 @@ class Log(@volatile var dir: File,
     */
   private def buildAndRecoverPidMap(lastOffset: Long) {
     lock synchronized {
-      pidMap.truncateTo(lastOffset)
+      pidMap.truncateAndReload(lastOffset)
       logSegments(pidMap.mapEndOffset, lastOffset).foreach { segment =>
         val startOffset = math.max(segment.baseOffset, pidMap.mapEndOffset)
         val logEntries = segment.read(startOffset, Some(lastOffset), Int.MaxValue).records
@@ -404,9 +403,6 @@ class Log(@volatile var dir: File,
     // if we have any valid messages, append them to the log
     if (appendInfo.shallowCount == 0)
       return appendInfo
-
-    if (appendInfo.pid > 0 && !appendInfo.consecutiveSequenceNumbers)
-      throw new IllegalArgumentException("Non-consecutive sequence numbers found in records")
 
     // trim any invalid bytes or partial messages before appending it to the on-disk log
     var validRecords = trimInvalidBytes(records, appendInfo)
@@ -524,7 +520,6 @@ class Log(@volatile var dir: File,
     var firstSequence = 0
     var lastSequence = -1
     var epoch: Short = 0
-    var consecutiveSequenceNumbers = true
     for (entry <- records.asScala) {
       // update the first offset if on the first message
       if (firstOffset < 0) {
@@ -539,7 +534,7 @@ class Log(@volatile var dir: File,
         monotonic = false
 
       if (lastSequence > 0 && lastSequence != entry.firstSequence() + 1)
-        consecutiveSequenceNumbers = false
+        throw new IllegalArgumentException("Non-consecutive sequence numbers found in records")
 
       // update the last offset seen
       lastOffset = entry.lastOffset
@@ -574,8 +569,7 @@ class Log(@volatile var dir: File,
     val targetCodec = BrokerCompressionCodec.getTargetCompressionCodec(config.compressionType, sourceCodec)
 
     LogAppendInfo(firstOffset, lastOffset, maxTimestamp, offsetOfMaxTimestamp, Record.NO_TIMESTAMP, sourceCodec,
-      targetCodec, shallowMessageCount, validBytesCount, monotonic, pid, epoch, firstSequence,
-      lastSequence, consecutiveSequenceNumbers)
+      targetCodec, shallowMessageCount, validBytesCount, monotonic, pid, epoch, firstSequence, lastSequence)
   }
 
   /**

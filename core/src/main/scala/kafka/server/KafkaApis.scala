@@ -1241,7 +1241,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (initPidRequest.appId != null)
       throw new UnsupportedOperationException
 
-    val pid = random.nextLong()
+    val pid = math.abs(random.nextLong())
     val epoch: Short = 0
     val responseBody = new InitPIDResponse(Errors.NONE, pid, epoch)
 
