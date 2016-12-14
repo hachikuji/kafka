@@ -23,7 +23,7 @@ import java.util.Properties
 import kafka.common.TopicAndPartition
 import kafka.log.{LogConfig, ProducerIdMapping}
 import kafka.utils.TestUtils
-import org.apache.kafka.common.errors.{InvalidSequenceNumberException, ProducerFencedException}
+import org.apache.kafka.common.errors.{DuplicateSequenceNumberException, InvalidSequenceNumberException, ProducerFencedException}
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
 import org.scalatest.junit.JUnitSuite
@@ -63,9 +63,14 @@ class ProducerIdMappingTest extends JUnitSuite {
     // Second entry for id 0 added
     checkAndUpdate(idMapping, pid, 1, 0, 0L)
 
-    // Incorrect sequence number for id 0
-    assertThrows[InvalidSequenceNumberException] {
+    // Duplicate sequence number (matches previous sequence number)
+    assertThrows[DuplicateSequenceNumberException] {
       checkAndUpdate(idMapping, pid, 1, 0, 0L)
+    }
+
+    // Invalid sequence number (greater than next expected sequence number)
+    assertThrows[InvalidSequenceNumberException] {
+      checkAndUpdate(idMapping, pid, 5, 0, 0L)
     }
 
     // Change epoch

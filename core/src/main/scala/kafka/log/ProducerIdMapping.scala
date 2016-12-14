@@ -23,7 +23,7 @@ import java.nio.file.Files
 
 import kafka.common.{KafkaException, TopicAndPartition}
 import kafka.utils.{Logging, nonthreadsafe}
-import org.apache.kafka.common.errors.{InvalidSequenceNumberException, ProducerFencedException}
+import org.apache.kafka.common.errors.{DuplicateSequenceNumberException, InvalidSequenceNumberException, ProducerFencedException}
 import org.apache.kafka.common.protocol.types._
 import org.apache.kafka.common.utils.Utils
 
@@ -229,8 +229,10 @@ class ProducerIdMapping(val topicPartition: TopicAndPartition,
             if (seq != 0)
               throw new InvalidSequenceNumberException(s"Invalid sequence number for new epoch: $epoch (request epoch), $seq (seq. number)")
           } else {
-            if (seq != tuple.seq + 1L)
+            if (seq > tuple.seq + 1L)
               throw new InvalidSequenceNumberException(s"Invalid sequence number: $pid (id), $seq (seq. number), ${tuple.seq} (expected seq. number)")
+            else if (seq <= tuple.seq)
+              throw new DuplicateSequenceNumberException(s"Duplicate sequence number: $pid (id), $seq (seq. number), ${tuple.seq} (expected seq. number)")
           }
       }
     }

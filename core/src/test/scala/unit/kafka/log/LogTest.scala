@@ -138,6 +138,27 @@ class LogTest extends JUnitSuite {
     log.append(nextRecords, assignOffsets = true)
   }
 
+  @Test(expected = classOf[DuplicateSequenceNumberException])
+  def testDuplicateAppend(): Unit = {
+    val logProps = new Properties()
+
+    // create a log
+    val log = new Log(logDir,
+      LogConfig(logProps),
+      recoveryPoint = 0L,
+      scheduler = time.scheduler,
+      time = time)
+
+    val pid = 1L
+    val epoch: Short = 0
+
+    val records = TestUtils.records(List(("key".getBytes, "value".getBytes, 1L)), pid = pid, epoch = epoch, sequence = 0)
+    log.append(records, assignOffsets = true)
+
+    val nextRecords = TestUtils.records(List(("key".getBytes, "value".getBytes, 1L)), pid = pid, epoch = epoch, sequence = 0)
+    log.append(nextRecords, assignOffsets = true)
+  }
+
   @Test(expected = classOf[ProducerFencedException])
   def testOldProducerEpoch(): Unit = {
     val logProps = new Properties()

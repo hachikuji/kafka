@@ -24,6 +24,7 @@ import org.apache.kafka.common.errors.BrokerNotAvailableException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.ControllerMovedException;
 import org.apache.kafka.common.errors.CorruptRecordException;
+import org.apache.kafka.common.errors.DuplicateSequenceNumberException;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.GroupCoordinatorNotAvailableException;
 import org.apache.kafka.common.errors.GroupLoadInProgressException;
@@ -168,12 +169,13 @@ public enum Errors {
     UNSUPPORTED_FOR_MESSAGE_FORMAT(43,
         new UnsupportedForMessageFormatException("The message format version on the broker does not support the request.")),
     INVALID_SEQUENCE_NUMBER(44, new InvalidSequenceNumberException("The broker received an out of order sequence number")),
-    PRODUCER_FENCED(45, new ProducerFencedException("Producer attempted an operation with an old epoch"));
+    DUPLICATE_SEQUENCE_NUMBER(45, new DuplicateSequenceNumberException("The broker received a duplicate sequence number")),
+    PRODUCER_FENCED(46, new ProducerFencedException("Producer attempted an operation with an old epoch"));
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 
-    private static Map<Class<?>, Errors> classToError = new HashMap<Class<?>, Errors>();
-    private static Map<Short, Errors> codeToError = new HashMap<Short, Errors>();
+    private static Map<Class<?>, Errors> classToError = new HashMap<>();
+    private static Map<Short, Errors> codeToError = new HashMap<>();
 
     static {
         for (Errors error : Errors.values()) {
