@@ -273,14 +273,13 @@ object TestUtils extends Logging {
   /**
    * Wrap a single record log buffer.
    */
-  def records(value: Array[Byte],
-              key: Array[Byte] = null,
-              codec: CompressionType = CompressionType.NONE,
-              timestamp: Long = Record.NO_TIMESTAMP,
-              magicValue: Byte = Record.CURRENT_MAGIC_VALUE): MemoryRecords = {
+  def singletonRecords(value: Array[Byte],
+                       key: Array[Byte] = null,
+                       codec: CompressionType = CompressionType.NONE,
+                       timestamp: Long = Record.NO_TIMESTAMP,
+                       magicValue: Byte = Record.CURRENT_MAGIC_VALUE): MemoryRecords = {
     records(magicValue = magicValue, codec = codec, (key, value, timestamp))
   }
-
 
   def recordsWithValues(magicValue: Byte,
                         codec: CompressionType,
@@ -291,17 +290,15 @@ object TestUtils extends Logging {
   def records(magicValue: Byte,
               codec: CompressionType,
               records: (Array[Byte], Array[Byte], Long)*): MemoryRecords = {
-    val buf = ByteBuffer.allocate(EosLogEntry.LOG_ENTRY_OVERHEAD + records.map(r => EosLogRecord.sizeOf(r._1, r._2)).sum)
-    val builder = MemoryRecords.builder(buf, magicValue, codec, TimestampType.CREATE_TIME)
-    builder.build()
+    this.records(records, magicValue = magicValue, codec = codec)
   }
 
-  def records(magicValue: Byte = Record.CURRENT_MAGIC_VALUE,
+  def records(records: Iterable[(Array[Byte], Array[Byte], Long)],
+              magicValue: Byte = Record.CURRENT_MAGIC_VALUE,
               codec: CompressionType = CompressionType.NONE,
               pid: Long = InitPIDResponse.INVALID_PID,
               epoch: Short = 0,
-              sequence: Int = 0,
-              records: Iterable[(Array[Byte], Array[Byte], Long)]): MemoryRecords = {
+              sequence: Int = 0): MemoryRecords = {
     val buf = ByteBuffer.allocate(EosLogEntry.LOG_ENTRY_OVERHEAD + records.map(r => EosLogRecord.sizeOf(r._1, r._2)).sum)
     val builder = MemoryRecords.builder(buf, magicValue, codec, TimestampType.CREATE_TIME, 0L, pid, epoch, sequence)
     records.foreach { case (key, value, timestamp) =>

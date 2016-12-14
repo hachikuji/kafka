@@ -29,8 +29,8 @@ import org.apache.kafka.common.utils.Utils
 
 import scala.collection.mutable
 
-private[idempotence] case class PidEntry(seq: Int, epoch: Short, offset: Long)
-private[idempotence] class CorruptSnapshotException(msg: String) extends KafkaException(msg)
+private[log] case class PidEntry(seq: Int, epoch: Short, offset: Long)
+private[log] class CorruptSnapshotException(msg: String) extends KafkaException(msg)
 
 object ProducerIdMapping {
   private val DirnamePrefix = "pid-mapping-"
