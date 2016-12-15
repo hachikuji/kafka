@@ -120,7 +120,7 @@ public class MemoryRecordsBuilderTest {
 
         assertEquals(2L, info.shallowOffsetOfMaxTimestamp);
 
-        for (LogEntry logEntry : records) {
+        for (LogEntry logEntry : records.entries()) {
             assertEquals(TimestampType.LOG_APPEND_TIME, logEntry.timestampType());
             for (LogRecord record : logEntry)
                 assertEquals(logAppendTime, record.timestamp());
@@ -146,7 +146,7 @@ public class MemoryRecordsBuilderTest {
 
         assertEquals(2L, info.shallowOffsetOfMaxTimestamp);
 
-        for (LogEntry logEntry : records) {
+        for (LogEntry logEntry : records.entries()) {
             assertEquals(TimestampType.LOG_APPEND_TIME, logEntry.timestampType());
             for (LogRecord record : logEntry)
                 assertEquals(logAppendTime, record.timestamp());
@@ -176,7 +176,7 @@ public class MemoryRecordsBuilderTest {
 
         int i = 0;
         long[] expectedTimestamps = new long[] {0L, 2L, 1L};
-        for (LogEntry logEntry : records) {
+        for (LogEntry logEntry : records.entries()) {
             assertEquals(TimestampType.CREATE_TIME, logEntry.timestampType());
             for (LogRecord record : logEntry)
                 assertEquals(expectedTimestamps[i++], record.timestamp());
@@ -203,7 +203,7 @@ public class MemoryRecordsBuilderTest {
         assertEquals(2L, info.shallowOffsetOfMaxTimestamp);
 
         long i = 0L;
-        for (LogEntry logEntry : records) {
+        for (LogEntry logEntry : records.entries()) {
             assertEquals(TimestampType.CREATE_TIME, logEntry.timestampType());
             for (LogRecord record : logEntry)
                 assertEquals(i++, record.timestamp());
@@ -228,7 +228,7 @@ public class MemoryRecordsBuilderTest {
         assertEquals(Record.NO_TIMESTAMP, info.maxTimestamp);
         assertEquals(0L, info.shallowOffsetOfMaxTimestamp);
 
-        for (LogEntry logEntry : records) {
+        for (LogEntry logEntry : records.entries()) {
             assertEquals(TimestampType.CREATE_TIME, logEntry.timestampType());
             for (LogRecord record : logEntry)
                 assertEquals(Record.NO_TIMESTAMP, record.timestamp());

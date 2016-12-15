@@ -128,7 +128,7 @@ private[kafka] object LogValidator extends Logging {
         validatedRecords.foreach(_.ensureValid)
 
         // we can update the wrapper message only and write the compressed payload as is
-        val entry = records.shallowIterator.next()
+        val entry = records.entries.iterator.next()
         val firstOffset = offsetCounter.value
         val lastOffset = offsetCounter.addAndGet(validatedRecords.size) - 1
 
@@ -160,7 +160,7 @@ private[kafka] object LogValidator extends Logging {
     val sizeInBytesAfterConversion = if (toMagicValue > 1)
       EosLogEntry.LOG_ENTRY_OVERHEAD + records.records.asScala.map(record => EosLogRecord.sizeOf(record.key, record.value)).sum
     else
-      records.shallowIterator.asScala.map { logEntry =>
+      records.entries.asScala.map { logEntry =>
       if (logEntry.magic > 1)
         logEntry.sizeInBytes() // FIXME: Can we get a better estimate?
       else
@@ -199,7 +199,7 @@ private[kafka] object LogValidator extends Logging {
     var offsetOfMaxTimestamp = -1L
     val initialOffset = offsetCounter.value
 
-    for (entry <- records.shallowIterator.asScala) {
+    for (entry <- records.entries.asScala) {
       val baseOffset = offsetCounter.value
       for (record <- entry.asScala) {
         record.ensureValid()
