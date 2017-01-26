@@ -18,6 +18,7 @@ package org.apache.kafka.common.record;
 
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.utils.AbstractIterator;
+import org.apache.kafka.common.utils.ByteBufferInputStream;
 import org.apache.kafka.common.utils.Utils;
 
 import java.io.DataInputStream;
@@ -33,7 +34,7 @@ import static org.apache.kafka.common.record.Records.LOG_OVERHEAD;
 import static org.apache.kafka.common.record.Record.COMPRESSION_CODEC_MASK;
 import static org.apache.kafka.common.record.Record.NO_TIMESTAMP;
 
-public class EosLogEntry extends LogEntry.ShallowLogEntry {
+public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLogEntry {
     static final int OFFSET_OFFSET = 0;
     static final int OFFSET_LENGTH = 8;
     static final int SIZE_OFFSET = OFFSET_OFFSET + OFFSET_LENGTH;
@@ -66,16 +67,6 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
     }
 
     @Override
-    public long offset() {
-        return lastOffset();
-    }
-
-    @Override
-    public Record record() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public byte magic() {
         return buffer.get(MAGIC_OFFSET);
     }
@@ -101,13 +92,13 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
     }
 
     @Override
-    public long firstOffset() {
+    public long baseOffset() {
         return buffer.getLong(OFFSET_OFFSET);
     }
 
     @Override
     public long lastOffset() {
-        return firstOffset() + Utils.readUnsignedInt(buffer, OFFSET_DELTA_OFFSET);
+        return baseOffset() + Utils.readUnsignedInt(buffer, OFFSET_DELTA_OFFSET);
     }
 
     @Override
@@ -159,7 +150,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
             Long logAppendTime = timestampType() == TimestampType.LOG_APPEND_TIME ? timestamp() : null;
             while (true) {
                 try {
-                    records.add(EosLogRecord.readFrom(stream, firstOffset(), firstSequence(), logAppendTime));
+                    records.add(EosLogRecord.readFrom(stream, baseOffset(), firstSequence(), logAppendTime));
                 } catch (EOFException e) {
                     break;
                 }
@@ -187,7 +178,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
                 buf.position(position);
 
                 Long logAppendTime = timestampType() == TimestampType.LOG_APPEND_TIME ? timestamp() : null;
-                EosLogRecord record = EosLogRecord.readFrom(buf, firstOffset(), firstSequence(), logAppendTime);
+                EosLogRecord record = EosLogRecord.readFrom(buf, baseOffset(), firstSequence(), logAppendTime);
                 if (record == null)
                     return allDone();
 
@@ -309,17 +300,18 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
                                            long pid,
                                            short epoch,
                                            int sequence) {
-        buffer.putLong(OFFSET_OFFSET, offset);
-        buffer.putInt(SIZE_OFFSET, size - LOG_OVERHEAD);
-        buffer.put(MAGIC_OFFSET, magic);
-        buffer.put(ATTRIBUTES_OFFSET, attributes);
-        buffer.putLong(TIMESTAMP_OFFSET, timestamp);
-        buffer.putInt(OFFSET_DELTA_OFFSET, offsetDelta);
-        buffer.putLong(PID_OFFSET, pid);
-        buffer.putShort(EPOCH_OFFSET, epoch);
-        buffer.putInt(SEQUENCE_OFFSET, sequence);
-        long crc = Utils.computeChecksum(buffer, MAGIC_OFFSET, size - MAGIC_OFFSET);
-        buffer.putInt(CRC_OFFSET, (int) (crc & 0xffffffffL));
+        int position = buffer.position();
+        buffer.putLong(position + OFFSET_OFFSET, offset);
+        buffer.putInt(position + SIZE_OFFSET, size - LOG_OVERHEAD);
+        buffer.put(position + MAGIC_OFFSET, magic);
+        buffer.put(position + ATTRIBUTES_OFFSET, attributes);
+        buffer.putLong(position + TIMESTAMP_OFFSET, timestamp);
+        buffer.putInt(position + OFFSET_DELTA_OFFSET, offsetDelta);
+        buffer.putLong(position + PID_OFFSET, pid);
+        buffer.putShort(position + EPOCH_OFFSET, epoch);
+        buffer.putInt(position + SEQUENCE_OFFSET, sequence);
+        long crc = Utils.computeChecksum(buffer, position + MAGIC_OFFSET, size - MAGIC_OFFSET);
+        buffer.putInt(position + CRC_OFFSET, (int) (crc & 0xffffffffL));
     }
 
     public static void writeHeader(DataOutputStream out,
@@ -358,7 +350,7 @@ public class EosLogEntry extends LogEntry.ShallowLogEntry {
 
     @Override
     public String toString() {
-        return "LogEntry(magic: " + magic() + ", range: [" + firstOffset() + ", " + lastOffset() + "])";
+        return "LogEntry(magic: " + magic() + ", range: [" + baseOffset() + ", " + lastOffset() + "])";
     }
 
 }

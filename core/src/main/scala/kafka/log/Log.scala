@@ -328,7 +328,7 @@ class Log(@volatile var dir: File,
    * Close this log
    */
   def close() {
-    debug("Closing log " + name)
+    debug(s"Closing log $name")
     lock synchronized {
       logSegments.foreach(_.close())
     }
@@ -468,12 +468,13 @@ class Log(@volatile var dir: File,
     for (entry <- records.entries.asScala) {
       // update the first offset if on the first message
       if (firstOffset < 0)
-        firstOffset = if (entry.magic >= Record.MAGIC_VALUE_V2) entry.firstOffset else entry.offset
+        firstOffset = if (entry.magic >= Record.MAGIC_VALUE_V2) entry.baseOffset else entry.lastOffset
+
       // check that offsets are monotonically increasing
-      if (lastOffset >= entry.offset)
+      if (lastOffset >= entry.lastOffset)
         monotonic = false
       // update the last offset seen
-      lastOffset = entry.offset
+      lastOffset = entry.lastOffset
 
       // Check if the message sizes are valid.
       val messageSize = entry.sizeInBytes

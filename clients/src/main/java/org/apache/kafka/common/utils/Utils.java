@@ -799,7 +799,7 @@ public class Utils {
      * @param buffer Buffer containing the data to checksum
      * @param start Offset in the buffer to read from
      * @param size The number of bytes to include
-    +     * @return the computed checksum
+     * @return the computed checksum
      */
     public static long computeChecksum(ByteBuffer buffer, int start, int size) {
         return computeChecksum(buffer.array(), buffer.arrayOffset() + start, size);

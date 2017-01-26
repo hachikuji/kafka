@@ -19,7 +19,6 @@ package org.apache.kafka.common.record;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
-import java.util.Iterator;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -103,8 +102,8 @@ public class SimpleRecordTest {
         builder.appendWithOffset(1234568, System.currentTimeMillis(), "b".getBytes(), "v".getBytes());
 
         MemoryRecords records = builder.build();
-        for (LogEntry.ShallowLogEntry entry : records.entries()) {
-            assertEquals(1234567, entry.firstOffset());
+        for (LogEntry.MutableLogEntry entry : records.entries()) {
+            assertEquals(1234567, entry.baseOffset());
             assertEquals(1234568, entry.lastOffset());
             assertTrue(entry.isValid());
 

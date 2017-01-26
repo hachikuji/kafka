@@ -17,6 +17,7 @@
 package org.apache.kafka.common.record;
 
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.utils.ByteBufferOutputStream;
 import org.apache.kafka.common.utils.Crc32;
 import org.apache.kafka.common.utils.Utils;
 
@@ -361,22 +362,6 @@ public final class Record {
     }
 
     /**
-     * Convert this record to another message format and write the converted data to the provided outputs stream.
-     *
-     * @param out The output stream to write the converted data to
-     * @param toMagic The target magic version for conversion
-     * @param timestamp The timestamp to use in the converted record (for up-conversion)
-     * @param timestampType The timestamp type to use in the converted record (for up-conversion)
-     * @throws IOException for any IO errors writing the converted record.
-     */
-    public void convertTo(DataOutputStream out, byte toMagic, long timestamp, TimestampType timestampType) throws IOException {
-        if (compressionType() != CompressionType.NONE)
-            throw new IllegalArgumentException("Cannot use convertTo for deep conversion");
-
-        write(out, toMagic, timestamp, key(), value(), CompressionType.NONE, timestampType);
-    }
-
-    /**
      * Create a new record instance. If the record's compression type is not none, then
      * its value payload should be already compressed with the specified type; the constructor
      * would always write the value payload as is and will not do the compression itself.
@@ -549,7 +534,7 @@ public final class Record {
         out.writeByte(attributes);
 
         // maybe write timestamp
-        if (magic > Record.MAGIC_VALUE_V0)
+        if (magic > MAGIC_VALUE_V0)
             out.writeLong(timestamp);
 
         // write the key
@@ -591,7 +576,7 @@ public final class Record {
         byte attributes = 0;
         if (type.id > 0)
             attributes = (byte) (attributes | (COMPRESSION_CODEC_MASK & type.id));
-        if (magic > Record.MAGIC_VALUE_V0)
+        if (magic > MAGIC_VALUE_V0)
             return timestampType.updateAttributes(attributes);
         return attributes;
     }
@@ -608,7 +593,7 @@ public final class Record {
         Crc32 crc = new Crc32();
         crc.update(magic);
         crc.update(attributes);
-        if (magic > Record.MAGIC_VALUE_V0)
+        if (magic > MAGIC_VALUE_V0)
             crc.updateLong(timestamp);
         // update for the key
         if (key == null) {
