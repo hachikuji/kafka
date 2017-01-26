@@ -160,7 +160,7 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
     }
 
     @Override
-    public int firstSequence() {
+    public int baseSequence() {
         return LogEntry.NO_SEQUENCE;
     }
 

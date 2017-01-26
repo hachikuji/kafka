@@ -89,7 +89,7 @@ private[kafka] object LogValidator extends Logging {
 
     val (pid, epoch, sequence) = {
       val first = records.entries().asScala.head
-      (first.pid, first.epoch, first.firstSequence)
+      (first.pid, first.epoch, first.baseSequence)
     }
 
     val newBuffer = ByteBuffer.allocate(sizeInBytesAfterConversion)
@@ -275,31 +275,9 @@ private[kafka] object LogValidator extends Logging {
       messageSizeMaybeChanged = true)
   }
 
-  private def validateKey(record: Record, compactedTopic: Boolean) {
-    if (compactedTopic && !record.hasKey)
-      throw new InvalidMessageException("Compacted topic cannot accept message without key.")
-  }
-
   private def validateKey(record: LogRecord, compactedTopic: Boolean) {
     if (compactedTopic && !record.hasKey)
       throw new InvalidMessageException("Compacted topic cannot accept message without key.")
-  }
-
-
-  /**
-   * This method validates the timestamps of a message.
-   * If the message is using create time, this method checks if it is within acceptable range.
-   */
-  private def validateTimestamp(record: Record,
-                                now: Long,
-                                timestampType: TimestampType,
-                                timestampDiffMaxMs: Long) {
-    if (timestampType == TimestampType.CREATE_TIME && math.abs(record.timestamp - now) > timestampDiffMaxMs)
-      throw new InvalidTimestampException(s"Timestamp ${record.timestamp} of message is out of range. " +
-        s"The timestamp should be within [${now - timestampDiffMaxMs}, ${now + timestampDiffMaxMs}")
-    if (record.timestampType == TimestampType.LOG_APPEND_TIME)
-      throw new InvalidTimestampException(s"Invalid timestamp type in message $record. Producer should not set " +
-        s"timestamp type to LogAppendTime.")
   }
 
   /**
