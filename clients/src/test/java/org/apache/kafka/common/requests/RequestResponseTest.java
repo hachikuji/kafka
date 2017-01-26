@@ -25,6 +25,8 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.SecurityProtocol;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.record.CompressionType;
+import org.apache.kafka.common.record.KafkaRecord;
 import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.junit.Test;
@@ -59,8 +61,8 @@ public class RequestResponseTest {
         checkSerialization(createControlledShutdownRequest());
         checkSerialization(createControlledShutdownResponse(), null);
         checkSerialization(createControlledShutdownRequest().getErrorResponse(new UnknownServerException()), null);
-        checkSerialization(createFetchRequest(3), 3);
-        checkSerialization(createFetchRequest(3).getErrorResponse(new UnknownServerException()), 3);
+        checkSerialization(createFetchRequest(4), 4);
+        checkSerialization(createFetchRequest(4).getErrorResponse(new UnknownServerException()), 4);
         checkSerialization(createFetchResponse(), null);
         checkSerialization(createHeartBeatRequest());
         checkSerialization(createHeartBeatRequest().getErrorResponse(new UnknownServerException()), null);
@@ -204,7 +206,8 @@ public class RequestResponseTest {
         LinkedHashMap<TopicPartition, FetchResponse.PartitionData> responseData = new LinkedHashMap<>();
 
         MemoryRecords records = MemoryRecords.readableRecords(ByteBuffer.allocate(10));
-        responseData.put(new TopicPartition("test", 0), new FetchResponse.PartitionData(Errors.NONE.code(), 1000000, records));
+        responseData.put(new TopicPartition("test", 0), new FetchResponse.PartitionData(Errors.NONE.code(), 1000000,
+                FetchResponse.INVALID_LSO, null, records));
 
         FetchResponse v0Response = new FetchResponse(0, responseData, 0);
         FetchResponse v1Response = new FetchResponse(1, responseData, 10);
@@ -301,7 +304,8 @@ public class RequestResponseTest {
     private FetchResponse createFetchResponse() {
         LinkedHashMap<TopicPartition, FetchResponse.PartitionData> responseData = new LinkedHashMap<>();
         MemoryRecords records = MemoryRecords.readableRecords(ByteBuffer.allocate(10));
-        responseData.put(new TopicPartition("test", 0), new FetchResponse.PartitionData(Errors.NONE.code(), 1000000, records));
+        responseData.put(new TopicPartition("test", 0), new FetchResponse.PartitionData(Errors.NONE.code(),
+                1000000, FetchResponse.INVALID_LSO, null, records));
         return new FetchResponse(responseData, 25);
     }
 
@@ -450,7 +454,8 @@ public class RequestResponseTest {
 
     private ProduceRequest createProduceRequest() {
         Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
-        produceData.put(new TopicPartition("test", 0), MemoryRecords.readableRecords(ByteBuffer.allocate(10)));
+        MemoryRecords records = MemoryRecords.withRecords(CompressionType.NONE, new KafkaRecord("woot".getBytes()));
+        produceData.put(new TopicPartition("test", 0), records);
         return new ProduceRequest.Builder((short) 1, 5000, produceData).build();
     }
 

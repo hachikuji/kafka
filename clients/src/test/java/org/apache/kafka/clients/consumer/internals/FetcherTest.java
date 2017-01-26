@@ -893,9 +893,9 @@ public class FetcherTest {
     }
 
     private FetchResponse fetchResponse(MemoryRecords records, short error, long hw, int throttleTime) {
-        return new FetchResponse(
-                new LinkedHashMap<>(Collections.singletonMap(tp, new FetchResponse.PartitionData(error, hw, records))),
-                throttleTime);
+        Map<TopicPartition, FetchResponse.PartitionData> partitions = Collections.singletonMap(tp,
+                new FetchResponse.PartitionData(error, hw, FetchResponse.INVALID_LSO, null, records));
+        return new FetchResponse(new LinkedHashMap<>(partitions), throttleTime);
     }
 
     private MetadataResponse newMetadataResponse(String topic, Errors error) {

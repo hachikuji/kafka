@@ -461,54 +461,75 @@ class Log(@volatile var dir: File,
    * </ol>
    */
   private def analyzeAndValidateRecords(records: MemoryRecords): LogAppendInfo = {
-    var shallowMessageCount = 0
-    var validBytesCount = 0
-    var firstOffset = -1L
-    var lastOffset = -1L
-    var sourceCodec: CompressionCodec = NoCompressionCodec
-    var monotonic = true
-    var maxTimestamp = LogEntry.NO_TIMESTAMP
-    var offsetOfMaxTimestamp = -1L
-    for (entry <- records.entries.asScala) {
-      // update the first offset if on the first message
-      if (firstOffset < 0)
-        firstOffset = if (entry.magic >= LogEntry.MAGIC_VALUE_V2) entry.baseOffset else entry.lastOffset
-
-      // check that offsets are monotonically increasing
-      if (lastOffset >= entry.lastOffset)
-        monotonic = false
-      // update the last offset seen
-      lastOffset = entry.lastOffset
-
+    def validateEntry(entry: LogEntry) {
       // Check if the message sizes are valid.
-      val messageSize = entry.sizeInBytes
-      if(messageSize > config.maxMessageSize) {
+      val entrySize = entry.sizeInBytes
+      if (entrySize > config.maxMessageSize) {
         BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).bytesRejectedRate.mark(records.sizeInBytes)
         BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(records.sizeInBytes)
-        throw new RecordTooLargeException("Message size is %d bytes which exceeds the maximum configured message size of %d."
-          .format(messageSize, config.maxMessageSize))
+        throw new RecordTooLargeException(s"Message size is $entrySize bytes which exceeds the maximum configured " +
+          s"message size of ${config.maxMessageSize}.")
       }
 
       // check the validity of the message by checking CRC
       entry.ensureValid()
-
-      if (entry.maxTimestamp > maxTimestamp) {
-        maxTimestamp = entry.maxTimestamp
-        offsetOfMaxTimestamp = lastOffset
-      }
-      shallowMessageCount += 1
-      validBytesCount += messageSize
-
-      val messageCodec = CompressionCodec.getCompressionCodec(entry.compressionType.id)
-      if (messageCodec != NoCompressionCodec)
-        sourceCodec = messageCodec
     }
 
-    // Apply broker-side compression if any
-    val targetCodec = BrokerCompressionCodec.getTargetCompressionCodec(config.compressionType, sourceCodec)
+    val entries = records.entries.asScala
+    if (entries.nonEmpty && entries.head.magic >= LogEntry.MAGIC_VALUE_V2) {
+      if (entries.size > 1)
+        throw new InvalidRecordException("Produce requests with magic greater than or equal to 2 are only " +
+          "permitted to contain one message set")
 
-    LogAppendInfo(firstOffset, lastOffset, maxTimestamp, offsetOfMaxTimestamp, LogEntry.NO_TIMESTAMP, sourceCodec,
-      targetCodec, shallowMessageCount, validBytesCount, monotonic)
+      val entry = entries.head
+      validateEntry(entry)
+
+      val sourceCodec = CompressionCodec.getCompressionCodec(entry.compressionType.id)
+      val targetCodec = BrokerCompressionCodec.getTargetCompressionCodec(config.compressionType, sourceCodec)
+
+      LogAppendInfo(entry.baseOffset, entry.lastOffset, entry.maxTimestamp, entry.lastOffset, LogEntry.NO_TIMESTAMP,
+        sourceCodec, targetCodec, 1, entry.sizeInBytes, offsetsMonotonic = true)
+    } else {
+      var shallowMessageCount = 0
+      var validBytesCount = 0
+      var firstOffset = -1L
+      var lastOffset = -1L
+      var sourceCodec: CompressionCodec = NoCompressionCodec
+      var monotonic = true
+      var maxTimestamp = LogEntry.NO_TIMESTAMP
+      var offsetOfMaxTimestamp = -1L
+
+      for (entry <- entries) {
+        // update the first offset if on the first message
+        if (firstOffset < 0)
+          firstOffset = if (entry.magic >= LogEntry.MAGIC_VALUE_V2) entry.baseOffset else entry.lastOffset
+
+        // check that offsets are monotonically increasing
+        if (lastOffset >= entry.lastOffset)
+          monotonic = false
+        // update the last offset seen
+        lastOffset = entry.lastOffset
+
+        validateEntry(entry)
+
+        if (entry.maxTimestamp > maxTimestamp) {
+          maxTimestamp = entry.maxTimestamp
+          offsetOfMaxTimestamp = lastOffset
+        }
+        shallowMessageCount += 1
+        validBytesCount += entry.sizeInBytes
+
+        val messageCodec = CompressionCodec.getCompressionCodec(entry.compressionType.id)
+        if (messageCodec != NoCompressionCodec)
+          sourceCodec = messageCodec
+      }
+
+      // Apply broker-side compression if any
+      val targetCodec = BrokerCompressionCodec.getTargetCompressionCodec(config.compressionType, sourceCodec)
+
+      LogAppendInfo(firstOffset, lastOffset, maxTimestamp, offsetOfMaxTimestamp, LogEntry.NO_TIMESTAMP, sourceCodec,
+        targetCodec, shallowMessageCount, validBytesCount, monotonic)
+    }
   }
 
   /**
