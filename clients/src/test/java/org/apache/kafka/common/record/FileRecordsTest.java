@@ -308,7 +308,7 @@ public class FileRecordsTest {
         int start = fileRecords.searchForOffsetWithSize(1, 0).position;
         int size = entry.sizeInBytes();
         FileRecords slice = fileRecords.read(start, size - 1);
-        Records messageV0 = slice.toMessageFormat(Record.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
+        Records messageV0 = slice.toMagic(LogEntry.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
         assertTrue("No message should be there", shallowEntries(messageV0).isEmpty());
         assertEquals("There should be " + (size - 1) + " bytes", size - 1, messageV0.sizeInBytes());
     }
@@ -320,7 +320,9 @@ public class FileRecordsTest {
                 new KafkaRecord(1L, "k1".getBytes(), "hello".getBytes()),
                 new KafkaRecord(2L, "k2".getBytes(), "goodbye".getBytes()));
 
-        MemoryRecordsBuilder builder = MemoryRecords.builder(Record.MAGIC_VALUE_V0, CompressionType.NONE, 0L);
+        ByteBuffer buffer = ByteBuffer.allocate(512);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V0, CompressionType.NONE,
+                TimestampType.CREATE_TIME, 0L);
         for (int i = 0; i < offsets.size(); i++)
             builder.appendWithOffset(offsets.get(i), records.get(i));
 
@@ -329,8 +331,8 @@ public class FileRecordsTest {
         try (FileRecords fileRecords = FileRecords.open(tempFile())) {
             fileRecords.append(builder.build());
             fileRecords.flush();
-            Records convertedRecords = fileRecords.toMessageFormat(Record.MAGIC_VALUE_V1, TimestampType.CREATE_TIME);
-            verifyConvertedMessageSet(records, offsets, convertedRecords, Record.MAGIC_VALUE_V1);
+            Records convertedRecords = fileRecords.toMagic(LogEntry.MAGIC_VALUE_V1, TimestampType.CREATE_TIME);
+            verifyConvertedMessageSet(records, offsets, convertedRecords, LogEntry.MAGIC_VALUE_V1);
         }
     }
 
@@ -341,7 +343,9 @@ public class FileRecordsTest {
                 new KafkaRecord(1L, "k1".getBytes(), "hello".getBytes()),
                 new KafkaRecord(2L, "k2".getBytes(), "goodbye".getBytes()));
 
-        MemoryRecordsBuilder builder = MemoryRecords.builder(Record.MAGIC_VALUE_V0, CompressionType.GZIP, 0L);
+        ByteBuffer buffer = ByteBuffer.allocate(512);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V0, CompressionType.GZIP,
+                TimestampType.CREATE_TIME, 0L);
         for (int i = 0; i < offsets.size(); i++)
             builder.appendWithOffset(offsets.get(i), records.get(i));
 
@@ -349,8 +353,8 @@ public class FileRecordsTest {
         try (FileRecords fileRecords = FileRecords.open(tempFile())) {
             fileRecords.append(builder.build());
             fileRecords.flush();
-            Records convertedRecords = fileRecords.toMessageFormat(Record.MAGIC_VALUE_V1, TimestampType.CREATE_TIME);
-            verifyConvertedMessageSet(records, offsets, convertedRecords, Record.MAGIC_VALUE_V1);
+            Records convertedRecords = fileRecords.toMagic(LogEntry.MAGIC_VALUE_V1, TimestampType.CREATE_TIME);
+            verifyConvertedMessageSet(records, offsets, convertedRecords, LogEntry.MAGIC_VALUE_V1);
         }
     }
 
@@ -361,7 +365,9 @@ public class FileRecordsTest {
                 new KafkaRecord(1L, "k1".getBytes(), "hello".getBytes()),
                 new KafkaRecord(2L, "k2".getBytes(), "goodbye".getBytes()));
 
-        MemoryRecordsBuilder builder = MemoryRecords.builder(Record.MAGIC_VALUE_V1, CompressionType.NONE, 0L);
+        ByteBuffer buffer = ByteBuffer.allocate(512);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V1, CompressionType.NONE,
+                TimestampType.CREATE_TIME, 0L);
         for (int i = 0; i < offsets.size(); i++)
             builder.appendWithOffset(offsets.get(i), records.get(i));
 
@@ -369,8 +375,8 @@ public class FileRecordsTest {
         try (FileRecords fileRecords = FileRecords.open(tempFile())) {
             fileRecords.append(builder.build());
             fileRecords.flush();
-            Records convertedRecords = fileRecords.toMessageFormat(Record.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
-            verifyConvertedMessageSet(records, offsets, convertedRecords, Record.MAGIC_VALUE_V0);
+            Records convertedRecords = fileRecords.toMagic(LogEntry.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
+            verifyConvertedMessageSet(records, offsets, convertedRecords, LogEntry.MAGIC_VALUE_V0);
         }
     }
 
@@ -381,7 +387,9 @@ public class FileRecordsTest {
                 new KafkaRecord(1L, "k1".getBytes(), "hello".getBytes()),
                 new KafkaRecord(2L, "k2".getBytes(), "goodbye".getBytes()));
 
-        MemoryRecordsBuilder builder = MemoryRecords.builder(Record.MAGIC_VALUE_V1, CompressionType.GZIP, 0L);
+        ByteBuffer buffer = ByteBuffer.allocate(512);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V1, CompressionType.GZIP,
+                TimestampType.CREATE_TIME, 0L);
         for (int i = 0; i < offsets.size(); i++)
             builder.appendWithOffset(offsets.get(i), records.get(i));
 
@@ -389,8 +397,8 @@ public class FileRecordsTest {
         try (FileRecords fileRecords = FileRecords.open(tempFile())) {
             fileRecords.append(builder.build());
             fileRecords.flush();
-            Records convertedRecords = fileRecords.toMessageFormat(Record.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
-            verifyConvertedMessageSet(records, offsets, convertedRecords, Record.MAGIC_VALUE_V0);
+            Records convertedRecords = fileRecords.toMagic(LogEntry.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
+            verifyConvertedMessageSet(records, offsets, convertedRecords, LogEntry.MAGIC_VALUE_V0);
         }
     }
 
@@ -425,7 +433,7 @@ public class FileRecordsTest {
         long offset = 0L;
         for (byte[] value : values) {
             ByteBuffer buffer = ByteBuffer.allocate(128);
-            MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, Record.CURRENT_MAGIC_VALUE,
+            MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.CURRENT_MAGIC_VALUE,
                     CompressionType.NONE, TimestampType.CREATE_TIME, offset);
             builder.appendWithOffset(offset++, System.currentTimeMillis(), null, value);
             fileRecords.append(builder.build());

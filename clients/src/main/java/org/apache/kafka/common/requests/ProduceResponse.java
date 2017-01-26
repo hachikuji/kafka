@@ -18,7 +18,7 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
-import org.apache.kafka.common.record.Record;
+import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.utils.CollectionUtils;
 
 import java.nio.ByteBuffer;
@@ -163,7 +163,7 @@ public class ProduceResponse extends AbstractResponse {
         public long logAppendTime;
 
         public PartitionResponse(Errors error) {
-            this(error, INVALID_OFFSET, Record.NO_TIMESTAMP);
+            this(error, INVALID_OFFSET, LogEntry.NO_TIMESTAMP);
         }
 
         public PartitionResponse(Errors error, long baseOffset, long logAppendTime) {

@@ -24,6 +24,27 @@ import java.nio.ByteBuffer;
 public interface LogEntry extends Iterable<LogRecord> {
 
     /**
+     * The "magic" values
+     */
+    byte MAGIC_VALUE_V0 = 0;
+    byte MAGIC_VALUE_V1 = 1;
+    byte MAGIC_VALUE_V2 = 2;
+
+    /**
+     * The current "magic" value
+     */
+    byte CURRENT_MAGIC_VALUE = MAGIC_VALUE_V2;
+
+    /**
+     * Timestamp value for records without a timestamp
+     */
+    long NO_TIMESTAMP = -1L;
+
+    long NO_PID = -1L;
+    short NO_EPOCH = -1;
+    int NO_SEQUENCE = -1;
+
+    /**
      * Check whether the checksum of this entry is correct.
      *
      * @return true If so, false otherwise
@@ -45,10 +66,9 @@ public interface LogEntry extends Iterable<LogRecord> {
     /**
      * Get the timestamp of this entry. This is the max timestamp among all records contained in this log entry.
      *
-     * TODO: rename to maxTimestamp()?
      * @return The max timestamp
      */
-    long timestamp();
+    long maxTimestamp();
 
     /**
      * Get the timestamp type of this entry. This will be {@link TimestampType#CREATE_TIME}

@@ -99,6 +99,11 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
     }
 
     @Override
+    public long maxTimestamp() {
+        return timestamp();
+    }
+
+    @Override
     public long timestamp() {
         return record().timestamp();
     }
@@ -259,7 +264,7 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
                     if (ensureMatchingMagic && magic != wrapperMagic)
                         throw new InvalidRecordException("Compressed message magic does not match wrapper magic");
 
-                    if (magic > Record.MAGIC_VALUE_V0) {
+                    if (magic > LogEntry.MAGIC_VALUE_V0) {
                         Record recordWithTimestamp = new Record(
                                 record.buffer(),
                                 wrapperRecordTimestamp,
@@ -269,7 +274,7 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
                     }
                     logEntries.addLast(logEntry);
                 }
-                if (wrapperMagic > Record.MAGIC_VALUE_V0)
+                if (wrapperMagic > LogEntry.MAGIC_VALUE_V0)
                     this.absoluteBaseOffset = wrapperRecordOffset - logEntries.getLast().lastOffset();
                 else
                     this.absoluteBaseOffset = -1;
@@ -365,7 +370,7 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
         }
 
         public void setCreateTime(long timestamp) {
-            if (record.magic() == Record.MAGIC_VALUE_V0)
+            if (record.magic() == LogEntry.MAGIC_VALUE_V0)
                 throw new IllegalArgumentException("Cannot set timestamp for a record with magic = 0");
 
             long currentTimestamp = record.timestamp();
@@ -376,7 +381,7 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
         }
 
         public void setLogAppendTime(long timestamp) {
-            if (record.magic() == Record.MAGIC_VALUE_V0)
+            if (record.magic() == LogEntry.MAGIC_VALUE_V0)
                 throw new IllegalArgumentException("Cannot set timestamp for a record with magic = 0");
             setTimestampAndUpdateCrc(TimestampType.LOG_APPEND_TIME, timestamp);
         }

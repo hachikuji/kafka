@@ -104,7 +104,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
 
         @Override
         public long baseOffset() {
-            if (magic() >= Record.MAGIC_VALUE_V2)
+            if (magic() >= LogEntry.MAGIC_VALUE_V2)
                 return offset;
 
             loadUnderlyingEntry();
@@ -124,14 +124,14 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
         }
 
         @Override
-        public long timestamp() {
+        public long maxTimestamp() {
             loadUnderlyingEntry();
-            return underlying.timestamp();
+            return underlying.maxTimestamp();
         }
 
         @Override
         public long lastOffset() {
-            if (magic() < Record.MAGIC_VALUE_V2)
+            if (magic() < LogEntry.MAGIC_VALUE_V2)
                 return offset;
             else if (underlying != null)
                 return underlying.lastOffset();
@@ -204,7 +204,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
                 entryBuffer.rewind();
 
                 byte magic = entryBuffer.get(LOG_OVERHEAD + Record.MAGIC_OFFSET);
-                if (magic > Record.MAGIC_VALUE_V1)
+                if (magic > LogEntry.MAGIC_VALUE_V1)
                     underlying = new EosLogEntry(entryBuffer);
                 else
                     underlying = new OldLogEntry.ByteBufferLogEntry(entryBuffer);

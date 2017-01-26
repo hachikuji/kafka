@@ -84,7 +84,7 @@ public interface Records {
      * @param upconvertTimestampType The timestamp type to use if up-converting from magic 0
      * @return A Records (which may or may not be the same instance)
      */
-    Records toMessageFormat(byte toMagic, TimestampType upconvertTimestampType);
+    Records toMagic(byte toMagic, TimestampType upconvertTimestampType);
 
     /**
      * Get an iterator over the records in this log (i.e. the "deep" entries)

@@ -40,6 +40,7 @@ import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.network.ChannelBuilder;
 import org.apache.kafka.common.network.Selector;
 import org.apache.kafka.common.record.CompressionType;
+import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.serialization.Serializer;
@@ -820,7 +821,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         public void onCompletion(RecordMetadata metadata, Exception exception) {
             if (this.interceptors != null) {
                 if (metadata == null) {
-                    this.interceptors.onAcknowledgement(new RecordMetadata(tp, -1, -1, Record.NO_TIMESTAMP, -1, -1, -1),
+                    this.interceptors.onAcknowledgement(new RecordMetadata(tp, -1, -1, LogEntry.NO_TIMESTAMP, -1, -1, -1),
                                                         exception);
                 } else {
                     this.interceptors.onAcknowledgement(metadata, exception);

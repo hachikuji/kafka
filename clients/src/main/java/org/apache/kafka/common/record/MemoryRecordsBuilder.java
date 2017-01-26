@@ -106,7 +106,7 @@ public class MemoryRecordsBuilder {
     private long writtenUncompressed = 0;
     private long numRecords = 0;
     private float compressionRate = 1;
-    private long maxTimestamp = Record.NO_TIMESTAMP;
+    private long maxTimestamp = LogEntry.NO_TIMESTAMP;
     private long offsetOfMaxTimestamp = -1;
     private long lastOffset = -1;
 
@@ -122,7 +122,7 @@ public class MemoryRecordsBuilder {
                                 short epoch,
                                 int baseSequence,
                                 int writeLimit) {
-        if (magic > Record.MAGIC_VALUE_V0 && timestampType == TimestampType.NO_TIMESTAMP_TYPE)
+        if (magic > LogEntry.MAGIC_VALUE_V0 && timestampType == TimestampType.NO_TIMESTAMP_TYPE)
             throw new IllegalArgumentException("TimestampType must be set for magic >= 0");
 
         this.magic = magic;
@@ -134,14 +134,14 @@ public class MemoryRecordsBuilder {
         this.numRecords = 0;
         this.writtenUncompressed = 0;
         this.compressionRate = 1;
-        this.maxTimestamp = Record.NO_TIMESTAMP;
+        this.maxTimestamp = LogEntry.NO_TIMESTAMP;
         this.pid = pid;
         this.epoch = epoch;
         this.baseSequence = baseSequence;
         this.writeLimit = writeLimit;
         this.initialCapacity = buffer.capacity();
 
-        if (magic > Record.MAGIC_VALUE_V1) {
+        if (magic > LogEntry.MAGIC_VALUE_V1) {
             buffer.position(initPos + EosLogEntry.RECORDS_OFFSET);
         } else if (compressionType != CompressionType.NONE) {
             // for compressed records, leave space for the header and the shallow message metadata
@@ -183,8 +183,8 @@ public class MemoryRecordsBuilder {
     public RecordsInfo info() {
         if (timestampType == TimestampType.LOG_APPEND_TIME)
             return new RecordsInfo(logAppendTime,  lastOffset);
-        else if (maxTimestamp == Record.NO_TIMESTAMP)
-            return new RecordsInfo(Record.NO_TIMESTAMP, lastOffset);
+        else if (maxTimestamp == LogEntry.NO_TIMESTAMP)
+            return new RecordsInfo(LogEntry.NO_TIMESTAMP, lastOffset);
         else
             return new RecordsInfo(maxTimestamp, compressionType == CompressionType.NONE ? offsetOfMaxTimestamp : lastOffset);
     }
@@ -258,7 +258,7 @@ public class MemoryRecordsBuilder {
             if (lastOffset >= 0 && offset <= lastOffset)
                 throw new IllegalArgumentException(String.format("Illegal offset %s following previous offset %s (Offsets must increase monotonically).", offset, lastOffset));
 
-            if (magic > Record.MAGIC_VALUE_V1)
+            if (magic > LogEntry.MAGIC_VALUE_V1)
                 return appendEosRecord(offset, timestamp, key, value);
             else
                 return appendOldRecord(offset, timestamp, key, value);
@@ -272,8 +272,9 @@ public class MemoryRecordsBuilder {
     }
 
     private long appendEosRecord(long offset, long timestamp, ByteBuffer key, ByteBuffer value) throws IOException {
-        long crc = EosLogRecord.write(appendStream, offset - baseOffset, (byte) 0, timestamp, key, value);
-        recordWritten(offset, timestamp, EosLogRecord.sizeOf(key, value) + Records.LOG_OVERHEAD);
+        int offsetDelta = (int) (offset - baseOffset);
+        long crc = EosLogRecord.writeTo(appendStream, offsetDelta, timestamp, key, value);
+        recordWritten(offset, timestamp, EosLogRecord.sizeInBytes(offsetDelta, timestamp, key, value));
         return crc;
     }
 
@@ -382,7 +383,7 @@ public class MemoryRecordsBuilder {
         writtenUncompressed += size;
         lastOffset = offset;
 
-        if (magic > Record.MAGIC_VALUE_V0 && timestamp > maxTimestamp) {
+        if (magic > LogEntry.MAGIC_VALUE_V0 && timestamp > maxTimestamp) {
             maxTimestamp = timestamp;
             offsetOfMaxTimestamp = offset;
         }
@@ -413,10 +414,21 @@ public class MemoryRecordsBuilder {
      * the checking should be based on the capacity of the initialized buffer rather than the write limit in order
      * to accept this single record.
      */
-    public boolean hasRoomFor(byte[] key, byte[] value) {
-        return !isFull() && (numRecords == 0 ?
-                this.initialCapacity >= Records.LOG_OVERHEAD + Record.recordSize(magic, key, value) :
-                this.writeLimit >= estimatedBytesWritten() + Records.LOG_OVERHEAD + Record.recordSize(magic, key, value));
+    public boolean hasRoomFor(long timestamp, byte[] key, byte[] value) {
+        if (isFull())
+            return false;
+
+        final int recordSize;
+        if (magic < LogEntry.MAGIC_VALUE_V2) {
+            recordSize = Records.LOG_OVERHEAD + Record.recordSize(magic, key, value);
+        } else {
+            int nextOffsetDelta = (int) (lastOffset + 1 - baseOffset);
+            recordSize = EosLogRecord.sizeInBytes(nextOffsetDelta, timestamp, key, value);
+        }
+
+        return numRecords == 0 ?
+                this.initialCapacity >= recordSize :
+                this.writeLimit >= estimatedBytesWritten() + recordSize;
     }
 
     public boolean isClosed() {
@@ -448,7 +460,7 @@ public class MemoryRecordsBuilder {
                 case LZ4:
                     try {
                         OutputStream stream = (OutputStream) lz4OutputStreamSupplier.get().newInstance(buffer,
-                                messageVersion == Record.MAGIC_VALUE_V0);
+                                messageVersion == LogEntry.MAGIC_VALUE_V0);
                         return new DataOutputStream(stream);
                     } catch (Exception e) {
                         throw new KafkaException(e);
@@ -478,7 +490,7 @@ public class MemoryRecordsBuilder {
                 case LZ4:
                     try {
                         InputStream stream = (InputStream) lz4InputStreamSupplier.get().newInstance(buffer,
-                                messageVersion == Record.MAGIC_VALUE_V0);
+                                messageVersion == LogEntry.MAGIC_VALUE_V0);
                         return new DataInputStream(stream);
                     } catch (Exception e) {
                         throw new KafkaException(e);
