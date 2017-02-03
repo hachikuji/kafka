@@ -168,7 +168,7 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
      * Get an iterator for the nested entries contained within this log entry. Note that
      * if the entry is not compressed, then this method will return an iterator over the
      * shallow entry only (i.e. this object).
-     * @return An iterator over the entries contained within this log entry
+     * @return An iterator over the records contained within this log entry
      */
     @Override
     public Iterator<LogRecord> iterator() {

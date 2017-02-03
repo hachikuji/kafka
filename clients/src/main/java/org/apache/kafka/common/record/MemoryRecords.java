@@ -21,7 +21,7 @@ import java.util.List;
 
 /**
  * A {@link Records} implementation backed by a ByteBuffer. This is used only for reading or
- * modifying in-place an existing buffer of log entries. To create a new buffer see {@link MemoryRecordsBuilder},
+ * modifying in-place an existing buffer of log logEntries. To create a new buffer see {@link MemoryRecordsBuilder},
  * or one of the {@link #builder(byte, CompressionType, long)} variants.
  */
 public class MemoryRecords extends AbstractRecords {
@@ -30,10 +30,10 @@ public class MemoryRecords extends AbstractRecords {
 
     private final ByteBuffer buffer;
 
-    private final Iterable<LogEntry.MutableLogEntry> shallowEntries = new Iterable<LogEntry.MutableLogEntry>() {
+    private final Iterable<LogEntry.MutableLogEntry> logEntries = new Iterable<LogEntry.MutableLogEntry>() {
         @Override
         public Iterator<LogEntry.MutableLogEntry> iterator() {
-            return shallowIterator();
+            return new LogEntryIterator<>(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
         }
     };
 
@@ -106,7 +106,7 @@ public class MemoryRecords extends AbstractRecords {
         return filterTo(entries(), filter, destinationBuffer);
     }
 
-    private static FilterResult filterTo(Iterable<LogEntry.MutableLogEntry> fromShallowEntries, LogRecordFilter filter,
+    private static FilterResult filterTo(Iterable<LogEntry.MutableLogEntry> logEntries, LogRecordFilter filter,
                                          ByteBuffer destinationBuffer) {
         long maxTimestamp = Record.NO_TIMESTAMP;
         long maxOffset = -1L;
@@ -116,20 +116,20 @@ public class MemoryRecords extends AbstractRecords {
         int messagesRetained = 0;
         int bytesRetained = 0;
 
-        for (LogEntry.MutableLogEntry entry : fromShallowEntries) {
-            bytesRead += entry.sizeInBytes();
+        for (LogEntry.MutableLogEntry logEntry : logEntries) {
+            bytesRead += logEntry.sizeInBytes();
 
             // We use the absolute offset to decide whether to retain the message or not Due KAFKA-4298, we have to
             // allow for the possibility that a previous version corrupted the log by writing a compressed message
             // set with a wrapper magic value not matching the magic of the inner messages. This will be fixed as we
             // recopy the messages to the destination buffer.
 
-            byte shallowMagic = entry.magic();
+            byte shallowMagic = logEntry.magic();
             boolean writeOriginalEntry = true;
             long firstOffset = -1;
             List<LogRecord> retainedRecords = new ArrayList<>();
 
-            for (LogRecord record : entry) {
+            for (LogRecord record : logEntry) {
                 if (firstOffset < 0)
                     firstOffset = record.offset();
 
@@ -152,18 +152,18 @@ public class MemoryRecords extends AbstractRecords {
 
             if (writeOriginalEntry) {
                 // There are no messages compacted out and no message format conversion, write the original message set back
-                entry.writeTo(destinationBuffer);
+                logEntry.writeTo(destinationBuffer);
                 messagesRetained += retainedRecords.size();
-                bytesRetained += entry.sizeInBytes();
-                if (entry.timestamp() > maxTimestamp) {
-                    maxTimestamp = entry.timestamp();
-                    shallowOffsetOfMaxTimestamp = entry.lastOffset();
+                bytesRetained += logEntry.sizeInBytes();
+                if (logEntry.timestamp() > maxTimestamp) {
+                    maxTimestamp = logEntry.timestamp();
+                    shallowOffsetOfMaxTimestamp = logEntry.lastOffset();
                 }
             } else if (!retainedRecords.isEmpty()) {
                 ByteBuffer slice = destinationBuffer.slice();
-                TimestampType timestampType = entry.timestampType();
-                long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? entry.timestamp() : Record.NO_TIMESTAMP;
-                MemoryRecordsBuilder builder = builder(slice, entry.magic(), entry.compressionType(), timestampType,
+                TimestampType timestampType = logEntry.timestampType();
+                long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? logEntry.timestamp() : Record.NO_TIMESTAMP;
+                MemoryRecordsBuilder builder = builder(slice, logEntry.magic(), logEntry.compressionType(), timestampType,
                         firstOffset, logAppendTime);
 
                 for (LogRecord record : retainedRecords)
@@ -194,11 +194,7 @@ public class MemoryRecords extends AbstractRecords {
 
     @Override
     public Iterable<LogEntry.MutableLogEntry> entries() {
-        return shallowEntries;
-    }
-
-    private Iterator<LogEntry.MutableLogEntry> shallowIterator() {
-        return new LogEntryIterator<>(new ByteBufferLogInputStream(buffer.duplicate(), Integer.MAX_VALUE));
+        return logEntries;
     }
 
     @Override
