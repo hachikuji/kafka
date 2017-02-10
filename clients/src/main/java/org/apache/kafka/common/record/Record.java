@@ -78,6 +78,11 @@ public final class Record {
     public static final byte TIMESTAMP_TYPE_MASK = 0x08;
     public static final int TIMESTAMP_TYPE_ATTRIBUTE_OFFSET = 3;
 
+    /**
+     * Timestamp value for records without a timestamp
+     */
+    public static final long NO_TIMESTAMP = -1L;
+
     private final ByteBuffer buffer;
     private final Long wrapperRecordTimestamp;
     private final TimestampType wrapperRecordTimestampType;
