@@ -50,10 +50,14 @@ public abstract class AbstractRecords implements Records {
     }
 
     /**
-     * Convert this message set to use the specified message format.
+     * Convert this message set to a compatible magic format.
+     *
+     * @param toMaxMagic The maximum magic version to convert to. Entries with larger magic values
+     *                   will be converted to this magic; entries with equal or lower magic will not
+     *                   be converted at all.
      */
     @Override
-    public Records toMagic(byte magic, TimestampType upconvertTimestampType) {
+    public Records downconvert(byte toMaxMagic) {
         List<? extends LogEntry> entries = Utils.toList(entries().iterator());
         if (entries.isEmpty()) {
             // This indicates that the message is too large, which indicates that the buffer is not large
@@ -65,75 +69,41 @@ public abstract class AbstractRecords implements Records {
         } else {
             List<LogEntryAndRecords> logEntryAndRecordsList = new ArrayList<>(entries.size());
             int totalSizeEstimate = 0;
-            boolean upconvertNonCompressed = magic >= LogEntry.MAGIC_VALUE_V2;
 
             for (LogEntry entry : entries) {
-                List<LogRecord> logRecords = Utils.toList(entry.iterator());
-                final long baseOffset;
-                if (entry.magic() >= LogEntry.MAGIC_VALUE_V2)
-                    baseOffset = entry.baseOffset();
-                else
-                    baseOffset = logRecords.get(0).offset();
-                totalSizeEstimate += estimateSizeInBytes(magic, baseOffset, entry.compressionType(), logRecords);
-                logEntryAndRecordsList.add(new LogEntryAndRecords(entry, logRecords, baseOffset));
-
-                upconvertNonCompressed = upconvertNonCompressed &&
-                        entry.magic() < LogEntry.MAGIC_VALUE_V2 &&
-                        !entry.isCompressed();
+                if (entry.magic() <= toMaxMagic) {
+                    totalSizeEstimate += entry.sizeInBytes();
+                    logEntryAndRecordsList.add(new LogEntryAndRecords(entry, null, null));
+                } else {
+                    List<LogRecord> logRecords = Utils.toList(entry.iterator());
+                    final long baseOffset;
+                    if (entry.magic() >= LogEntry.MAGIC_VALUE_V2)
+                        baseOffset = entry.baseOffset();
+                    else
+                        baseOffset = logRecords.get(0).offset();
+                    totalSizeEstimate += estimateSizeInBytes(toMaxMagic, baseOffset, entry.compressionType(), logRecords);
+                    logEntryAndRecordsList.add(new LogEntryAndRecords(entry, logRecords, baseOffset));
+                }
             }
 
-            if (upconvertNonCompressed)
-                return upconvertNoncompressedToV2AndAbove(magic, upconvertTimestampType, logEntryAndRecordsList);
-
             ByteBuffer buffer = ByteBuffer.allocate(totalSizeEstimate);
-            for (LogEntryAndRecords logEntryAndRecords : logEntryAndRecordsList)
-                buffer = convertLogEntry(magic, buffer, upconvertTimestampType, logEntryAndRecords);
+            for (LogEntryAndRecords logEntryAndRecords : logEntryAndRecordsList) {
+                if (logEntryAndRecords.entry.magic() <= toMaxMagic)
+                    logEntryAndRecords.entry.writeTo(buffer);
+                else
+                    buffer = convertLogEntry(toMaxMagic, buffer, logEntryAndRecords);
+            }
 
             buffer.flip();
             return MemoryRecords.readableRecords(buffer);
         }
     }
 
-    private MemoryRecords upconvertNoncompressedToV2AndAbove(byte magic, TimestampType upconvertTimestampType,
-                                                             List<LogEntryAndRecords> logEntryAndRecordsList) {
-        // when converting from older magic versions, we can pack the records in a message set into a single
-        // log entry. This gives us the benefit of the more efficient packing in v2 and above, and to avoid
-        // the increased overhead for singleton message sets.
-
-        List<LogRecord> logRecords = new ArrayList<>(logEntryAndRecordsList.size());
-        for (LogEntryAndRecords logEntryAndRecords : logEntryAndRecordsList)
-            logRecords.addAll(logEntryAndRecords.records);
-
-        LogEntryAndRecords firstEntryAndRecords = logEntryAndRecordsList.get(0);
-        LogEntry firstEntry = firstEntryAndRecords.entry;
-
-        final TimestampType timestampType;
-        if (firstEntry.magic() == LogEntry.MAGIC_VALUE_V0)
-            timestampType = upconvertTimestampType;
-        else
-            timestampType = firstEntry.timestampType();
-
-        long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? firstEntry.maxTimestamp() : LogEntry.NO_TIMESTAMP;
-
-        ByteBuffer buffer = ByteBuffer.allocate(EosLogEntry.sizeInBytes(firstEntryAndRecords.baseOffset, logRecords));
-        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, magic, firstEntry.compressionType(),
-                timestampType, firstEntryAndRecords.baseOffset, logAppendTime);
-
-        for (LogRecord logRecord : logRecords)
-            builder.append(logRecord);
-        return builder.build();
-    }
-
-    private ByteBuffer convertLogEntry(byte magic, ByteBuffer buffer, TimestampType upconvertTimestampType,
-                                       LogEntryAndRecords logEntryAndRecords) {
+    private ByteBuffer convertLogEntry(byte magic, ByteBuffer buffer, LogEntryAndRecords logEntryAndRecords) {
         LogEntry entry = logEntryAndRecords.entry;
-        final TimestampType timestampType;
-        if (entry.magic() == LogEntry.MAGIC_VALUE_V0)
-            timestampType = upconvertTimestampType;
-        else
-            timestampType = entry.timestampType();
-
+        final TimestampType timestampType = entry.timestampType();
         long logAppendTime = timestampType == TimestampType.LOG_APPEND_TIME ? entry.maxTimestamp() : LogEntry.NO_TIMESTAMP;
+
         MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, magic, entry.compressionType(),
                 timestampType, logEntryAndRecords.baseOffset, logAppendTime);
         for (LogRecord logRecord : logEntryAndRecords.records)
@@ -206,9 +176,9 @@ public abstract class AbstractRecords implements Records {
     private static class LogEntryAndRecords {
         private final LogEntry entry;
         private final List<LogRecord> records;
-        private final long baseOffset;
+        private final Long baseOffset;
 
-        private LogEntryAndRecords(LogEntry entry, List<LogRecord> records, long baseOffset) {
+        private LogEntryAndRecords(LogEntry entry, List<LogRecord> records, Long baseOffset) {
             this.entry = entry;
             this.records = records;
             this.baseOffset = baseOffset;

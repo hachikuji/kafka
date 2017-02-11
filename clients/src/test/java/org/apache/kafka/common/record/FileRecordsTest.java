@@ -85,9 +85,9 @@ public class FileRecordsTest {
 
         // appending those bytes should not change the contents
         Iterator<LogRecord> logRecords = fileRecords.records().iterator();
-        for (int i = 0; i < values.length; i++) {
+        for (byte[] value : values) {
             assertTrue(logRecords.hasNext());
-            assertEquals(logRecords.next().value(), ByteBuffer.wrap(values[i]));
+            assertEquals(logRecords.next().value(), ByteBuffer.wrap(value));
         }
     }
 
@@ -308,54 +308,9 @@ public class FileRecordsTest {
         int start = fileRecords.searchForOffsetWithSize(1, 0).position;
         int size = entry.sizeInBytes();
         FileRecords slice = fileRecords.read(start, size - 1);
-        Records messageV0 = slice.toMagic(LogEntry.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
+        Records messageV0 = slice.downconvert(LogEntry.MAGIC_VALUE_V0);
         assertTrue("No message should be there", shallowEntries(messageV0).isEmpty());
         assertEquals("There should be " + (size - 1) + " bytes", size - 1, messageV0.sizeInBytes());
-    }
-
-    @Test
-    public void testConvertNonCompressedToMagic1() throws IOException {
-        List<Long> offsets = Arrays.asList(0L, 2L);
-        List<KafkaRecord> records = Arrays.asList(
-                new KafkaRecord(1L, "k1".getBytes(), "hello".getBytes()),
-                new KafkaRecord(2L, "k2".getBytes(), "goodbye".getBytes()));
-
-        ByteBuffer buffer = ByteBuffer.allocate(512);
-        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V0, CompressionType.NONE,
-                TimestampType.CREATE_TIME, 0L);
-        for (int i = 0; i < offsets.size(); i++)
-            builder.appendWithOffset(offsets.get(i), records.get(i));
-
-        // Up conversion. In reality we only do down conversion, but up conversion should work as well.
-        // up conversion for non-compressed messages
-        try (FileRecords fileRecords = FileRecords.open(tempFile())) {
-            fileRecords.append(builder.build());
-            fileRecords.flush();
-            Records convertedRecords = fileRecords.toMagic(LogEntry.MAGIC_VALUE_V1, TimestampType.CREATE_TIME);
-            verifyConvertedMessageSet(records, offsets, convertedRecords, LogEntry.MAGIC_VALUE_V1);
-        }
-    }
-
-    @Test
-    public void testConvertCompressedToMagic1() throws IOException {
-        List<Long> offsets = Arrays.asList(0L, 2L);
-        List<KafkaRecord> records = Arrays.asList(
-                new KafkaRecord(1L, "k1".getBytes(), "hello".getBytes()),
-                new KafkaRecord(2L, "k2".getBytes(), "goodbye".getBytes()));
-
-        ByteBuffer buffer = ByteBuffer.allocate(512);
-        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V0, CompressionType.GZIP,
-                TimestampType.CREATE_TIME, 0L);
-        for (int i = 0; i < offsets.size(); i++)
-            builder.appendWithOffset(offsets.get(i), records.get(i));
-
-        // up conversion for compressed messages
-        try (FileRecords fileRecords = FileRecords.open(tempFile())) {
-            fileRecords.append(builder.build());
-            fileRecords.flush();
-            Records convertedRecords = fileRecords.toMagic(LogEntry.MAGIC_VALUE_V1, TimestampType.CREATE_TIME);
-            verifyConvertedMessageSet(records, offsets, convertedRecords, LogEntry.MAGIC_VALUE_V1);
-        }
     }
 
     @Test
@@ -375,7 +330,7 @@ public class FileRecordsTest {
         try (FileRecords fileRecords = FileRecords.open(tempFile())) {
             fileRecords.append(builder.build());
             fileRecords.flush();
-            Records convertedRecords = fileRecords.toMagic(LogEntry.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
+            Records convertedRecords = fileRecords.downconvert(LogEntry.MAGIC_VALUE_V0);
             verifyConvertedMessageSet(records, offsets, convertedRecords, LogEntry.MAGIC_VALUE_V0);
         }
     }
@@ -397,7 +352,7 @@ public class FileRecordsTest {
         try (FileRecords fileRecords = FileRecords.open(tempFile())) {
             fileRecords.append(builder.build());
             fileRecords.flush();
-            Records convertedRecords = fileRecords.toMagic(LogEntry.MAGIC_VALUE_V0, TimestampType.NO_TIMESTAMP_TYPE);
+            Records convertedRecords = fileRecords.downconvert(LogEntry.MAGIC_VALUE_V0);
             verifyConvertedMessageSet(records, offsets, convertedRecords, LogEntry.MAGIC_VALUE_V0);
         }
     }

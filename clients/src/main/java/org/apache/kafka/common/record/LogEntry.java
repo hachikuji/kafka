@@ -114,7 +114,6 @@ public interface LogEntry extends Iterable<LogRecord> {
     /**
      * Get the PID (producer ID) for this log entry. For older magic versions, this will return 0.
      *
-     * TODO: Maybe use -1 as sentinel instead of 0?
      * @return The PID or 0 if there is none
      */
     long pid();
@@ -163,7 +162,6 @@ public interface LogEntry extends Iterable<LogRecord> {
      * @param buffer The buffer to write the entry to
      */
     void writeTo(ByteBuffer buffer);
-
 
     /**
      * A mutable log entry is one that can be modified in place (without copying).
