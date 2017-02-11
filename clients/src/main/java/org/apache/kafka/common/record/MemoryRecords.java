@@ -329,7 +329,7 @@ public class MemoryRecords extends AbstractRecords {
                                             KafkaRecord ... records) {
         if (records.length == 0)
             return MemoryRecords.EMPTY;
-        int sizeEstimate = AbstractRecords.sizeEstimateInBytes(magic, compressionType, Arrays.asList(records));
+        int sizeEstimate = AbstractRecords.estimateSizeInBytes(magic, compressionType, Arrays.asList(records));
         ByteBuffer buffer = ByteBuffer.allocate(sizeEstimate);
         MemoryRecordsBuilder builder = builder(buffer, magic, compressionType, TimestampType.CREATE_TIME, initialOffset);
         for (KafkaRecord record : records)

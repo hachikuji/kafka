@@ -412,8 +412,8 @@ public class FileRecordsTest {
             for (LogRecord record : entry) {
                 assertTrue("Inner record should have magic " + magicByte, record.hasMagic(magicByte));
                 assertEquals("offset should not change", initialOffsets.get(i).longValue(), record.offset());
-                assertEquals("key should not change", ByteBuffer.wrap(initialRecords.get(i).key()), record.key());
-                assertEquals("value should not change", ByteBuffer.wrap(initialRecords.get(i).value()), record.value());
+                assertEquals("key should not change", initialRecords.get(i).key(), record.key());
+                assertEquals("value should not change", initialRecords.get(i).value(), record.value());
                 i += 1;
             }
         }

@@ -18,7 +18,7 @@ package org.apache.kafka.common.record;
 
 import org.apache.kafka.common.utils.Utils;
 
-import java.util.Arrays;
+import java.nio.ByteBuffer;
 
 /**
  * High-level representation of a record from the client perspective which abstracts the low-level log representation.
@@ -26,20 +26,17 @@ import java.util.Arrays;
  */
 public class KafkaRecord {
 
-    private final byte[] key;
-    private final byte[] value;
+    private final ByteBuffer key;
+    private final ByteBuffer value;
     private final long timestamp;
 
-    public KafkaRecord(long timestamp,
-                       byte[] key,
-                       byte[] value) {
-        this.key = key;
-        this.value = value;
+    public KafkaRecord(long timestamp, byte[] key, byte[] value) {
+        this.key = Utils.wrapNullable(key);
+        this.value = Utils.wrapNullable(value);
         this.timestamp = timestamp;
     }
 
-    public KafkaRecord(long timestamp,
-                       byte[] value) {
+    public KafkaRecord(long timestamp, byte[] value) {
         this(timestamp, null, value);
     }
 
@@ -55,11 +52,11 @@ public class KafkaRecord {
         this(logRecord.timestamp(), Utils.toNullableArray(logRecord.key()), Utils.toNullableArray(logRecord.value()));
     }
 
-    public byte[] key() {
+    public ByteBuffer key() {
         return key;
     }
 
-    public byte[] value() {
+    public ByteBuffer value() {
         return value;
     }
 
@@ -75,15 +72,16 @@ public class KafkaRecord {
         KafkaRecord that = (KafkaRecord) o;
 
         if (timestamp != that.timestamp) return false;
-        if (!Arrays.equals(key, that.key)) return false;
-        return Arrays.equals(value, that.value);
+        if (key != null ? !key.equals(that.key) : that.key != null) return false;
+        return value != null ? value.equals(that.value) : that.value == null;
     }
 
     @Override
     public int hashCode() {
-        int result = Arrays.hashCode(key);
-        result = 31 * result + Arrays.hashCode(value);
+        int result = key != null ? key.hashCode() : 0;
+        result = 31 * result + (value != null ? value.hashCode() : 0);
         result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
         return result;
     }
+
 }

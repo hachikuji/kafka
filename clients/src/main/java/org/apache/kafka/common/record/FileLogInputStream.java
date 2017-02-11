@@ -85,7 +85,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
      * entries without needing to read the record data into memory until it is needed. The downside
      * is that entries will generally no longer be readable when the underlying channel is closed.
      */
-    static class FileChannelLogEntry extends AbstractLogEntry {
+    public static class FileChannelLogEntry extends AbstractLogEntry {
         private final long offset;
         private final FileChannel channel;
         private final int position;

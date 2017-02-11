@@ -57,7 +57,7 @@ private[kafka] object LogValidator extends Logging {
                                                       messageTimestampDiffMaxMs: Long): ValidationAndOffsetAssignResult = {
     if (sourceCodec == NoCompressionCodec && targetCodec == NoCompressionCodec) {
       // check the magic value
-      if (!records.hasMatchingShallowMagic(messageFormatVersion))
+      if (!records.hasMatchingMagic(messageFormatVersion))
         convertAndAssignOffsetsNonCompressed(records, offsetCounter, compactedTopic, now, messageTimestampType,
           messageTimestampDiffMaxMs, messageFormatVersion)
       else
@@ -257,7 +257,7 @@ private[kafka] object LogValidator extends Logging {
   private def buildRecordsAndAssignOffsets(magic: Byte, offsetCounter: LongRef, timestampType: TimestampType,
                                            compressionType: CompressionType, logAppendTime: Long,
                                            validatedRecords: Seq[LogRecord]): ValidationAndOffsetAssignResult = {
-    val estimatedSize = AbstractRecords.sizeEstimateInBytes(magic, offsetCounter.value, compressionType, validatedRecords.asJava)
+    val estimatedSize = AbstractRecords.estimateSizeInBytes(magic, offsetCounter.value, compressionType, validatedRecords.asJava)
     val buffer = ByteBuffer.allocate(estimatedSize)
     val builder = MemoryRecords.builder(buffer, magic, compressionType, timestampType, offsetCounter.value, logAppendTime)
 

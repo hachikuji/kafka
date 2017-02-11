@@ -146,7 +146,7 @@ class GroupMetadataManager(val brokerId: Int,
         val value = GroupMetadataManager.groupMetadataValue(group, groupAssignment, version = groupMetadataValueVersion)
 
         val records = {
-          val buffer = ByteBuffer.allocate(AbstractRecords.sizeEstimateInBytes(magicValue, compressionType,
+          val buffer = ByteBuffer.allocate(AbstractRecords.estimateSizeInBytes(magicValue, compressionType,
             Seq(new KafkaRecord(timestamp, key, value)).asJava))
           val builder = MemoryRecords.builder(buffer, magicValue, compressionType, TimestampType.CREATE_TIME, 0L)
           builder.append(timestamp, key, value)
@@ -252,7 +252,7 @@ class GroupMetadataManager(val brokerId: Int,
             new KafkaRecord(timestamp, key, value)
           }
           val offsetTopicPartition = new TopicPartition(Topic.GroupMetadataTopicName, partitionFor(group.groupId))
-          val buffer = ByteBuffer.allocate(AbstractRecords.sizeEstimateInBytes(magicValue, compressionType, records.asJava))
+          val buffer = ByteBuffer.allocate(AbstractRecords.estimateSizeInBytes(magicValue, compressionType, records.asJava))
           val builder = MemoryRecords.builder(buffer, magicValue, compressionType, TimestampType.CREATE_TIME, 0L)
           records.foreach(builder.append)
           val entries = Map(offsetTopicPartition -> builder.build())

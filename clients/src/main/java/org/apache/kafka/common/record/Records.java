@@ -67,7 +67,7 @@ public interface Records {
      * @param magic The magic value to check
      * @return true if all shallow entries have a matching magic value, false otherwise
      */
-    boolean hasMatchingShallowMagic(byte magic);
+    boolean hasMatchingMagic(byte magic);
 
     /**
      * Check whether this log buffer has a magic value compatible with a particular value

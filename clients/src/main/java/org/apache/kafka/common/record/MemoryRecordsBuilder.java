@@ -292,6 +292,10 @@ public class MemoryRecordsBuilder {
         return crc;
     }
 
+    public long append(long timestamp, ByteBuffer key, ByteBuffer value) {
+        return appendWithOffset(lastOffset < 0 ? baseOffset : lastOffset + 1, timestamp, key, value);
+    }
+
     /**
      * Append a new record at the next consecutive offset. If no records have been appended yet, use the base
      * offset of this builder.
@@ -301,7 +305,7 @@ public class MemoryRecordsBuilder {
      * @return crc of the record
      */
     public long append(long timestamp, byte[] key, byte[] value) {
-        return appendWithOffset(lastOffset < 0 ? baseOffset : lastOffset + 1, timestamp, key, value);
+        return append(timestamp, wrapNullable(key), wrapNullable(value));
     }
 
     public long append(KafkaRecord record) {

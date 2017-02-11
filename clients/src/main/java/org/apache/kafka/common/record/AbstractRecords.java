@@ -34,7 +34,7 @@ public abstract class AbstractRecords implements Records {
     };
 
     @Override
-    public boolean hasMatchingShallowMagic(byte magic) {
+    public boolean hasMatchingMagic(byte magic) {
         for (LogEntry entry : entries())
             if (entry.magic() != magic)
                 return false;
@@ -74,7 +74,7 @@ public abstract class AbstractRecords implements Records {
                     baseOffset = entry.baseOffset();
                 else
                     baseOffset = logRecords.get(0).offset();
-                totalSizeEstimate += sizeEstimateInBytes(magic, baseOffset, entry.compressionType(), logRecords);
+                totalSizeEstimate += estimateSizeInBytes(magic, baseOffset, entry.compressionType(), logRecords);
                 logEntryAndRecordsList.add(new LogEntryAndRecords(entry, logRecords, baseOffset));
 
                 upconvertNonCompressed = upconvertNonCompressed &&
@@ -172,30 +172,34 @@ public abstract class AbstractRecords implements Records {
         };
     }
 
-    public static int sizeEstimateInBytes(byte magic,
+    public static int estimateSizeInBytes(byte magic,
                                           long baseOffset,
                                           CompressionType compressionType,
                                           Iterable<LogRecord> records) {
         int size = 0;
         if (magic <= LogEntry.MAGIC_VALUE_V1) {
             for (LogRecord record : records)
-                size += record.sizeInBytes();
+                size += Records.LOG_OVERHEAD + Record.recordSize(magic, record.key(), record.value());
         } else {
             size = EosLogEntry.sizeInBytes(baseOffset, records);
         }
-        return compressionType == CompressionType.NONE ? size : Math.min(Math.max(size / 2, 1024), 1 << 16);
+        return estimateCompressedSizeInBytes(size, compressionType);
     }
 
-    public static int sizeEstimateInBytes(byte magic,
+    public static int estimateSizeInBytes(byte magic,
                                           CompressionType compressionType,
                                           Iterable<KafkaRecord> records) {
         int size = 0;
         if (magic <= LogEntry.MAGIC_VALUE_V1) {
             for (KafkaRecord record : records)
-                size += Record.recordSize(magic, record.key(), record.value());
+                size += Records.LOG_OVERHEAD + Record.recordSize(magic, record.key(), record.value());
         } else {
             size = EosLogEntry.sizeInBytes(records);
         }
+        return estimateCompressedSizeInBytes(size, compressionType);
+    }
+
+    private static int estimateCompressedSizeInBytes(int size, CompressionType compressionType) {
         return compressionType == CompressionType.NONE ? size : Math.min(Math.max(size / 2, 1024), 1 << 16);
     }
 

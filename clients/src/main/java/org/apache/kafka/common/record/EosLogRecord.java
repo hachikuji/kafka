@@ -28,6 +28,25 @@ import java.nio.ByteBuffer;
 import static org.apache.kafka.common.record.LogEntry.MAGIC_VALUE_V2;
 import static org.apache.kafka.common.utils.Utils.wrapNullable;
 
+/**
+ * This class implements the inner record format for magic 2 and above. The schema is as follows:
+ *
+ * Record =>
+ *   Length => uintVar
+ *   Attributes => int8
+ *   TimestampDelta => intVar
+ *   OffsetDelta => uintVar
+ *   KeyLen => uintVar [OPTIONAL]
+ *   Key => data [OPTIONAL]
+ *   Value => data [OPTIONAL]
+ *
+ * The record attributes indicate whether the key and value fields are present. The first bit
+ * is used to indicate a null key; if set, the key length and key data will be left out of the
+ * message. Similarly, if the second bit is set, the value field will be left out.
+ *
+ * The offset and timestamp deltas compute the difference relative to the base offset and
+ * base timestamp of the log entry that this record is contained in.
+ */
 public class EosLogRecord implements LogRecord {
     private static final int NULL_KEY_MASK = 0x01;
     private static final int NULL_VALUE_MASK = 0x02;
@@ -83,14 +102,15 @@ public class EosLogRecord implements LogRecord {
 
     @Override
     public long checksum() {
-        if (checksum != null)
-            return checksum;
-        checksum = computeChecksum(timestamp, key, value);
+        if (checksum == null)
+            checksum = computeChecksum(timestamp, key, value);
         return checksum;
     }
 
     @Override
     public boolean isValid() {
+        // new versions of the message format (2 and above) do not contain an individual record checksum;
+        // instead they are validated with the checksum at the log entry level
         return true;
     }
 
