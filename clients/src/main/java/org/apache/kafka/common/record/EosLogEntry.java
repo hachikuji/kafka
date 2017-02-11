@@ -30,7 +30,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
 
-import static org.apache.kafka.common.record.Record.COMPRESSION_CODEC_MASK;
 import static org.apache.kafka.common.record.Records.LOG_OVERHEAD;
 
 public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLogEntry {
@@ -58,6 +57,8 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
     public static final int RECORDS_OFFSET = SEQUENCE_OFFSET + SEQUENCE_LENGTH;
 
     public static final int LOG_ENTRY_OVERHEAD = RECORDS_OFFSET;
+
+    private static final int COMPRESSION_CODEC_MASK = 0x07;
 
     private final ByteBuffer buffer;
 
@@ -206,18 +207,18 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
             return;
 
         byte attributes = attributes();
-        buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.CREATE_TIME.updateAttributes(attributes));
-        buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
+        buffer.put(ATTRIBUTES_OFFSET, TimestampType.CREATE_TIME.updateAttributes(attributes));
+        buffer.putLong(TIMESTAMP_OFFSET, timestamp);
         long crc = computeChecksum();
-        Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
+        Utils.writeUnsignedInt(buffer, CRC_OFFSET, crc);
     }
 
     public void setLogAppendTime(long timestamp) {
         byte attributes = attributes();
-        buffer.put(LOG_OVERHEAD + Record.ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
-        buffer.putLong(LOG_OVERHEAD + Record.TIMESTAMP_OFFSET, timestamp);
+        buffer.put(ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
+        buffer.putLong(Record.TIMESTAMP_OFFSET, timestamp);
         long crc = computeChecksum();
-        Utils.writeUnsignedInt(buffer, LOG_OVERHEAD + Record.CRC_OFFSET, crc);
+        Utils.writeUnsignedInt(buffer, CRC_OFFSET, crc);
     }
 
     @Override

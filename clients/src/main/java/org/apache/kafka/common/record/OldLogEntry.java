@@ -151,22 +151,22 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
 
     @Override
     public long pid() {
-        return 0L;
+        return LogEntry.NO_PID;
     }
 
     @Override
     public short epoch() {
-        return 0;
+        return LogEntry.NO_EPOCH;
     }
 
     @Override
     public int firstSequence() {
-        return 0;
+        return LogEntry.NO_SEQUENCE;
     }
 
     @Override
     public int lastSequence() {
-        return 0;
+        return LogEntry.NO_SEQUENCE;
     }
 
     /**

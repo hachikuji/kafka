@@ -44,10 +44,10 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
      * @param start Position in the file channel to start from
      * @param end Position in the file channel not to read past
      */
-    public FileLogInputStream(FileChannel channel,
-                              int maxRecordSize,
-                              int start,
-                              int end) {
+    FileLogInputStream(FileChannel channel,
+                       int maxRecordSize,
+                       int start,
+                       int end) {
         this.channel = channel;
         this.maxRecordSize = maxRecordSize;
         this.position = start;
@@ -85,21 +85,21 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
      * entries without needing to read the record data into memory until it is needed. The downside
      * is that entries will generally no longer be readable when the underlying channel is closed.
      */
-    public static class FileChannelLogEntry extends AbstractLogEntry {
+    static class FileChannelLogEntry extends AbstractLogEntry {
         private final long offset;
         private final FileChannel channel;
         private final int position;
-        private final int recordSize;
+        private final int entrySize;
         private LogEntry underlying;
 
         private FileChannelLogEntry(long offset,
                                     FileChannel channel,
                                     int position,
-                                    int recordSize) {
+                                    int entrySize) {
             this.offset = offset;
             this.channel = channel;
             this.position = position;
-            this.recordSize = recordSize;
+            this.entrySize = entrySize;
         }
 
         @Override
@@ -199,7 +199,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
                 if (underlying != null)
                     return;
 
-                ByteBuffer entryBuffer = ByteBuffer.allocate(LOG_OVERHEAD + recordSize);
+                ByteBuffer entryBuffer = ByteBuffer.allocate(LOG_OVERHEAD + entrySize);
                 Utils.readFullyOrFail(channel, entryBuffer, position, "full entry");
                 entryBuffer.rewind();
 
@@ -239,7 +239,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
 
         @Override
         public int sizeInBytes() {
-            return LOG_OVERHEAD + recordSize;
+            return LOG_OVERHEAD + entrySize;
         }
 
         @Override
@@ -257,7 +257,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
 
             if (offset != that.offset) return false;
             if (position != that.position) return false;
-            if (recordSize != that.recordSize) return false;
+            if (entrySize != that.entrySize) return false;
             return channel != null ? channel.equals(that.channel) : that.channel == null;
         }
 
@@ -267,7 +267,7 @@ public class FileLogInputStream implements LogInputStream<FileLogInputStream.Fil
             result = 31 * result + (int) (offset ^ (offset >>> 32));
             result = 31 * result + (channel != null ? channel.hashCode() : 0);
             result = 31 * result + position;
-            result = 31 * result + recordSize;
+            result = 31 * result + entrySize;
             return result;
         }
     }

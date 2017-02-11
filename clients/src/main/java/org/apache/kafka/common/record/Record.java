@@ -69,7 +69,7 @@ public final class Record {
      * Specifies the mask for the compression code. 3 bits to hold the compression codec. 0 is reserved to indicate no
      * compression
      */
-    public static final int COMPRESSION_CODEC_MASK = 0x07;
+    private static final int COMPRESSION_CODEC_MASK = 0x07;
 
     /**
      * Specify the mask of timestamp type.

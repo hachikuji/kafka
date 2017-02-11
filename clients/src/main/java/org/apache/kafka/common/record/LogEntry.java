@@ -19,7 +19,9 @@ package org.apache.kafka.common.record;
 import java.nio.ByteBuffer;
 
 /**
- * An offset and record pair
+ * A log entry is a container for log records. In old versions of the message format (versions 0 and 1),
+ * a log entry consisted always of a single record if no compression was enabled, but could contain
+ * many records otherwise. Newer versions will generally contain many records regardless of compression.
  */
 public interface LogEntry extends Iterable<LogRecord> {
 
