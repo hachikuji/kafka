@@ -216,7 +216,7 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
     public void setLogAppendTime(long timestamp) {
         byte attributes = attributes();
         buffer.put(ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
-        buffer.putLong(Record.TIMESTAMP_OFFSET, timestamp);
+        buffer.putLong(TIMESTAMP_OFFSET, timestamp);
         long crc = computeChecksum();
         Utils.writeUnsignedInt(buffer, CRC_OFFSET, crc);
     }
