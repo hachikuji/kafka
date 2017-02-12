@@ -197,7 +197,7 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
     }
 
     public void setOffset(long offset) {
-        buffer.putLong(Records.OFFSET_OFFSET, offset);
+        buffer.putLong(OFFSET_OFFSET, offset);
     }
 
     public void setCreateTime(long timestamp) {
@@ -350,7 +350,7 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
 
     @Override
     public String toString() {
-        return "LogEntry(magic: " + magic() + ", range: [" + baseOffset() + ", " + lastOffset() + "])";
+        return "LogEntry(magic: " + magic() + ", offsets: [" + baseOffset() + ", " + lastOffset() + "])";
     }
 
     public static int sizeInBytes(long baseOffset, Iterable<LogRecord> records) {
@@ -379,6 +379,14 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
             size += EosLogRecord.sizeInBytes(offsetDelta++, record.timestamp(), record.key(), record.value());
         }
         return size;
+    }
+
+    /**
+     * Get an upper bound on the size of a log entry with only a single record using a given
+     * key and value.
+     */
+    public static int entrySizeUpperBound(byte[] key, byte[] value) {
+        return LOG_ENTRY_OVERHEAD + EosLogRecord.recordSizeUpperBound(key, value);
     }
 
 }

@@ -21,8 +21,8 @@ import org.apache.kafka.common.utils.Utils;
 import java.nio.ByteBuffer;
 
 /**
- * High-level representation of a record from the client perspective which abstracts the low-level log representation.
- * This is mainly to facilitate generic testing (it's easier to verify the fields collectively rather than individually).
+ * High-level representation of a kafka record. This is useful when building record sets to
+ * avoid dependence on a specific magic version.
  */
 public class KafkaRecord {
 
@@ -30,10 +30,14 @@ public class KafkaRecord {
     private final ByteBuffer value;
     private final long timestamp;
 
-    public KafkaRecord(long timestamp, byte[] key, byte[] value) {
-        this.key = Utils.wrapNullable(key);
-        this.value = Utils.wrapNullable(value);
+    public KafkaRecord(long timestamp, ByteBuffer key, ByteBuffer value) {
+        this.key = key;
+        this.value = value;
         this.timestamp = timestamp;
+    }
+
+    public KafkaRecord(long timestamp, byte[] key, byte[] value) {
+        this(timestamp, Utils.wrapNullable(key), Utils.wrapNullable(value));
     }
 
     public KafkaRecord(long timestamp, byte[] value) {
@@ -49,7 +53,7 @@ public class KafkaRecord {
     }
 
     public KafkaRecord(LogRecord logRecord) {
-        this(logRecord.timestamp(), Utils.toNullableArray(logRecord.key()), Utils.toNullableArray(logRecord.value()));
+        this(logRecord.timestamp(), logRecord.key(), logRecord.value());
     }
 
     public ByteBuffer key() {

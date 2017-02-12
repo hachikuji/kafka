@@ -40,9 +40,8 @@ import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.network.ChannelBuilder;
 import org.apache.kafka.common.network.Selector;
 import org.apache.kafka.common.record.CompressionType;
+import org.apache.kafka.common.record.EosLogEntry;
 import org.apache.kafka.common.record.LogEntry;
-import org.apache.kafka.common.record.Record;
-import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.AppInfoParser;
 import org.apache.kafka.common.utils.KafkaThread;
@@ -469,7 +468,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             }
 
             int partition = partition(record, serializedKey, serializedValue, cluster);
-            int serializedSize = Records.LOG_OVERHEAD + Record.recordSize(serializedKey, serializedValue);
+            int serializedSize = EosLogEntry.entrySizeUpperBound(serializedKey, serializedValue);
             ensureValidRecordSize(serializedSize);
             tp = new TopicPartition(record.topic(), partition);
             long timestamp = record.timestamp() == null ? time.milliseconds() : record.timestamp();

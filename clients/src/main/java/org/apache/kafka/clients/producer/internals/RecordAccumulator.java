@@ -24,11 +24,10 @@ import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.record.CompressionType;
+import org.apache.kafka.common.record.EosLogEntry;
 import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.MemoryRecordsBuilder;
-import org.apache.kafka.common.record.Record;
-import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.CopyOnWriteMap;
 import org.apache.kafka.common.utils.Time;
@@ -179,7 +178,7 @@ public final class RecordAccumulator {
             }
 
             // we don't have an in-progress record batch try to allocate a new batch
-            int size = Math.max(this.batchSize, Records.LOG_OVERHEAD + Record.recordSize(key, value));
+            int size = Math.max(this.batchSize, EosLogEntry.entrySizeUpperBound(key, value));
             log.trace("Allocating a new {} byte message buffer for topic {} partition {}", size, tp.topic(), tp.partition());
             buffer = free.allocate(size, maxTimeToBlock);
             synchronized (dq) {

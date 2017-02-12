@@ -34,7 +34,7 @@ import static org.apache.kafka.common.utils.Utils.wrapNullable;
  * Record =>
  *   Length => uintVar
  *   Attributes => int8
- *   TimestampDelta => intVar
+ *   TimestampDelta => longVar
  *   OffsetDelta => uintVar
  *   KeyLen => uintVar [OPTIONAL]
  *   Key => data [OPTIONAL]
@@ -48,6 +48,7 @@ import static org.apache.kafka.common.utils.Utils.wrapNullable;
  * base timestamp of the log entry that this record is contained in.
  */
 public class EosLogRecord implements LogRecord {
+    private static final int MAX_RECORD_OVERHEAD = 21;
     private static final int NULL_KEY_MASK = 0x01;
     private static final int NULL_VALUE_MASK = 0x02;
 
@@ -324,6 +325,15 @@ public class EosLogRecord implements LogRecord {
         if (value != null)
             size += value.remaining();
 
+        return size;
+    }
+
+    static int recordSizeUpperBound(byte[] key, byte[] value) {
+        int size = MAX_RECORD_OVERHEAD;
+        if (key != null)
+            size += key.length + Utils.bytesForUnsignedVarIntEncoding(key.length);
+        if (value != null)
+            size += value.length;
         return size;
     }
 
