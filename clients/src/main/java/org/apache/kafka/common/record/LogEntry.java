@@ -21,7 +21,24 @@ import java.nio.ByteBuffer;
 /**
  * A log entry is a container for log records. In old versions of the message format (versions 0 and 1),
  * a log entry consisted always of a single record if no compression was enabled, but could contain
- * many records otherwise. Newer versions will generally contain many records regardless of compression.
+ * many records otherwise. Newer versions (magic 2 and above will generally contain many records regardless
+ * of compression.
+ *
+ * For magic 2, the following schema is used:
+ *
+ * LogEntry =>
+ *  FirstOffset => int64
+ *  Length => int32
+ *  CRC => int32
+ *  Magic => int8
+ *  Attributes => int16
+ *  LastOffsetDelta => int32
+ *  FirstTimestamp => int64
+ *  MaxTimestamp => int64
+ *  PID => int64
+ *  Epoch => int16
+ *  FirstSequence => int32
+ *  Records => Record1, Record2, … , RecordN
  */
 public interface LogEntry extends Iterable<LogRecord> {
 
@@ -42,6 +59,10 @@ public interface LogEntry extends Iterable<LogRecord> {
      */
     long NO_TIMESTAMP = -1L;
 
+    /**
+     * Values used in the new message format by non-idempotent/transactional producers or when
+     * up-converting from an older message format.
+     */
     long NO_PID = -1L;
     short NO_EPOCH = -1;
     int NO_SEQUENCE = -1;
