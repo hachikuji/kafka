@@ -481,11 +481,11 @@ class KafkaApis(val requestChannel: RequestChannel,
           val convertedData = replicaManager.getMagicAndTimestampType(tp) match {
             case Some((magic, _)) if magic > 0 && versionId <= 1 && !data.records.hasCompatibleMagic(LogEntry.MAGIC_VALUE_V0) =>
               trace(s"Down converting message to V0 for fetch request from $clientId")
-              FetchPartitionData(data.error, data.hw, data.records.downconvert(LogEntry.MAGIC_VALUE_V0))
+              FetchPartitionData(data.error, data.hw, data.records.downConvert(LogEntry.MAGIC_VALUE_V0))
 
             case Some((magic, _)) if magic > 1 && versionId <= 3 && !data.records.hasCompatibleMagic(LogEntry.MAGIC_VALUE_V1) =>
               trace(s"Down converting message to V1 for fetch request from $clientId")
-              FetchPartitionData(data.error, data.hw, data.records.downconvert(LogEntry.MAGIC_VALUE_V1))
+              FetchPartitionData(data.error, data.hw, data.records.downConvert(LogEntry.MAGIC_VALUE_V1))
 
             case _ => data
           }

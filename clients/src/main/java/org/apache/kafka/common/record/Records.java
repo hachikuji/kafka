@@ -83,7 +83,7 @@ public interface Records {
      * @param toMagic The magic value to convert to
      * @return A Records (which may or may not be the same instance)
      */
-    Records downconvert(byte toMagic);
+    Records downConvert(byte toMagic);
 
     /**
      * Get an iterator over the records in this log (i.e. the "deep" entries)

@@ -52,12 +52,12 @@ public abstract class AbstractRecords implements Records {
     /**
      * Convert this message set to a compatible magic format.
      *
-     * @param toMaxMagic The maximum magic version to convert to. Entries with larger magic values
-     *                   will be converted to this magic; entries with equal or lower magic will not
-     *                   be converted at all.
+     * @param toMagic The maximum magic version to convert to. Entries with larger magic values
+     *                will be converted to this magic; entries with equal or lower magic will not
+     *                be converted at all.
      */
     @Override
-    public Records downconvert(byte toMaxMagic) {
+    public Records downConvert(byte toMagic) {
         List<? extends LogEntry> entries = Utils.toList(entries().iterator());
         if (entries.isEmpty()) {
             // This indicates that the message is too large, which indicates that the buffer is not large
@@ -71,7 +71,7 @@ public abstract class AbstractRecords implements Records {
             int totalSizeEstimate = 0;
 
             for (LogEntry entry : entries) {
-                if (entry.magic() <= toMaxMagic) {
+                if (entry.magic() <= toMagic) {
                     totalSizeEstimate += entry.sizeInBytes();
                     logEntryAndRecordsList.add(new LogEntryAndRecords(entry, null, null));
                 } else {
@@ -81,17 +81,17 @@ public abstract class AbstractRecords implements Records {
                         baseOffset = entry.baseOffset();
                     else
                         baseOffset = logRecords.get(0).offset();
-                    totalSizeEstimate += estimateSizeInBytes(toMaxMagic, baseOffset, entry.compressionType(), logRecords);
+                    totalSizeEstimate += estimateSizeInBytes(toMagic, baseOffset, entry.compressionType(), logRecords);
                     logEntryAndRecordsList.add(new LogEntryAndRecords(entry, logRecords, baseOffset));
                 }
             }
 
             ByteBuffer buffer = ByteBuffer.allocate(totalSizeEstimate);
             for (LogEntryAndRecords logEntryAndRecords : logEntryAndRecordsList) {
-                if (logEntryAndRecords.entry.magic() <= toMaxMagic)
+                if (logEntryAndRecords.entry.magic() <= toMagic)
                     logEntryAndRecords.entry.writeTo(buffer);
                 else
-                    buffer = convertLogEntry(toMaxMagic, buffer, logEntryAndRecords);
+                    buffer = convertLogEntry(toMagic, buffer, logEntryAndRecords);
             }
 
             buffer.flip();

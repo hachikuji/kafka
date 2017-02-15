@@ -233,7 +233,7 @@ public class MemoryRecordsBuilderTest {
 
         buffer.flip();
 
-        Records records = MemoryRecords.readableRecords(buffer).downconvert(LogEntry.MAGIC_VALUE_V1);
+        Records records = MemoryRecords.readableRecords(buffer).downConvert(LogEntry.MAGIC_VALUE_V1);
 
         List<? extends LogEntry> entries = Utils.toList(records.entries().iterator());
         if (compressionType != CompressionType.NONE) {
@@ -269,7 +269,7 @@ public class MemoryRecordsBuilderTest {
 
         buffer.flip();
 
-        Records records = MemoryRecords.readableRecords(buffer).downconvert(LogEntry.MAGIC_VALUE_V1);
+        Records records = MemoryRecords.readableRecords(buffer).downConvert(LogEntry.MAGIC_VALUE_V1);
 
         List<? extends LogEntry> entries = Utils.toList(records.entries().iterator());
         if (compressionType != CompressionType.NONE) {
