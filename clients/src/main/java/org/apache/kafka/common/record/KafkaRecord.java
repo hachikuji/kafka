@@ -22,7 +22,7 @@ import java.nio.ByteBuffer;
 
 /**
  * High-level representation of a kafka record. This is useful when building record sets to
- * avoid dependence on a specific magic version.
+ * avoid depending on a specific magic version.
  */
 public class KafkaRecord {
 
