@@ -115,7 +115,7 @@ private[kafka] object LogValidator extends Logging {
 
   private def assignOffsetsNonCompressed(records: MemoryRecords,
                                          offsetCounter: LongRef,
-                                         now: Long,
+                                         currentTimestamp: Long,
                                          compactedTopic: Boolean,
                                          timestampType: TimestampType,
                                          timestampDiffMaxMs: Long): ValidationAndOffsetAssignResult = {
@@ -132,7 +132,7 @@ private[kafka] object LogValidator extends Logging {
         val offset = offsetCounter.getAndIncrement()
 
         if (entry.magic > LogEntry.MAGIC_VALUE_V0) {
-          validateTimestamp(entry, record, now, timestampType, timestampDiffMaxMs)
+          validateTimestamp(entry, record, currentTimestamp, timestampType, timestampDiffMaxMs)
 
           if (record.timestamp > maxTimestamp) {
             maxTimestamp = record.timestamp
@@ -146,12 +146,14 @@ private[kafka] object LogValidator extends Logging {
       else
         entry.setOffset(offsetCounter.value - 1)
 
+      // TODO: in the compressed path, we ensure that the entry max timestamp is correct.
+      //       We should either do the same or (better) let those two paths converge.
       if (entry.magic > 0 && timestampType == TimestampType.LOG_APPEND_TIME)
-        entry.setLogAppendTime(now)
+        entry.setTimestamp(TimestampType.LOG_APPEND_TIME, currentTimestamp)
     }
 
     if (timestampType == TimestampType.LOG_APPEND_TIME) {
-      maxTimestamp = now
+      maxTimestamp = currentTimestamp
       offsetOfMaxTimestamp = initialOffset
     }
 
@@ -172,7 +174,7 @@ private[kafka] object LogValidator extends Logging {
 
   def validateMessagesAndAssignOffsetsCompressed(records: MemoryRecords,
                                                  offsetCounter: LongRef,
-                                                 now: Long,
+                                                 currentTimestamp: Long,
                                                  sourceCodec: CompressionCodec,
                                                  targetCodec: CompressionCodec,
                                                  compactedTopic: Boolean = false,
@@ -205,7 +207,7 @@ private[kafka] object LogValidator extends Logging {
           if (!record.hasMagic(LogEntry.MAGIC_VALUE_V0) && messageFormatVersion > LogEntry.MAGIC_VALUE_V0) {
             // No in place assignment situation 3
             // Validate the timestamp
-            validateTimestamp(entry, record, now, messageTimestampType, messageTimestampDiffMaxMs)
+            validateTimestamp(entry, record, currentTimestamp, messageTimestampType, messageTimestampDiffMaxMs)
             // Check if we need to overwrite offset
             if (record.offset != expectedInnerOffset.getAndIncrement())
               inPlaceAssignment = false
@@ -227,7 +229,7 @@ private[kafka] object LogValidator extends Logging {
 
       if (!inPlaceAssignment) {
         buildRecordsAndAssignOffsets(messageFormatVersion, offsetCounter, messageTimestampType,
-          CompressionType.forId(targetCodec.codec), now, validatedRecords)
+          CompressionType.forId(targetCodec.codec), currentTimestamp, validatedRecords)
       } else {
         // ensure the inner messages are valid
         validatedRecords.foreach(_.ensureValid)
@@ -242,13 +244,14 @@ private[kafka] object LogValidator extends Logging {
         else
           entry.setOffset(lastOffset)
 
-        if (messageTimestampType == TimestampType.CREATE_TIME)
-          entry.setCreateTime(maxTimestamp)
-        else if (messageTimestampType == TimestampType.LOG_APPEND_TIME)
-          entry.setLogAppendTime(now)
+        if (messageTimestampType == TimestampType.LOG_APPEND_TIME)
+          maxTimestamp = currentTimestamp
+
+        if (messageFormatVersion >= LogEntry.MAGIC_VALUE_V1)
+          entry.setTimestamp(messageTimestampType, maxTimestamp)
 
         ValidationAndOffsetAssignResult(validatedRecords = records,
-          maxTimestamp = if (messageTimestampType == TimestampType.LOG_APPEND_TIME) now else maxTimestamp,
+          maxTimestamp = maxTimestamp,
           shallowOffsetOfMaxTimestamp = lastOffset,
           messageSizeMaybeChanged = false)
       }

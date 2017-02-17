@@ -212,25 +212,15 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
     }
 
     @Override
-    public void setCreateTime(long timestamp) {
-        long currentTimestamp = maxTimestamp();
+    public void setTimestamp(TimestampType timestampType, long maxTimestamp) {
+        long currentMaxTimestamp = maxTimestamp();
         // We don't need to recompute crc if the timestamp is not updated.
-        if (timestampType() == TimestampType.CREATE_TIME && currentTimestamp == timestamp)
+        if (timestampType() == timestampType && currentMaxTimestamp == maxTimestamp)
             return;
 
         byte attributes = attributes();
-        buffer.putShort(ATTRIBUTES_OFFSET, TimestampType.CREATE_TIME.updateAttributes(attributes));
-        buffer.putLong(MAX_TIMESTAMP_OFFSET, timestamp);
-        long crc = computeChecksum();
-        Utils.writeUnsignedInt(buffer, CRC_OFFSET, crc);
-    }
-
-    @Override
-    public void setLogAppendTime(long timestamp) {
-        byte attributes = attributes();
-        buffer.putShort(ATTRIBUTES_OFFSET, TimestampType.LOG_APPEND_TIME.updateAttributes(attributes));
-        buffer.putLong(BASE_TIMESTAMP_OFFSET, timestamp);
-        buffer.putLong(MAX_TIMESTAMP_OFFSET, timestamp);
+        buffer.putShort(ATTRIBUTES_OFFSET, timestampType.updateAttributes(attributes));
+        buffer.putLong(MAX_TIMESTAMP_OFFSET, maxTimestamp);
         long crc = computeChecksum();
         Utils.writeUnsignedInt(buffer, CRC_OFFSET, crc);
     }
