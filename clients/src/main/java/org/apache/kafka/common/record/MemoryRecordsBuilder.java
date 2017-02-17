@@ -143,7 +143,7 @@ public class MemoryRecordsBuilder {
         this.initialCapacity = buffer.capacity();
 
         if (magic > LogEntry.MAGIC_VALUE_V1) {
-            buffer.position(initPos + EosLogEntry.LOG_ENTRY_OVERHEAD);
+            buffer.position(initPos + EosLogEntry.RECORDS_OFFSET);
         } else if (compressionType != CompressionType.NONE) {
             // for compressed records, leave space for the header and the shallow message metadata
             // and move the starting position to the value payload offset

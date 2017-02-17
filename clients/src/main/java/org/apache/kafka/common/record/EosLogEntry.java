@@ -54,7 +54,7 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
     static final int EPOCH_LENGTH = 2;
     static final int BASE_SEQUENCE_OFFSET = EPOCH_OFFSET + EPOCH_LENGTH;
     static final int BASE_SEQUENCE_LENGTH = 4;
-    private static final int RECORDS_OFFSET = BASE_SEQUENCE_OFFSET + BASE_SEQUENCE_LENGTH;
+    static final int RECORDS_OFFSET = BASE_SEQUENCE_OFFSET + BASE_SEQUENCE_LENGTH;
     public static final int LOG_ENTRY_OVERHEAD = RECORDS_OFFSET;
 
     private static final int COMPRESSION_CODEC_MASK = 0x07;
