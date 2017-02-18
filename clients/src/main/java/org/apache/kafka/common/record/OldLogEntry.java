@@ -371,7 +371,7 @@ public abstract class OldLogEntry extends AbstractLogEntry implements LogRecord 
         }
 
         @Override
-        public void setTimestamp(TimestampType timestampType, long timestamp) {
+        public void setMaxTimestamp(TimestampType timestampType, long timestamp) {
             if (record.magic() == LogEntry.MAGIC_VALUE_V0)
                 throw new IllegalArgumentException("Cannot set timestamp for a record with magic = 0");
 

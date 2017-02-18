@@ -212,7 +212,7 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
     }
 
     @Override
-    public void setTimestamp(TimestampType timestampType, long maxTimestamp) {
+    public void setMaxTimestamp(TimestampType timestampType, long maxTimestamp) {
         long currentMaxTimestamp = maxTimestamp();
         // We don't need to recompute crc if the timestamp is not updated.
         if (timestampType() == timestampType && currentMaxTimestamp == maxTimestamp)

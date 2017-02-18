@@ -190,7 +190,7 @@ public interface LogEntry extends Iterable<LogRecord> {
     interface MutableLogEntry extends LogEntry {
         void setOffset(long offset);
 
-        void setTimestamp(TimestampType timestampType, long maxTimestamp);
+        void setMaxTimestamp(TimestampType timestampType, long maxTimestamp);
     }
 
 }

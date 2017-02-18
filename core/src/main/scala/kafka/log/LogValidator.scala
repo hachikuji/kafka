@@ -149,7 +149,7 @@ private[kafka] object LogValidator extends Logging {
       // TODO: in the compressed path, we ensure that the entry max timestamp is correct.
       //       We should either do the same or (better) let those two paths converge.
       if (entry.magic > 0 && timestampType == TimestampType.LOG_APPEND_TIME)
-        entry.setTimestamp(TimestampType.LOG_APPEND_TIME, currentTimestamp)
+        entry.setMaxTimestamp(TimestampType.LOG_APPEND_TIME, currentTimestamp)
     }
 
     if (timestampType == TimestampType.LOG_APPEND_TIME) {
@@ -248,7 +248,7 @@ private[kafka] object LogValidator extends Logging {
           maxTimestamp = currentTimestamp
 
         if (messageFormatVersion >= LogEntry.MAGIC_VALUE_V1)
-          entry.setTimestamp(messageTimestampType, maxTimestamp)
+          entry.setMaxTimestamp(messageTimestampType, maxTimestamp)
 
         ValidationAndOffsetAssignResult(validatedRecords = records,
           maxTimestamp = maxTimestamp,
