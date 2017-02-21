@@ -85,6 +85,11 @@ public class FetchResponse extends AbstractResponse {
             this.pid = pid;
             this.firstOffset = firstOffset;
         }
+
+        @Override
+        public String toString() {
+            return "(pid=" + pid + ", firstOffset=" + firstOffset + ")";
+        }
     }
 
     public static final class PartitionData {
@@ -284,9 +289,20 @@ public class FetchResponse extends AbstractResponse {
                 partitionDataHeader.set(HIGH_WATERMARK_KEY_NAME, fetchPartitionData.highWatermark);
 
                 if (version >= 4) {
-                    // until transactions are implemented we leave these fields empty
-                    partitionDataHeader.set(LAST_STABLE_OFFSET_KEY_NAME, INVALID_LSO);
-                    partitionDataHeader.set(ABORTED_TRANSACTIONS_KEY_NAME, null);
+                    partitionDataHeader.set(LAST_STABLE_OFFSET_KEY_NAME, fetchPartitionData.lastStableOffset);
+
+                    if (fetchPartitionData.abortedTransactions == null) {
+                        partitionDataHeader.set(ABORTED_TRANSACTIONS_KEY_NAME, null);
+                    } else {
+                        List<Struct> abortedTransactionStructs = new ArrayList<>(fetchPartitionData.abortedTransactions.size());
+                        for (AbortedTransaction abortedTransaction : fetchPartitionData.abortedTransactions) {
+                            Struct abortedTransactionStruct = partitionDataHeader.instance(ABORTED_TRANSACTIONS_KEY_NAME);
+                            abortedTransactionStruct.set(PID_KEY_NAME, abortedTransaction.pid);
+                            abortedTransactionStruct.set(FIRST_OFFSET_KEY_NAME, abortedTransaction.firstOffset);
+                            abortedTransactionStructs.add(abortedTransactionStruct);
+                        }
+                        partitionDataHeader.set(ABORTED_TRANSACTIONS_KEY_NAME, abortedTransactionStructs.toArray());
+                    }
                 }
 
                 partitionData.set(PARTITION_HEADER_KEY_NAME, partitionDataHeader);

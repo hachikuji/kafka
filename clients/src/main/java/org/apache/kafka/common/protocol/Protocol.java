@@ -166,6 +166,8 @@ public class Protocol {
      */
     public static final Schema PRODUCE_REQUEST_V2 = PRODUCE_REQUEST_V1;
 
+    // Produce request V3 adds the transactional id which is used for authorization when attempting to write
+    // transactional data. This version also adds support for message format V2.
     public static final Schema PRODUCE_REQUEST_V3 = new Schema(
             new Field("transactional_id",
                     NULLABLE_STRING,
@@ -515,7 +517,7 @@ public class Protocol {
     // Only the version number is incremented to indicate the client support message format V1 which uses
     // relative offset and has timestamp.
     public static final Schema FETCH_REQUEST_V2 = FETCH_REQUEST_V1;
-    // FETCH_REQUEST_V3 added top level max_bytes field - the total size of partition data to accumulate in response.
+    // Fetch Request V3 added top level max_bytes field - the total size of partition data to accumulate in response.
     // The partition ordering is now relevant - partitions will be processed in order they appear in request.
     public static final Schema FETCH_REQUEST_V3 = new Schema(new Field("replica_id",
                                                                        INT32,
@@ -534,8 +536,8 @@ public class Protocol {
                                                              new Field("topics",
                                                                        new ArrayOf(FETCH_REQUEST_TOPIC_V0),
                                                                        "Topics to fetch in the order provided."));
-    // FETCH_REQUEST_V3 added top level max_bytes field - the total size of partition data to accumulate in response.
-    // The partition ordering is now relevant - partitions will be processed in order they appear in request.
+
+    // The V4 Fetch Request adds the fetch isolation level and exposes magic v2 (via the response).
     public static final Schema FETCH_REQUEST_V4 = new Schema(
             new Field("replica_id",
                     INT32,
@@ -594,6 +596,8 @@ public class Protocol {
     public static final Schema FETCH_RESPONSE_V3 = FETCH_RESPONSE_V2;
 
 
+    // The v4 Fetch Response adds features for transactional consumption (the aborted transaction list and the
+    // last stable offset). It also exposes messages with magic v2 (along with older formats).
     private static final Schema FETCH_RESPONSE_ABORTED_TRANSACTION_V4 = new Schema(
             new Field("pid", INT64, "The producer ID (PID) associated with the aborted transactions"),
             new Field("first_offset", INT64, "The first offset in the aborted transaction"));

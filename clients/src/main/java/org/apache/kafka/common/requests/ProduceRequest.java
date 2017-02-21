@@ -87,9 +87,12 @@ public class ProduceRequest extends AbstractRequest {
         Map<String, Map<Integer, MemoryRecords>> recordsByTopic = CollectionUtils.groupDataByTopic(partitionRecords);
         struct.set(ACKS_KEY_NAME, acks);
         struct.set(TIMEOUT_KEY_NAME, timeout);
+
+
+        // TODO: Include transactional id once transactions are supported
+        String transactionalId = null;
         if (version >= 3)
-            // TODO: Include transactional id once transactions are supported
-            struct.set(TRANSACTIONAL_ID_KEY_NAME, null);
+            struct.set(TRANSACTIONAL_ID_KEY_NAME, transactionalId);
 
         List<Struct> topicDatas = new ArrayList<>(recordsByTopic.size());
         for (Map.Entry<String, Map<Integer, MemoryRecords>> topicEntry : recordsByTopic.entrySet()) {
@@ -122,7 +125,7 @@ public class ProduceRequest extends AbstractRequest {
         struct.set(TOPIC_DATA_KEY_NAME, topicDatas.toArray());
         this.acks = acks;
         this.timeout = timeout;
-        this.transactionalId = null;
+        this.transactionalId = transactionalId;
         this.partitionRecords = partitionRecords;
     }
 
