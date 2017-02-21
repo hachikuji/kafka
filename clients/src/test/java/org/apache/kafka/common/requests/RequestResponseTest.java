@@ -26,9 +26,12 @@ import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.SecurityProtocol;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.record.CompressionType;
+import org.apache.kafka.common.record.InvalidRecordException;
 import org.apache.kafka.common.record.KafkaRecord;
 import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.MemoryRecordsBuilder;
+import org.apache.kafka.common.record.TimestampType;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -199,6 +202,56 @@ public class RequestResponseTest {
         assertEquals("Response data does not match", responseData, v0Response.responses());
         assertEquals("Response data does not match", responseData, v1Response.responses());
         assertEquals("Response data does not match", responseData, v2Response.responses());
+    }
+
+    @Test(expected = InvalidRecordException.class)
+    public void produceRequestV3ShouldContainOnlyOneLogEntry() {
+        ByteBuffer buffer = ByteBuffer.allocate(256);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, CompressionType.NONE, TimestampType.CREATE_TIME, 0L);
+        builder.append(10L, null, "a".getBytes());
+        builder.close();
+
+        builder = MemoryRecords.builder(buffer, CompressionType.NONE, TimestampType.CREATE_TIME, 1L);
+        builder.append(11L, "1".getBytes(), "b".getBytes());
+        builder.append(12L, null, "c".getBytes());
+        builder.close();
+
+        buffer.flip();
+
+        Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
+        produceData.put(new TopicPartition("test", 0), MemoryRecords.readableRecords(buffer));
+        new ProduceRequest.Builder((short) 1, 5000, produceData).build();
+    }
+
+    @Test(expected = InvalidRecordException.class)
+    public void produceRequestV3CannotHaveNoLogEntries() {
+        Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
+        produceData.put(new TopicPartition("test", 0), MemoryRecords.EMPTY);
+        new ProduceRequest.Builder((short) 1, 5000, produceData).build();
+    }
+
+    @Test(expected = InvalidRecordException.class)
+    public void produceRequestV3CannotUseMagicV0() {
+        ByteBuffer buffer = ByteBuffer.allocate(256);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V0, CompressionType.NONE,
+                TimestampType.NO_TIMESTAMP_TYPE, 0L);
+        builder.append(10L, null, "a".getBytes());
+
+        Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
+        produceData.put(new TopicPartition("test", 0), builder.build());
+        new ProduceRequest.Builder((short) 1, 5000, produceData).build();
+    }
+
+    @Test(expected = InvalidRecordException.class)
+    public void produceRequestV3CannotUseMagicV1() {
+        ByteBuffer buffer = ByteBuffer.allocate(256);
+        MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V1, CompressionType.NONE,
+                TimestampType.CREATE_TIME, 0L);
+        builder.append(10L, null, "a".getBytes());
+
+        Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
+        produceData.put(new TopicPartition("test", 0), builder.build());
+        new ProduceRequest.Builder((short) 1, 5000, produceData).build();
     }
 
     @Test

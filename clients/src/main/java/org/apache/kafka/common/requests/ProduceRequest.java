@@ -19,6 +19,7 @@ import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ProtoUtils;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.record.InvalidRecordException;
 import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.utils.CollectionUtils;
@@ -27,6 +28,7 @@ import org.apache.kafka.common.utils.Utils;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -104,17 +106,8 @@ public class ProduceRequest extends AbstractRequest {
                 Struct part = topicData.instance(PARTITION_DATA_KEY_NAME)
                                        .set(PARTITION_KEY_NAME, partitionEntry.getKey());
 
-                if (version >= 3) {
-                    List<? extends LogEntry> entries = Utils.toList(records.entries().iterator());
-                    if (entries.size() != 1)
-                        throw new IllegalArgumentException("Version 3 of the produce request only allows a single log " +
-                                "entry (which includes a batch of records)");
-                    LogEntry entry = entries.get(0);
-                    if (entry.magic() != LogEntry.MAGIC_VALUE_V2)
-                        throw new IllegalArgumentException("Version 3 of the produce request is only allowed to send " +
-                                "records with magic version 2");
-
-                }
+                if (version >= 3)
+                    validateRecords(version, records);
 
                 part.set(RECORD_SET_KEY_NAME, records);
                 partitionArray.add(part);
@@ -139,12 +132,33 @@ public class ProduceRequest extends AbstractRequest {
                 Struct partitionResponse = (Struct) partitionResponseObj;
                 int partition = partitionResponse.getInt(PARTITION_KEY_NAME);
                 MemoryRecords records = (MemoryRecords) partitionResponse.getRecords(RECORD_SET_KEY_NAME);
+
+                if (version >= 3)
+                    validateRecords(version, records);
+
                 partitionRecords.put(new TopicPartition(topic, partition), records);
             }
         }
         acks = struct.getShort(ACKS_KEY_NAME);
         timeout = struct.getInt(TIMEOUT_KEY_NAME);
         transactionalId = version >= 3 ? struct.getString(TRANSACTIONAL_ID_KEY_NAME) : null;
+    }
+
+    private void validateRecords(short version, MemoryRecords records) {
+        if (version >= 3) {
+            Iterator<LogEntry.MutableLogEntry> iterator = records.entries().iterator();
+            if (!iterator.hasNext())
+                throw new InvalidRecordException("Version 3 and above of the produce request contained no log entries");
+
+            LogEntry.MutableLogEntry entry = iterator.next();
+            if (entry.magic() != LogEntry.MAGIC_VALUE_V2)
+                throw new InvalidRecordException("Version 3 and above of the produce request is only allowed to " +
+                        "contain log entries with magic version 2");
+
+            if (iterator.hasNext())
+                throw new InvalidRecordException("Version 3 and above of the produce request is only allowed to " +
+                        "contain more than one log entry");
+        }
     }
 
     @Override
