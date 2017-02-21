@@ -461,20 +461,6 @@ class Log(@volatile var dir: File,
    * </ol>
    */
   private def analyzeAndValidateRecords(records: MemoryRecords): LogAppendInfo = {
-    def validateEntry(entry: LogEntry) {
-      // Check if the message sizes are valid.
-      val entrySize = entry.sizeInBytes
-      if (entrySize > config.maxMessageSize) {
-        BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).bytesRejectedRate.mark(records.sizeInBytes)
-        BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(records.sizeInBytes)
-        throw new RecordTooLargeException(s"Message size is $entrySize bytes which exceeds the maximum configured " +
-          s"message size of ${config.maxMessageSize}.")
-      }
-
-      // check the validity of the message by checking CRC
-      entry.ensureValid()
-    }
-
     var shallowMessageCount = 0
     var validBytesCount = 0
     var firstOffset = -1L
@@ -495,14 +481,24 @@ class Log(@volatile var dir: File,
       // update the last offset seen
       lastOffset = entry.lastOffset
 
-      validateEntry(entry)
+      // Check if the message sizes are valid.
+      val entrySize = entry.sizeInBytes
+      if (entrySize > config.maxMessageSize) {
+        BrokerTopicStats.getBrokerTopicStats(topicPartition.topic).bytesRejectedRate.mark(records.sizeInBytes)
+        BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(records.sizeInBytes)
+        throw new RecordTooLargeException(s"Message size is $entrySize bytes which exceeds the maximum configured " +
+          s"message size of ${config.maxMessageSize}.")
+      }
+
+      // check the validity of the message by checking CRC
+      entry.ensureValid()
 
       if (entry.maxTimestamp > maxTimestamp) {
         maxTimestamp = entry.maxTimestamp
         offsetOfMaxTimestamp = lastOffset
       }
       shallowMessageCount += 1
-      validBytesCount += entry.sizeInBytes
+      validBytesCount += entrySize
 
       val messageCodec = CompressionCodec.getCompressionCodec(entry.compressionType.id)
       if (messageCodec != NoCompressionCodec)
