@@ -369,6 +369,12 @@ public class RequestResponseTest {
         MemoryRecords records = MemoryRecords.readableRecords(ByteBuffer.allocate(10));
         responseData.put(new TopicPartition("test", 0), new FetchResponse.PartitionData(Errors.NONE.code(),
                 1000000, FetchResponse.INVALID_LSO, null, records));
+
+        List<FetchResponse.AbortedTransaction> abortedTransactions = Collections.singletonList(
+                new FetchResponse.AbortedTransaction(234L, 999L));
+        responseData.put(new TopicPartition("test", 1), new FetchResponse.PartitionData(Errors.NONE.code(),
+                1000000, FetchResponse.INVALID_LSO, abortedTransactions, records));
+
         return new FetchResponse(responseData, 25);
     }
 
