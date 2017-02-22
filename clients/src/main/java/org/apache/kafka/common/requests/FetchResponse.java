@@ -211,6 +211,10 @@ public class FetchResponse extends AbstractResponse {
         return this.throttleTime;
     }
 
+    public static FetchResponse parse(ByteBuffer buffer) {
+        return new FetchResponse(CURRENT_SCHEMA.read(buffer));
+    }
+
     public static FetchResponse parse(ByteBuffer buffer, int version) {
         return new FetchResponse(ProtoUtils.responseSchema(ApiKeys.FETCH.id, version).read(buffer));
     }
