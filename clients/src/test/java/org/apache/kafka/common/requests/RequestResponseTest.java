@@ -366,14 +366,14 @@ public class RequestResponseTest {
 
     private FetchResponse createFetchResponse() {
         LinkedHashMap<TopicPartition, FetchResponse.PartitionData> responseData = new LinkedHashMap<>();
-        MemoryRecords records = MemoryRecords.readableRecords(ByteBuffer.allocate(10));
+        MemoryRecords records = MemoryRecords.withRecords(CompressionType.NONE, new KafkaRecord("blah".getBytes()));
         responseData.put(new TopicPartition("test", 0), new FetchResponse.PartitionData(Errors.NONE.code(),
                 1000000, FetchResponse.INVALID_LSO, null, records));
 
         List<FetchResponse.AbortedTransaction> abortedTransactions = Collections.singletonList(
                 new FetchResponse.AbortedTransaction(234L, 999L));
         responseData.put(new TopicPartition("test", 1), new FetchResponse.PartitionData(Errors.NONE.code(),
-                1000000, FetchResponse.INVALID_LSO, abortedTransactions, records));
+                1000000, FetchResponse.INVALID_LSO, abortedTransactions, MemoryRecords.EMPTY));
 
         return new FetchResponse(responseData, 25);
     }
