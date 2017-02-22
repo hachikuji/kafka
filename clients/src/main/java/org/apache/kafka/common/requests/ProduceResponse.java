@@ -190,4 +190,9 @@ public class ProduceResponse extends AbstractResponse {
     public static ProduceResponse parse(ByteBuffer buffer) {
         return new ProduceResponse(CURRENT_SCHEMA.read(buffer));
     }
+
+    public static ProduceResponse parse(ByteBuffer buffer, int version) {
+        return new ProduceResponse(ProtoUtils.responseSchema(ApiKeys.PRODUCE.id, version).read(buffer));
+    }
+
 }

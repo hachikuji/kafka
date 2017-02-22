@@ -64,6 +64,14 @@ public class RequestResponseTest {
         checkSerialization(createControlledShutdownRequest());
         checkSerialization(createControlledShutdownResponse(), null);
         checkSerialization(createControlledShutdownRequest().getErrorResponse(new UnknownServerException()), null);
+        checkSerialization(createFetchRequest(0), 0);
+        checkSerialization(createFetchRequest(0).getErrorResponse(new UnknownServerException()), 0);
+        checkSerialization(createFetchRequest(1), 1);
+        checkSerialization(createFetchRequest(1).getErrorResponse(new UnknownServerException()), 1);
+        checkSerialization(createFetchRequest(2), 2);
+        checkSerialization(createFetchRequest(2).getErrorResponse(new UnknownServerException()), 2);
+        checkSerialization(createFetchRequest(3), 3);
+        checkSerialization(createFetchRequest(3).getErrorResponse(new UnknownServerException()), 3);
         checkSerialization(createFetchRequest(4), 4);
         checkSerialization(createFetchRequest(4).getErrorResponse(new UnknownServerException()), 4);
         checkSerialization(createFetchResponse(), null);
@@ -104,8 +112,10 @@ public class RequestResponseTest {
         checkSerialization(createOffsetFetchRequest(1).getErrorResponse(new UnknownServerException()), 1);
         checkSerialization(createOffsetFetchRequest(2).getErrorResponse(new UnknownServerException()), 2);
         checkSerialization(createOffsetFetchResponse(), null);
-        checkSerialization(createProduceRequest());
-        checkSerialization(createProduceRequest().getErrorResponse(new UnknownServerException()), null);
+        checkSerialization(createProduceRequest(2));
+        checkSerialization(createProduceRequest(2).getErrorResponse(new UnknownServerException()), 2);
+        checkSerialization(createProduceRequest(3));
+        checkSerialization(createProduceRequest(3).getErrorResponse(new UnknownServerException()), 3);
         checkSerialization(createProduceResponse(), null);
         checkSerialization(createStopReplicaRequest(true));
         checkSerialization(createStopReplicaRequest(false));
@@ -505,11 +515,14 @@ public class RequestResponseTest {
         return new OffsetFetchResponse(Errors.NONE, responseData);
     }
 
-    private ProduceRequest createProduceRequest() {
-        Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
-        MemoryRecords records = MemoryRecords.withRecords(CompressionType.NONE, new KafkaRecord("woot".getBytes()));
-        produceData.put(new TopicPartition("test", 0), records);
-        return new ProduceRequest.Builder((short) 1, 5000, produceData).build();
+    private ProduceRequest createProduceRequest(int version) {
+        if (version < 2)
+            throw new IllegalArgumentException("Produce request version 2 is not supported");
+
+        byte magic = version == 2 ? LogEntry.MAGIC_VALUE_V1 : LogEntry.MAGIC_VALUE_V2;
+        MemoryRecords records = MemoryRecords.withRecords(magic, CompressionType.NONE, new KafkaRecord("woot".getBytes()));
+        Map<TopicPartition, MemoryRecords> produceData = Collections.singletonMap(new TopicPartition("test", 0), records);
+        return new ProduceRequest.Builder((short) 1, 5000, produceData).setVersion((short) version).build();
     }
 
     private ProduceResponse createProduceResponse() {
