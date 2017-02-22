@@ -24,7 +24,7 @@ import kafka.utils.TestUtils
 import kafka.utils.TestUtils._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.protocol.{ApiKeys, Errors, ProtoUtils}
 import org.apache.kafka.common.record.LogRecord
 import org.apache.kafka.common.requests.{FetchRequest, FetchResponse}
 import org.apache.kafka.common.serialization.StringSerializer
@@ -67,9 +67,10 @@ class FetchRequestTest extends BaseRequestTest {
     partitionMap
   }
 
-  private def sendFetchRequest(leaderId: Int, request: FetchRequest): FetchResponse = {
+  private def sendFetchRequest(leaderId: Int, request: FetchRequest,
+                               version: Short = ProtoUtils.latestVersion(ApiKeys.FETCH.id)): FetchResponse = {
     val response = send(request, ApiKeys.FETCH, destination = brokerSocketServer(leaderId))
-    FetchResponse.parse(response)
+    FetchResponse.parse(response, version)
   }
 
   @Test
@@ -159,7 +160,7 @@ class FetchRequestTest extends BaseRequestTest {
     val fetchRequestBuilder = new FetchRequest.Builder(
       Int.MaxValue, 0, createPartitionMap(maxPartitionBytes, Seq(topicPartition))).
       setVersion(2)
-    val fetchResponse = sendFetchRequest(leaderId, fetchRequestBuilder.build())
+    val fetchResponse = sendFetchRequest(leaderId, fetchRequestBuilder.build(), version = 2)
     val partitionData = fetchResponse.responseData.get(topicPartition)
     assertEquals(Errors.NONE.code, partitionData.errorCode)
     assertTrue(partitionData.highWatermark > 0)
