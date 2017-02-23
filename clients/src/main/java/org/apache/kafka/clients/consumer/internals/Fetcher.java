@@ -769,11 +769,12 @@ public class Fetcher<K, V> implements SubscriptionState.Listener {
                 for (LogEntry entry : partition.records.entries()) {
                     for (LogRecord record : entry) {
                         // Skip the messages earlier than current position.
-                        if (record.offset() >= position) {
+                        if (record.isControlRecord() || record.offset() < position) {
+                            skippedRecords = true;
+                        } else {
                             parsed.add(parseRecord(tp, entry, record));
                             bytes += record.sizeInBytes();
-                        } else
-                            skippedRecords = true;
+                        }
                     }
                 }
 
