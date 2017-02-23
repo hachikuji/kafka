@@ -24,10 +24,14 @@ import org.apache.kafka.common.protocol.types.Type;
 import java.nio.ByteBuffer;
 
 public enum ControlRecordType {
-    COMMIT((short) 0), ABORT((short) 1), UNKNOWN((short) -1);
+    COMMIT((short) 0),
+    ABORT((short) 1),
+
+    // UNKNOWN is used to indicate a control type which the client is not aware of and should be ignored
+    UNKNOWN((short) -1);
 
     private static final short CURRENT_CONTROL_RECORD_KEY_VERSION = 0;
-    private static final Schema CONTROL_RECORD_KEY_SCHEMA_VERSION0 = new Schema(
+    private static final Schema CONTROL_RECORD_KEY_SCHEMA_VERSION_V0 = new Schema(
             new Field("version", Type.INT16),
             new Field("type", Type.INT16));
 
@@ -41,7 +45,7 @@ public enum ControlRecordType {
         if (this == UNKNOWN)
             throw new IllegalArgumentException("Cannot serialize UNKNOWN control record type");
 
-        Struct struct = new Struct(CONTROL_RECORD_KEY_SCHEMA_VERSION0);
+        Struct struct = new Struct(CONTROL_RECORD_KEY_SCHEMA_VERSION_V0);
         struct.set("version", CURRENT_CONTROL_RECORD_KEY_VERSION);
         struct.set("type", type);
         return struct;

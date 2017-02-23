@@ -768,7 +768,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener {
                 boolean skippedRecords = false;
                 for (LogEntry entry : partition.records.entries()) {
                     for (LogRecord record : entry) {
-                        // Skip the messages earlier than current position.
+                        // control records should not be returned to the user. also skip anything out of range
                         if (record.isControlRecord() || record.offset() < position) {
                             skippedRecords = true;
                         } else {

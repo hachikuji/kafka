@@ -315,7 +315,7 @@ public class MemoryRecordsBuilder {
         return append(record.timestamp(), record.key(), record.value());
     }
 
-    public long append(long timestamp, ControlRecordType type, ByteBuffer value) {
+    public long appendControlRecord(long timestamp, ControlRecordType type, ByteBuffer value) {
         Struct keyStruct = type.recordKey();
         ByteBuffer key = ByteBuffer.allocate(keyStruct.sizeOf());
         keyStruct.writeTo(key);
@@ -383,7 +383,7 @@ public class MemoryRecordsBuilder {
      * @param record The record to add
      */
     public void append(Record record) {
-        appendWithOffset(lastOffset < 0 ? baseOffset : lastOffset + 1, record);
+        appendWithOffset(nextSequentialOffset(), record);
     }
 
     private long toInnerOffset(long offset) {

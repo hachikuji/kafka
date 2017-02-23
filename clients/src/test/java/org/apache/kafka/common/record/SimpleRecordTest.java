@@ -171,8 +171,8 @@ public class SimpleRecordTest {
         MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, LogEntry.MAGIC_VALUE_V2, CompressionType.NONE,
                 TimestampType.CREATE_TIME, 0L);
 
-        builder.append(System.currentTimeMillis(), ControlRecordType.COMMIT, null);
-        builder.append(System.currentTimeMillis(), ControlRecordType.ABORT, null);
+        builder.appendControlRecord(System.currentTimeMillis(), ControlRecordType.COMMIT, null);
+        builder.appendControlRecord(System.currentTimeMillis(), ControlRecordType.ABORT, null);
         MemoryRecords records = builder.build();
 
         List<LogRecord> logRecords = TestUtils.toList(records.records());
