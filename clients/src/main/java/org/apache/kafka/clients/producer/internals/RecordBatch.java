@@ -221,4 +221,7 @@ public final class RecordBatch {
         return !recordsBuilder.isClosed();
     }
 
+    public byte magic() {
+        return recordsBuilder.magic();
+    }
 }

@@ -33,6 +33,7 @@ import org.apache.kafka.common.metrics.stats.Avg;
 import org.apache.kafka.common.metrics.stats.Max;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.requests.ProduceRequest;
 import org.apache.kafka.common.requests.ProduceResponse;
@@ -343,16 +344,28 @@ public class Sender implements Runnable {
      * Create a produce request from the given record batches
      */
     private void sendProduceRequest(long now, int destination, short acks, int timeout, List<RecordBatch> batches) {
+        if (batches.isEmpty())
+            return;
+
         Map<TopicPartition, MemoryRecords> produceRecordsByPartition = new HashMap<>(batches.size());
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<>(batches.size());
+        byte maxUsedMagic = LogEntry.MAGIC_VALUE_V1;
         for (RecordBatch batch : batches) {
             TopicPartition tp = batch.topicPartition;
             produceRecordsByPartition.put(tp, batch.records());
             recordsByPartition.put(tp, batch);
+            if (batch.magic() > maxUsedMagic)
+                maxUsedMagic = batch.magic();
         }
 
-        ProduceRequest.Builder requestBuilder =
-                new ProduceRequest.Builder(acks, timeout, produceRecordsByPartition);
+        // FIXME: In fact, version 3 of the produce request requires that all records use magic version 2.
+        // If we happen to get a cluster which is upgrading, then the batches created above may have used
+        // different magic versions, which will cause the request to error in serialization. To fix this we
+        // either need to convert the requests to use the right magic version, or we allow produce request
+        // version 3 to send old magic versions.
+
+        ProduceRequest.Builder requestBuilder = new ProduceRequest.Builder(maxUsedMagic, acks, timeout,
+                produceRecordsByPartition);
         RequestCompletionHandler callback = new RequestCompletionHandler() {
             public void onComplete(ClientResponse response) {
                 handleProduceResponse(response, recordsByPartition, time.milliseconds());
