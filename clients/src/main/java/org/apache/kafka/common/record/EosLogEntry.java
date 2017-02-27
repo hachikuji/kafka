@@ -51,7 +51,7 @@ import static org.apache.kafka.common.record.Records.LOG_OVERHEAD;
  *  The current attributes are given below:
  *
  *  -----------------------------------------------------------------------------------------------
- *  | Compression Type (bits 0-2) | Timestamp Type (bit 3) | Transactional (bit 4) | Unused (5-16) |
+ *  | Unused (5-16) | Transactional (bit 4) | Timestamp Type (bit 3) | Compression Type (bits 0-2) |
  *  -----------------------------------------------------------------------------------------------
  */
 public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLogEntry {
