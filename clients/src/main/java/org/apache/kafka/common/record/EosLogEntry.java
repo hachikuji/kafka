@@ -31,6 +31,29 @@ import java.util.Iterator;
 
 import static org.apache.kafka.common.record.Records.LOG_OVERHEAD;
 
+/**
+ * LogEntry implementation for magic 2 and above. The schema is given below:
+ *
+ * LogEntry =>
+ *  FirstOffset => int64
+ *  Length => int32
+ *  CRC => int32
+ *  Magic => int8
+ *  Attributes => int16
+ *  LastOffsetDelta => int32
+ *  FirstTimestamp => int64
+ *  MaxTimestamp => int64
+ *  PID => int64
+ *  Epoch => int16
+ *  FirstSequence => int32
+ *  Records => Record1, Record2, … , RecordN
+ *
+ *  The current attributes are given below:
+ *
+ *  -----------------------------------------------------------------------------------------------
+ *  | Compression Type (bits 0-2) | Timestamp Type (bit 3) | Transactional (bit 4) | Unused (5-16) |
+ *  -----------------------------------------------------------------------------------------------
+ */
 public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLogEntry {
     static final int BASE_OFFSET_OFFSET = 0;
     static final int BASE_OFFSET_LENGTH = 8;
@@ -58,7 +81,7 @@ public class EosLogEntry extends AbstractLogEntry implements LogEntry.MutableLog
     public static final int LOG_ENTRY_OVERHEAD = RECORDS_OFFSET;
 
     private static final byte COMPRESSION_CODEC_MASK = 0x07;
-    private static final byte TRANSACTIONAL_FLAG_MASK = 0x16;
+    private static final byte TRANSACTIONAL_FLAG_MASK = 0x10;
 
     private final ByteBuffer buffer;
 
