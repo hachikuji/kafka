@@ -349,22 +349,29 @@ public class Sender implements Runnable {
 
         Map<TopicPartition, MemoryRecords> produceRecordsByPartition = new HashMap<>(batches.size());
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<>(batches.size());
-        byte maxUsedMagic = LogEntry.MAGIC_VALUE_V1;
+
+        // find the minimum magic version used when creating the record sets
+        byte minUsedMagic = LogEntry.CURRENT_MAGIC_VALUE;
         for (RecordBatch batch : batches) {
-            TopicPartition tp = batch.topicPartition;
-            produceRecordsByPartition.put(tp, batch.records());
-            recordsByPartition.put(tp, batch);
-            if (batch.magic() > maxUsedMagic)
-                maxUsedMagic = batch.magic();
+            if (batch.magic() < minUsedMagic)
+                minUsedMagic = batch.magic();
         }
 
-        // FIXME: In fact, version 3 of the produce request requires that all records use magic version 2.
-        // If we happen to get a cluster which is upgrading, then the batches created above may have used
-        // different magic versions, which will cause the request to error in serialization. To fix this we
-        // either need to convert the requests to use the right magic version, or we allow produce request
-        // version 3 to send old magic versions.
+        for (RecordBatch batch : batches) {
+            TopicPartition tp = batch.topicPartition;
+            MemoryRecords records = batch.records();
 
-        ProduceRequest.Builder requestBuilder = new ProduceRequest.Builder(maxUsedMagic, acks, timeout,
+            // down convert if necessary to the minimum magic used. This is intended to handle edge cases around
+            // cluster upgrades where brokers may not all support the same message format version. For example,
+            // if a partition migrates from a broker which is supporting the new magic version to one which doesn't,
+            // then we will need to convert.
+            if (!records.hasMatchingMagic(minUsedMagic))
+                records = (MemoryRecords) batch.records().downConvert(minUsedMagic);
+            produceRecordsByPartition.put(tp, records);
+            recordsByPartition.put(tp, batch);
+        }
+
+        ProduceRequest.Builder requestBuilder = new ProduceRequest.Builder(minUsedMagic, acks, timeout,
                 produceRecordsByPartition);
         RequestCompletionHandler callback = new RequestCompletionHandler() {
             public void onComplete(ClientResponse response) {
