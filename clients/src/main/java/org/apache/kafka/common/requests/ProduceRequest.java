@@ -55,7 +55,7 @@ public class ProduceRequest extends AbstractRequest {
                        short acks,
                        int timeout,
                        Map<TopicPartition, MemoryRecords> partitionRecords) {
-            super(ApiKeys.PRODUCE, (short) (magic >= LogEntry.CURRENT_MAGIC_VALUE ? 3 : 2));
+            super(ApiKeys.PRODUCE, (short) (magic == LogEntry.MAGIC_VALUE_V2 ? 3 : 2));
             this.magic = magic;
             this.acks = acks;
             this.timeout = timeout;
