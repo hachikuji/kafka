@@ -185,6 +185,12 @@ public interface LogEntry extends Iterable<LogRecord> {
     void writeTo(ByteBuffer buffer);
 
     /**
+     * Whether or not this log entry is part of a transaction.
+     * @return true if it is, false otherwise
+     */
+    boolean isTransactional();
+
+    /**
      * A mutable log entry is one that can be modified in place (without copying).
      */
     interface MutableLogEntry extends LogEntry {
