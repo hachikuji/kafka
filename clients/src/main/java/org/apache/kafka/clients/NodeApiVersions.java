@@ -38,7 +38,7 @@ public class NodeApiVersions {
     private final Map<ApiKeys, UsableVersion> usableVersions = new EnumMap<>(ApiKeys.class);
 
     // List of APIs which the broker supports, but which are unknown to the client.
-    private final List<ApiVersion> unknownVersions = new ArrayList<>();
+    private final List<ApiVersion> unknownApis = new ArrayList<>();
 
     /**
      * Create a NodeApiVersions object with the current ApiVersions.
@@ -87,7 +87,7 @@ public class NodeApiVersions {
                     usableVersions.put(nodeApiKey, new UsableVersion(nodeApiVersion, v));
                 }
             } else {
-                unknownVersions.add(nodeApiVersion);
+                unknownApis.add(nodeApiVersion);
             }
         }
     }
@@ -144,7 +144,7 @@ public class NodeApiVersions {
         TreeMap<Short, String> apiKeysText = new TreeMap<>();
         for (UsableVersion usableVersion : this.usableVersions.values())
             apiKeysText.put(usableVersion.apiVersion.apiKey, apiVersionToText(usableVersion.apiVersion));
-        for (ApiVersion apiVersion : unknownVersions)
+        for (ApiVersion apiVersion : unknownApis)
             apiKeysText.put(apiVersion.apiKey, apiVersionToText(apiVersion));
 
         // Also handle the case where some apiKey types are not specified at all in the given ApiVersions,
