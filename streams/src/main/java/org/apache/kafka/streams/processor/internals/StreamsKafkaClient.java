@@ -13,6 +13,7 @@
 
 package org.apache.kafka.streams.processor.internals;
 
+import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.ClientRequest;
 import org.apache.kafka.clients.ClientResponse;
 import org.apache.kafka.clients.ClientUtils;
@@ -125,7 +126,8 @@ public class StreamsKafkaClient {
             streamsConfig.getInt(StreamsConfig.RECEIVE_BUFFER_CONFIG),
             streamsConfig.getInt(StreamsConfig.REQUEST_TIMEOUT_MS_CONFIG),
             time,
-            true);
+            true,
+            new ApiVersions());
     }
 
     public void close() throws IOException {

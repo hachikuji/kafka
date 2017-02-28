@@ -253,14 +253,14 @@ public class RequestResponseTest {
 
         Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
         produceData.put(new TopicPartition("test", 0), MemoryRecords.readableRecords(buffer));
-        new ProduceRequest.Builder((short) 1, 5000, produceData).build().toStruct();
+        new ProduceRequest.Builder(LogEntry.CURRENT_MAGIC_VALUE, (short) 1, 5000, produceData).build().toStruct();
     }
 
     @Test(expected = InvalidRecordException.class)
     public void produceRequestV3CannotHaveNoLogEntries() {
         Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
         produceData.put(new TopicPartition("test", 0), MemoryRecords.EMPTY);
-        new ProduceRequest.Builder((short) 1, 5000, produceData).build().toStruct();
+        new ProduceRequest.Builder(LogEntry.CURRENT_MAGIC_VALUE, (short) 1, 5000, produceData).build().toStruct();
     }
 
     @Test(expected = InvalidRecordException.class)
@@ -272,7 +272,7 @@ public class RequestResponseTest {
 
         Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
         produceData.put(new TopicPartition("test", 0), builder.build());
-        new ProduceRequest.Builder((short) 1, 5000, produceData).build().toStruct();
+        new ProduceRequest.Builder(LogEntry.CURRENT_MAGIC_VALUE, (short) 1, 5000, produceData).build().toStruct();
     }
 
     @Test(expected = InvalidRecordException.class)
@@ -284,7 +284,7 @@ public class RequestResponseTest {
 
         Map<TopicPartition, MemoryRecords> produceData = new HashMap<>();
         produceData.put(new TopicPartition("test", 0), builder.build());
-        new ProduceRequest.Builder((short) 1, 5000, produceData).build().toStruct();
+        new ProduceRequest.Builder(LogEntry.CURRENT_MAGIC_VALUE, (short) 1, 5000, produceData).build().toStruct();
     }
 
     @Test
@@ -548,7 +548,7 @@ public class RequestResponseTest {
         byte magic = version == 2 ? LogEntry.MAGIC_VALUE_V1 : LogEntry.MAGIC_VALUE_V2;
         MemoryRecords records = MemoryRecords.withRecords(magic, CompressionType.NONE, new KafkaRecord("woot".getBytes()));
         Map<TopicPartition, MemoryRecords> produceData = Collections.singletonMap(new TopicPartition("test", 0), records);
-        return new ProduceRequest.Builder((short) 1, 5000, produceData).build((short) version);
+        return new ProduceRequest.Builder(magic, (short) 1, 5000, produceData).build((short) version);
     }
 
     private ProduceResponse createProduceResponse() {
