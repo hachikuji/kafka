@@ -12,6 +12,7 @@
  */
 package org.apache.kafka.clients.producer.internals;
 
+import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.ClientRequest;
 import org.apache.kafka.clients.ClientResponse;
 import org.apache.kafka.clients.KafkaClient;
@@ -33,7 +34,6 @@ import org.apache.kafka.common.metrics.stats.Avg;
 import org.apache.kafka.common.metrics.stats.Max;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.record.LogEntry;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.requests.ProduceRequest;
 import org.apache.kafka.common.requests.ProduceResponse;
@@ -92,6 +92,9 @@ public class Sender implements Runnable {
     /* the max time to wait for the server to respond to the request*/
     private final int requestTimeout;
 
+    /* current request API versions supported by the known brokers */
+    private final ApiVersions apiVersions;
+
     public Sender(KafkaClient client,
                   Metadata metadata,
                   RecordAccumulator accumulator,
@@ -101,7 +104,8 @@ public class Sender implements Runnable {
                   int retries,
                   Metrics metrics,
                   Time time,
-                  int requestTimeout) {
+                  int requestTimeout,
+                  ApiVersions apiVersions) {
         this.client = client;
         this.accumulator = accumulator;
         this.metadata = metadata;
@@ -113,6 +117,7 @@ public class Sender implements Runnable {
         this.time = time;
         this.sensors = new SenderMetrics(metrics);
         this.requestTimeout = requestTimeout;
+        this.apiVersions = apiVersions;
     }
 
     /**
@@ -159,8 +164,7 @@ public class Sender implements Runnable {
     /**
      * Run a single iteration of sending
      * 
-     * @param now
-     *            The current POSIX time in milliseconds
+     * @param now The current POSIX time in milliseconds
      */
     void run(long now) {
         Cluster cluster = metadata.fetch();
@@ -351,7 +355,7 @@ public class Sender implements Runnable {
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<>(batches.size());
 
         // find the minimum magic version used when creating the record sets
-        byte minUsedMagic = LogEntry.CURRENT_MAGIC_VALUE;
+        byte minUsedMagic = apiVersions.maxUsableProduceMagic();
         for (RecordBatch batch : batches) {
             if (batch.magic() < minUsedMagic)
                 minUsedMagic = batch.magic();
