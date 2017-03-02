@@ -17,27 +17,24 @@
 
 package kafka.server
 
-import java.util
 import java.util.Properties
 
 import kafka.api.{ApiVersion, KAFKA_0_10_0_IV1}
 import kafka.cluster.EndPoint
 import kafka.consumer.ConsumerConfig
 import kafka.coordinator.OffsetConfig
-import kafka.log.LogConfig
 import kafka.message.{BrokerCompressionCodec, CompressionCodec, Message, MessageSet}
 import kafka.utils.CoreUtils
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.config.ConfigDef.ValidList
-import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, SaslConfigs, SslConfigs}
-import org.apache.kafka.common.metrics.{MetricsReporter, Sensor}
+import org.apache.kafka.common.config._
+import org.apache.kafka.common.metrics.Sensor
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.SecurityProtocol
 import org.apache.kafka.common.record.TimestampType
-import org.apache.kafka.server.policy.CreateTopicPolicy
 
-import scala.collection.{Map, immutable}
 import scala.collection.JavaConverters._
+import scala.collection.Map
 
 object Defaults {
   /** ********* Zookeeper Configuration ***********/
@@ -164,6 +161,9 @@ object Defaults {
   val NumReplicationQuotaSamples: Int = ReplicationQuotaManagerConfig.DefaultNumQuotaSamples
   val ReplicationQuotaWindowSizeSeconds: Int = ReplicationQuotaManagerConfig.DefaultQuotaWindowSizeSeconds
 
+  /** ********* Transaction Configuration ***********/
+  val TransactionalIdExpirationMsDefault = 604800000
+
   val DeleteTopicEnable = false
 
   val CompressionType = "producer"
@@ -196,7 +196,6 @@ object Defaults {
   val SaslKerberosTicketRenewJitter = SaslConfigs.DEFAULT_KERBEROS_TICKET_RENEW_JITTER
   val SaslKerberosMinTimeBeforeRelogin = SaslConfigs.DEFAULT_KERBEROS_MIN_TIME_BEFORE_RELOGIN
   val SaslKerberosPrincipalToLocalRules = SaslConfigs.DEFAULT_SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES
-
 }
 
 object KafkaConfig {
@@ -333,6 +332,8 @@ object KafkaConfig {
   val NumReplicationQuotaSamplesProp = "replication.quota.window.num"
   val QuotaWindowSizeSecondsProp = "quota.window.size.seconds"
   val ReplicationQuotaWindowSizeSecondsProp = "replication.quota.window.size.seconds"
+  /** ********* Transaction Configuration **********/
+  val TransactionalIdExpirationMsProp = "transactional.id.expiration.ms"
 
   val DeleteTopicEnableProp = "delete.topic.enable"
   val CompressionTypeProp = "compression.type"
@@ -565,6 +566,11 @@ object KafkaConfig {
   val NumReplicationQuotaSamplesDoc = "The number of samples to retain in memory for replication quotas"
   val QuotaWindowSizeSecondsDoc = "The time span of each sample for client quotas"
   val ReplicationQuotaWindowSizeSecondsDoc = "The time span of each sample for replication quotas"
+  /** ********* Transaction Configuration ***********/
+  val TransactionIdExpirationMsDoc = "The maximum time of inactivity before a transactional id is expired by the " +
+    "transaction coordinator. Note that this also influences PID expiration: PIDs are guaranteed to expire " +
+    "after expiration of this timeout from the last write by the PID (they may expire sooner if the last write " +
+    "from the PID is deleted after due to the topic's retention settings)."
 
   val DeleteTopicEnableDoc = "Enables delete topic. Delete topic through the admin tool will have no effect if this config is turned off"
   val CompressionTypeDoc = "Specify the final compression type for a given topic. This configuration accepts the standard compression codecs " +
@@ -757,6 +763,9 @@ object KafkaConfig {
       .define(NumReplicationQuotaSamplesProp, INT, Defaults.NumReplicationQuotaSamples, atLeast(1), LOW, NumReplicationQuotaSamplesDoc)
       .define(QuotaWindowSizeSecondsProp, INT, Defaults.QuotaWindowSizeSeconds, atLeast(1), LOW, QuotaWindowSizeSecondsDoc)
       .define(ReplicationQuotaWindowSizeSecondsProp, INT, Defaults.ReplicationQuotaWindowSizeSeconds, atLeast(1), LOW, ReplicationQuotaWindowSizeSecondsDoc)
+
+      /** ********* Transaction configuration ***********/
+      .define(TransactionalIdExpirationMsProp, INT, Defaults.TransactionalIdExpirationMsDefault, atLeast(1), LOW, TransactionIdExpirationMsDoc)
 
       /** ********* SSL Configuration ****************/
       .define(PrincipalBuilderClassProp, CLASS, Defaults.PrincipalBuilderClass, MEDIUM, PrincipalBuilderClassDoc)
@@ -981,6 +990,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean) extends Abstra
   val quotaWindowSizeSeconds = getInt(KafkaConfig.QuotaWindowSizeSecondsProp)
   val numReplicationQuotaSamples = getInt(KafkaConfig.NumReplicationQuotaSamplesProp)
   val replicationQuotaWindowSizeSeconds = getInt(KafkaConfig.ReplicationQuotaWindowSizeSecondsProp)
+
+  /** ********* Transaction Configuration **************/
+  val transactionIdExpirationMs = getInt(KafkaConfig.TransactionalIdExpirationMsProp)
 
   val deleteTopicEnable = getBoolean(KafkaConfig.DeleteTopicEnableProp)
   val compressionType = getString(KafkaConfig.CompressionTypeProp)

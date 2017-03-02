@@ -69,13 +69,14 @@ class LogTest extends JUnitSuite {
     val set = TestUtils.singletonRecords("test".getBytes)
 
     val logProps = new Properties()
-    logProps.put(LogConfig.SegmentMsProp, (1 * 60 * 60L): java.lang.Long)
+    logProps.put(LogConfig.SegmentMsProp, 1 * 60 * 60L: java.lang.Long)
     logProps.put(LogConfig.MessageTimestampDifferenceMaxMsProp, Long.MaxValue.toString)
 
     // create a log
     val log = new Log(logDir,
                       LogConfig(logProps),
                       recoveryPoint = 0L,
+                      maxPidExpirationMs = 24 * 60,
                       scheduler = time.scheduler,
                       time = time)
     assertEquals("Log begins with a single empty segment.", 1, log.numberOfSegments)
@@ -380,7 +381,7 @@ class LogTest extends JUnitSuite {
     // We use need to use magic value 1 here because the test is message size sensitive.
     logProps.put(LogConfig.MessageFormatVersionProp, ApiVersion.latestVersion.toString)
     // create a log
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     assertEquals("There should be exactly 1 segment.", 1, log.numberOfSegments)
 
     // segments expire in size
@@ -396,7 +397,7 @@ class LogTest extends JUnitSuite {
   @Test
   def testLoadEmptyLog() {
     createEmptyLogs(logDir, 0)
-    val log = new Log(logDir, logConfig, recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, logConfig, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     log.append(TestUtils.singletonRecords(value = "test".getBytes, timestamp = time.milliseconds))
   }
 
@@ -409,7 +410,7 @@ class LogTest extends JUnitSuite {
     logProps.put(LogConfig.SegmentBytesProp, 71: java.lang.Integer)
     // We use need to use magic value 1 here because the test is message size sensitive.
     logProps.put(LogConfig.MessageFormatVersionProp, ApiVersion.latestVersion.toString)
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     val values = (0 until 100 by 2).map(id => id.toString.getBytes).toArray
 
     for(value <- values)
@@ -433,7 +434,7 @@ class LogTest extends JUnitSuite {
   def testAppendAndReadWithNonSequentialOffsets() {
     val logProps = new Properties()
     logProps.put(LogConfig.SegmentBytesProp, 72: java.lang.Integer)
-    val log = new Log(logDir,  LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir,  LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     val messageIds = ((0 until 50) ++ (50 until 200 by 7)).toArray
     val records = messageIds.map(id => new KafkaRecord(id.toString.getBytes))
 
@@ -458,7 +459,7 @@ class LogTest extends JUnitSuite {
   def testReadAtLogGap() {
     val logProps = new Properties()
     logProps.put(LogConfig.SegmentBytesProp, 300: java.lang.Integer)
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
 
     // keep appending until we have two segments with only a single message in the second segment
     while(log.numberOfSegments == 1)
@@ -475,7 +476,7 @@ class LogTest extends JUnitSuite {
   def testReadWithMinMessage() {
     val logProps = new Properties()
     logProps.put(LogConfig.SegmentBytesProp, 72: java.lang.Integer)
-    val log = new Log(logDir,  LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir,  LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     val messageIds = ((0 until 50) ++ (50 until 200 by 7)).toArray
     val records = messageIds.map(id => new KafkaRecord(id.toString.getBytes))
 
@@ -503,7 +504,7 @@ class LogTest extends JUnitSuite {
   def testReadWithTooSmallMaxLength() {
     val logProps = new Properties()
     logProps.put(LogConfig.SegmentBytesProp, 72: java.lang.Integer)
-    val log = new Log(logDir,  LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir,  LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     val messageIds = ((0 until 50) ++ (50 until 200 by 7)).toArray
     val records = messageIds.map(id => new KafkaRecord(id.toString.getBytes))
 
@@ -539,7 +540,7 @@ class LogTest extends JUnitSuite {
 
     // set up replica log starting with offset 1024 and with one message (at offset 1024)
     logProps.put(LogConfig.SegmentBytesProp, 1024: java.lang.Integer)
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     log.append(TestUtils.singletonRecords(value = "42".getBytes))
 
     assertEquals("Reading at the log end offset should produce 0 byte read.", 0, log.read(1025, 1000).records.sizeInBytes)
@@ -570,7 +571,7 @@ class LogTest extends JUnitSuite {
     /* create a multipart log with 100 messages */
     val logProps = new Properties()
     logProps.put(LogConfig.SegmentBytesProp, 100: java.lang.Integer)
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     val numMessages = 100
     val messageSets = (0 until numMessages).map(i => TestUtils.singletonRecords(value = i.toString.getBytes,
                                                                                 timestamp = time.milliseconds))
@@ -608,7 +609,7 @@ class LogTest extends JUnitSuite {
     /* this log should roll after every messageset */
     val logProps = new Properties()
     logProps.put(LogConfig.SegmentBytesProp, 100: java.lang.Integer)
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
 
     /* append 2 compressed message sets, each with two messages giving offsets 0, 1, 2, 3 */
     log.append(MemoryRecords.withRecords(CompressionType.GZIP, new KafkaRecord("hello".getBytes), new KafkaRecord("there".getBytes)))
@@ -634,7 +635,7 @@ class LogTest extends JUnitSuite {
       val logProps = new Properties()
       logProps.put(LogConfig.SegmentBytesProp, 100: java.lang.Integer)
       logProps.put(LogConfig.RetentionMsProp, 0: java.lang.Integer)
-      val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+      val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
       for(i <- 0 until messagesToAppend)
         log.append(TestUtils.singletonRecords(value = i.toString.getBytes, timestamp = time.milliseconds - 10))
 
@@ -670,7 +671,7 @@ class LogTest extends JUnitSuite {
     logProps.put(LogConfig.SegmentBytesProp, configSegmentSize: java.lang.Integer)
     // We use need to use magic value 1 here because the test is message size sensitive.
     logProps.put(LogConfig.MessageFormatVersionProp, ApiVersion.latestVersion.toString)
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
 
     try {
       log.append(messageSet)
@@ -697,7 +698,7 @@ class LogTest extends JUnitSuite {
     val logProps = new Properties()
     logProps.put(LogConfig.CleanupPolicyProp, LogConfig.Compact)
 
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
 
     try {
       log.append(messageSetWithUnkeyedMessage)
@@ -739,7 +740,7 @@ class LogTest extends JUnitSuite {
     val maxMessageSize = second.sizeInBytes - 1
     val logProps = new Properties()
     logProps.put(LogConfig.MaxMessageBytesProp, maxMessageSize: java.lang.Integer)
-    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, time.scheduler, time = time)
+    val log = new Log(logDir, LogConfig(logProps), recoveryPoint = 0L, scheduler = time.scheduler, time = time)
 
     // should be able to append the small message
     log.append(first)
@@ -765,7 +766,7 @@ class LogTest extends JUnitSuite {
     logProps.put(LogConfig.IndexIntervalBytesProp, indexInterval: java.lang.Integer)
     logProps.put(LogConfig.SegmentIndexBytesProp, 4096: java.lang.Integer)
     val config = LogConfig(logProps)
-    var log = new Log(logDir, config, recoveryPoint = 0L, time.scheduler, time)
+    var log = new Log(logDir, config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     for(i <- 0 until numMessages)
       log.append(TestUtils.singletonRecords(value = TestUtils.randomBytes(messageSize),
         timestamp = time.milliseconds + i * 10))
@@ -791,12 +792,12 @@ class LogTest extends JUnitSuite {
       assertEquals("Should have same number of time index entries as before.", numTimeIndexEntries, log.activeSegment.timeIndex.entries)
     }
 
-    log = new Log(logDir, config, recoveryPoint = lastOffset, time.scheduler, time)
+    log = new Log(logDir, config, recoveryPoint = lastOffset, scheduler = time.scheduler, time = time)
     verifyRecoveredLog(log)
     log.close()
 
     // test recovery case
-    log = new Log(logDir, config, recoveryPoint = 0L, time.scheduler, time)
+    log = new Log(logDir, config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     verifyRecoveredLog(log)
     log.close()
   }
@@ -812,7 +813,7 @@ class LogTest extends JUnitSuite {
     logProps.put(LogConfig.IndexIntervalBytesProp, 1: java.lang.Integer)
 
     val config = LogConfig(logProps)
-    val log = new Log(logDir, config, recoveryPoint = 0L, time.scheduler, time)
+    val log = new Log(logDir, config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
 
     val messages = (0 until numMessages).map { i =>
       MemoryRecords.withRecords(100 + i, CompressionType.NONE, new KafkaRecord(time.milliseconds + i, i.toString.getBytes()))
@@ -836,7 +837,7 @@ class LogTest extends JUnitSuite {
     logProps.put(LogConfig.IndexIntervalBytesProp, 1: java.lang.Integer)
 
     val config = LogConfig(logProps)
-    var log = new Log(logDir, config, recoveryPoint = 0L, time.scheduler, time)
+    var log = new Log(logDir, config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     for(i <- 0 until numMessages)
       log.append(TestUtils.singletonRecords(value = TestUtils.randomBytes(10), timestamp = time.milliseconds + i * 10))
     val indexFiles = log.logSegments.map(_.index.file)
@@ -848,7 +849,7 @@ class LogTest extends JUnitSuite {
     timeIndexFiles.foreach(_.delete())
 
     // reopen the log
-    log = new Log(logDir, config, recoveryPoint = 0L, time.scheduler, time)
+    log = new Log(logDir, config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     assertEquals("Should have %d messages when log is reopened".format(numMessages), numMessages, log.logEndOffset)
     assertTrue("The index should have been rebuilt", log.logSegments.head.index.entries > 0)
     assertTrue("The time index should have been rebuilt", log.logSegments.head.timeIndex.entries > 0)
@@ -875,7 +876,7 @@ class LogTest extends JUnitSuite {
     logProps.put(LogConfig.MessageFormatVersionProp, "0.9.0")
 
     val config = LogConfig(logProps)
-    var log = new Log(logDir, config, recoveryPoint = 0L, time.scheduler, time)
+    var log = new Log(logDir, config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     for(i <- 0 until numMessages)
       log.append(TestUtils.singletonRecords(value = TestUtils.randomBytes(10), timestamp = time.milliseconds + i * 10))
     val timeIndexFiles = log.logSegments.map(_.timeIndex.file)
@@ -885,7 +886,7 @@ class LogTest extends JUnitSuite {
     timeIndexFiles.foreach(_.delete())
 
     // The rebuilt time index should be empty
-    log = new Log(logDir, config, recoveryPoint = numMessages + 1, time.scheduler, time)
+    log = new Log(logDir, config, recoveryPoint = numMessages + 1, scheduler = time.scheduler, time = time)
     val segArray = log.logSegments.toArray
     for (i <- 0 until segArray.size - 1) {
       assertEquals("The time index should be empty", 0, segArray(i).timeIndex.entries)
@@ -906,7 +907,7 @@ class LogTest extends JUnitSuite {
     logProps.put(LogConfig.IndexIntervalBytesProp, 1: java.lang.Integer)
 
     val config = LogConfig(logProps)
-    var log = new Log(logDir, config, recoveryPoint = 0L, time.scheduler, time)
+    var log = new Log(logDir, config, recoveryPoint = 0L, scheduler = time.scheduler, time = time)
     for(i <- 0 until numMessages)
       log.append(TestUtils.singletonRecords(value = TestUtils.randomBytes(10), timestamp = time.milliseconds + i * 10))
     val indexFiles = log.logSegments.map(_.index.file)
@@ -928,7 +929,7 @@ class LogTest extends JUnitSuite {
     }
 
     // reopen the log
-    log = new Log(logDir, config, recoveryPoint = 200L, time.scheduler, time)
+    log = new Log(logDir, config, recoveryPoint = 200L, scheduler = time.scheduler, time = time)
     assertEquals("Should have %d messages when log is reopened".format(numMessages), numMessages, log.logEndOffset)
     for(i <- 0 until numMessages) {
       assertEquals(i, log.read(i, 100, None).records.entries.iterator.next().lastOffset)
@@ -1054,8 +1055,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir,
                       LogConfig(logProps),
                       recoveryPoint = 0L,
-                      time.scheduler,
-                      time)
+                      scheduler = time.scheduler,
+                      time = time)
 
     assertTrue("The first index file should have been replaced with a larger file", bogusIndex1.length > 0)
     assertTrue("The first time index file should have been replaced with a larger file", bogusTimeIndex1.length > 0)
@@ -1085,8 +1086,8 @@ class LogTest extends JUnitSuite {
     var log = new Log(logDir,
                       config,
                       recoveryPoint = 0L,
-                      time.scheduler,
-                      time)
+                      scheduler = time.scheduler,
+                      time = time)
 
     // add enough messages to roll over several segments then close and re-open and attempt to truncate
     for (_ <- 0 until 100)
@@ -1095,8 +1096,8 @@ class LogTest extends JUnitSuite {
     log = new Log(logDir,
                   config,
                   recoveryPoint = 0L,
-                  time.scheduler,
-                  time)
+                  scheduler = time.scheduler,
+                  time = time)
     log.truncateTo(3)
     assertEquals("All but one segment should be deleted.", 1, log.numberOfSegments)
     assertEquals("Log end offset should be 3.", 3, log.logEndOffset)
@@ -1120,8 +1121,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir,
                       config,
                       recoveryPoint = 0L,
-                      time.scheduler,
-                      time)
+                      scheduler = time.scheduler,
+                      time = time)
 
     // append some messages to create some segments
     for (_ <- 0 until 100)
@@ -1160,8 +1161,8 @@ class LogTest extends JUnitSuite {
     var log = new Log(logDir,
                       config,
                       recoveryPoint = 0L,
-                      time.scheduler,
-                      time)
+                      scheduler = time.scheduler,
+                      time = time)
 
     // append some messages to create some segments
     for (_ <- 0 until 100)
@@ -1174,8 +1175,8 @@ class LogTest extends JUnitSuite {
     log = new Log(logDir,
                   config,
                   recoveryPoint = 0L,
-                  time.scheduler,
-                  time)
+                  scheduler = time.scheduler,
+                  time = time)
     assertEquals("The deleted segments should be gone.", 1, log.numberOfSegments)
   }
 
@@ -1184,8 +1185,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir,
                       LogConfig(),
                       recoveryPoint = 0L,
-                      time.scheduler,
-                      time)
+                      scheduler = time.scheduler,
+                      time = time)
     log.append(TestUtils.singletonRecords(value = null))
     val head = log.read(0, 4096, None).records.records.iterator.next()
     assertEquals(0, head.offset)
@@ -1197,8 +1198,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir,
       LogConfig(),
       recoveryPoint = 0L,
-      time.scheduler,
-      time)
+      scheduler = time.scheduler,
+      time = time)
     val records = (0 until 2).map(id => new KafkaRecord(id.toString.getBytes)).toArray
     records.foreach(record => log.append(MemoryRecords.withRecords(CompressionType.NONE, record)))
     val invalidRecord = MemoryRecords.withRecords(CompressionType.NONE, new KafkaRecord(1.toString.getBytes))
@@ -1210,8 +1211,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir,
       LogConfig(),
       recoveryPoint = 0L,
-      time.scheduler,
-      time)
+      scheduler = time.scheduler,
+      time = time)
     log.append(MemoryRecords.withRecords(CompressionType.NONE,
       new KafkaRecord(Record.NO_TIMESTAMP, "key".getBytes, "value".getBytes)))
   }
@@ -1232,8 +1233,8 @@ class LogTest extends JUnitSuite {
       var log = new Log(logDir,
                         config,
                         recoveryPoint = 0L,
-                        time.scheduler,
-                        time)
+                        scheduler = time.scheduler,
+                        time = time)
       val numMessages = 50 + TestUtils.random.nextInt(50)
       for (_ <- 0 until numMessages)
         log.append(set)
@@ -1274,8 +1275,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir,
       config,
       recoveryPoint = 0L,
-      time.scheduler,
-      time)
+      scheduler = time.scheduler,
+      time = time)
     val set1 = MemoryRecords.withRecords(0, CompressionType.NONE, new KafkaRecord("v1".getBytes(), "k1".getBytes()))
     val set2 = MemoryRecords.withRecords(Integer.MAX_VALUE.toLong + 2, CompressionType.NONE, new KafkaRecord("v3".getBytes(), "k3".getBytes()))
     val set3 = MemoryRecords.withRecords(Integer.MAX_VALUE.toLong + 3, CompressionType.NONE, new KafkaRecord("v4".getBytes(), "k4".getBytes()))
@@ -1322,8 +1323,8 @@ class LogTest extends JUnitSuite {
     var log = new Log(logDir,
       config,
       recoveryPoint = 0L,
-      time.scheduler,
-      time)
+      scheduler = time.scheduler,
+      time = time)
     for (_ <- 0 until 100)
       log.append(set)
     log.close()
@@ -1421,8 +1422,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir,
       config,
       recoveryPoint = 0L,
-      time.scheduler,
-      time)
+      scheduler = time.scheduler,
+      time = time)
 
     // append some messages to create some segments
     for (_ <- 0 until 100)
@@ -1540,8 +1541,8 @@ class LogTest extends JUnitSuite {
     val log = new Log(logDir,
       config,
       recoveryPoint = 0L,
-      time.scheduler,
-      time)
+      scheduler = time.scheduler,
+      time = time)
     log
   }
 }
