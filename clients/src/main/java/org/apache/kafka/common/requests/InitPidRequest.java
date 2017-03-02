@@ -24,37 +24,46 @@ import java.nio.ByteBuffer;
 
 public class InitPidRequest extends AbstractRequest {
     private static final String TRANSACTIONAL_ID_KEY_NAME = "transactional_id";
+    private static final String TRANSACTION_TIMEOUT_KEY_NAME = "transaction_timeout_ms";
 
     private final String transactionalId;
+    private final int transactionTimeoutMs;
 
     public static class Builder extends AbstractRequest.Builder<InitPidRequest> {
         private final String transactionalId;
+        private final int transactionTimeoutMs;
 
-        public Builder(String transactionalId) {
+        public Builder(String transactionalId, int transactionTimeoutMs) {
             super(ApiKeys.API_VERSIONS);
+
+            if (transactionTimeoutMs <= 0)
+                throw new IllegalArgumentException("transaction timeout value is not positive: " + transactionTimeoutMs);
+
             this.transactionalId = transactionalId;
+            this.transactionTimeoutMs = transactionTimeoutMs;
         }
 
         @Override
         public InitPidRequest build(short version) {
-            return new InitPidRequest(this.transactionalId, version);
+            return new InitPidRequest(version, this.transactionalId, transactionTimeoutMs);
         }
 
         @Override
         public String toString() {
             return "(type=InitPidRequest)";
         }
-
     }
 
-    public InitPidRequest(Struct struct, short version) {
+    private InitPidRequest(Struct struct, short version) {
         super(version);
         this.transactionalId = struct.getString(TRANSACTIONAL_ID_KEY_NAME);
+        this.transactionTimeoutMs = struct.getInt(TRANSACTION_TIMEOUT_KEY_NAME);
     }
 
-    private InitPidRequest(String transactionalId, short version) {
+    private InitPidRequest(short version, String transactionalId, int transactionTimeoutMs) {
         super(version);
         this.transactionalId = transactionalId;
+        this.transactionTimeoutMs = transactionTimeoutMs;
     }
 
     @Override
@@ -70,10 +79,15 @@ public class InitPidRequest extends AbstractRequest {
         return transactionalId;
     }
 
+    public int transactionTimeoutMs() {
+        return transactionTimeoutMs;
+    }
+
     @Override
     protected Struct toStruct() {
         Struct struct = new Struct(ApiKeys.INIT_PRODUCER_ID.requestSchema(version()));
         struct.set(TRANSACTIONAL_ID_KEY_NAME, transactionalId);
+        struct.set(TRANSACTION_TIMEOUT_KEY_NAME, transactionTimeoutMs);
         return struct;
     }
 

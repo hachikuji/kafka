@@ -1,20 +1,19 @@
-/**
-  * Licensed to the Apache Software Foundation (ASF) under one or more
-  * contributor license agreements.  See the NOTICE file distributed with
-  * this work for additional information regarding copyright ownership.
-  * The ASF licenses this file to You under the Apache License, Version 2.0
-  * (the "License"); you may not use this file except in compliance with
-  * the License.  You may obtain a copy of the License at
-  *
-  *    http://www.apache.org/licenses/LICENSE-2.0
-  *
-  * Unless required by applicable law or agreed to in writing, software
-  * distributed under the License is distributed on an "AS IS" BASIS,
-  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  * See the License for the specific language governing permissions and
-  * limitations under the License.
-  */
-
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package kafka.coordinator
 
 import kafka.common.Topic
@@ -86,22 +85,24 @@ class TransactionCoordinatorTest {
 
   @Test
   def testHandleInitPID() = {
-    coordinator.handleInitPid("", initPIDMockCallback)
+    val transactionTimeoutMs = 1000
+
+    coordinator.handleInitPid("", transactionTimeoutMs, initPIDMockCallback)
     assertEquals(InitPidResult(0L, 0, Errors.NONE), result)
 
-    coordinator.handleInitPid("", initPIDMockCallback)
+    coordinator.handleInitPid("", transactionTimeoutMs, initPIDMockCallback)
     assertEquals(InitPidResult(1L, 0, Errors.NONE), result)
 
-    coordinator.handleInitPid("a", initPIDMockCallback)
+    coordinator.handleInitPid("a", transactionTimeoutMs, initPIDMockCallback)
     assertEquals(InitPidResult(2L, 0, Errors.NONE), result)
 
-    coordinator.handleInitPid("a", initPIDMockCallback)
+    coordinator.handleInitPid("a", transactionTimeoutMs, initPIDMockCallback)
     assertEquals(InitPidResult(2L, 1, Errors.NONE), result)
 
-    coordinator.handleInitPid("c", initPIDMockCallback)
+    coordinator.handleInitPid("c", transactionTimeoutMs, initPIDMockCallback)
     assertEquals(InitPidResult(3L, 0, Errors.NONE), result)
 
-    coordinator.handleInitPid("b", initPIDMockCallback)
+    coordinator.handleInitPid("b", transactionTimeoutMs, initPIDMockCallback)
     assertEquals(InitPidResult(-1L, -1, Errors.NOT_COORDINATOR_FOR_GROUP), result)
   }
 
