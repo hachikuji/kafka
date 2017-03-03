@@ -103,7 +103,7 @@ class TransactionCoordinatorTest {
     assertEquals(InitPidResult(3L, 0, Errors.NONE), result)
 
     coordinator.handleInitPid("b", transactionTimeoutMs, initPIDMockCallback)
-    assertEquals(InitPidResult(-1L, -1, Errors.NOT_COORDINATOR_FOR_GROUP), result)
+    assertEquals(InitPidResult(-1L, -1, Errors.NOT_COORDINATOR), result)
   }
 
   def initPIDMockCallback(ret: InitPidResult): Unit = {

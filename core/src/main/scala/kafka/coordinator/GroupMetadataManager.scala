@@ -179,10 +179,10 @@ class GroupMetadataManager(val brokerId: Int,
               case Errors.UNKNOWN_TOPIC_OR_PARTITION
                    | Errors.NOT_ENOUGH_REPLICAS
                    | Errors.NOT_ENOUGH_REPLICAS_AFTER_APPEND =>
-                Errors.GROUP_COORDINATOR_NOT_AVAILABLE
+                Errors.COORDINATOR_NOT_AVAILABLE
 
               case Errors.NOT_LEADER_FOR_PARTITION =>
-                Errors.NOT_COORDINATOR_FOR_GROUP
+                Errors.NOT_COORDINATOR
 
               case Errors.REQUEST_TIMED_OUT =>
                 Errors.REBALANCE_IN_PROGRESS
@@ -209,7 +209,7 @@ class GroupMetadataManager(val brokerId: Int,
         Some(DelayedStore(groupMetadataRecords, putCacheCallback))
 
       case None =>
-        responseCallback(Errors.NOT_COORDINATOR_FOR_GROUP)
+        responseCallback(Errors.NOT_COORDINATOR)
         None
     }
   }
@@ -291,10 +291,10 @@ class GroupMetadataManager(val brokerId: Int,
                   case Errors.UNKNOWN_TOPIC_OR_PARTITION
                        | Errors.NOT_ENOUGH_REPLICAS
                        | Errors.NOT_ENOUGH_REPLICAS_AFTER_APPEND =>
-                    Errors.GROUP_COORDINATOR_NOT_AVAILABLE
+                    Errors.COORDINATOR_NOT_AVAILABLE
 
                   case Errors.NOT_LEADER_FOR_PARTITION =>
-                    Errors.NOT_COORDINATOR_FOR_GROUP
+                    Errors.NOT_COORDINATOR
 
                   case Errors.MESSAGE_TOO_LARGE
                        | Errors.RECORD_LIST_TOO_LARGE
@@ -326,7 +326,7 @@ class GroupMetadataManager(val brokerId: Int,
 
         case None =>
           val commitStatus = offsetMetadata.map { case (topicPartition, offsetAndMetadata) =>
-            (topicPartition, Errors.NOT_COORDINATOR_FOR_GROUP)
+            (topicPartition, Errors.NOT_COORDINATOR)
           }
           responseCallback(commitStatus)
           None

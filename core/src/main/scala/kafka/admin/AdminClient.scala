@@ -67,8 +67,8 @@ class AdminClient(val time: Time,
   }
 
   def findCoordinator(groupId: String): Node = {
-    val requestBuilder = new GroupCoordinatorRequest.Builder(groupId)
-    val response = sendAnyNode(ApiKeys.GROUP_COORDINATOR, requestBuilder).asInstanceOf[GroupCoordinatorResponse]
+    val requestBuilder = new FindCoordinatorRequest.Builder(org.apache.kafka.common.requests.FindCoordinatorRequest.CoordinatorType.GROUP, groupId)
+    val response = sendAnyNode(ApiKeys.FIND_COORDINATOR, requestBuilder).asInstanceOf[FindCoordinatorResponse]
     response.error.maybeThrow()
     response.node
   }
