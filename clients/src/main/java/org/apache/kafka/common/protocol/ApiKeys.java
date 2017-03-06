@@ -46,16 +46,12 @@ public enum ApiKeys {
     API_VERSIONS(18, "ApiVersions"),
     CREATE_TOPICS(19, "CreateTopics"),
     DELETE_TOPICS(20, "DeleteTopics"),
-    INIT_PRODUCER_ID(21, "InitProducerId");
-
-
-    // TODO: Add the following requests for transactions:
-    // AddOffsetCommitsToTxnRequest
-//   TxnOffsetCommitRequest
-//    BEGIN_TXN(21, "BeginTxn"),
-//    END_TXN(22, "EndTxn"),
-//    UPDATE_TXN(23, "UpdateTxn"),
-//    ADD_PARTITION_TO_TXN(24, "AddPartitionToTxn"),
+    INIT_PRODUCER_ID(21, "InitProducerId"),
+    ADD_PARTITIONS_TO_TXN(22, "AddPartitionsToTxn"),
+    ADD_OFFSETS_TO_TXN(23, "AddOffsetsToTxn"),
+    END_TXN(24, "EndTxn"),
+    WRITE_TXN_MARKER(25, "WriteTxnMarker"),
+    TXN_OFFSET_COMMIT(26, "TxnOffsetCommit");
 
     private static final ApiKeys[] ID_TO_TYPE;
     private static final int MIN_API_KEY = 0;

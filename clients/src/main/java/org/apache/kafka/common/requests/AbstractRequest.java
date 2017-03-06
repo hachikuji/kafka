@@ -159,6 +159,18 @@ public abstract class AbstractRequest extends AbstractRequestResponse {
             case DELETE_TOPICS:
                 request = new DeleteTopicsRequest(struct, version);
                 break;
+            case INIT_PRODUCER_ID:
+                request = new InitPidRequest(struct, version);
+                break;
+            case ADD_PARTITIONS_TO_TXN:
+                request = new AddPartitionsToTxnRequest(struct, version);
+                break;
+            case ADD_OFFSETS_TO_TXN:
+                request = new AddOffsetsToTxnRequest(struct, version);
+                break;
+            case END_TXN:
+                request = new EndTxnRequest(struct, version);
+                break;
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `getRequest`, the " +
                         "code should be updated to do so.", apiKey));
