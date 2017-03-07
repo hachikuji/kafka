@@ -88,7 +88,7 @@ public class FindCoordinatorRequest extends AbstractRequest {
         switch (versionId) {
             case 0:
             case 1:
-                return new FindCoordinatorResponse(Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode());
+                return new FindCoordinatorResponse(Errors.forException(e), Node.noNode());
 
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",
