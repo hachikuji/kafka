@@ -20,6 +20,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.utils.CollectionUtils;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -121,16 +122,7 @@ public class WriteTxnMarkerRequest extends AbstractRequest {
         struct.set(COORDINATOR_EPOCH_KEY_NAME, coordinatorEpoch);
         struct.set(TRANSACTION_RESULT_KEY_NAME, result.id);
 
-        Map<String, List<Integer>> mappedPartitions = new HashMap<>();
-        for (TopicPartition partition : partitions) {
-            List<Integer> partitionList = mappedPartitions.get(partition.topic());
-            if (partitionList == null) {
-                partitionList = new ArrayList<>();
-                mappedPartitions.put(partition.topic(), partitionList);
-            }
-            partitionList.add(partition.partition());
-        }
-
+        Map<String, List<Integer>> mappedPartitions = CollectionUtils.groupDataByTopic(partitions);
         Object[] partitionsArray = new Object[mappedPartitions.size()];
         int i = 0;
         for (Map.Entry<String, List<Integer>> topicAndPartitions : mappedPartitions.entrySet()) {

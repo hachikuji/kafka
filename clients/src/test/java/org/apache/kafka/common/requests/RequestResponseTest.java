@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.common.requests;
 
-import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.NotCoordinatorException;
@@ -422,10 +421,10 @@ public class RequestResponseTest {
     }
 
     private TxnOffsetCommitRequest createTxnOffsetCommitRequest() {
-        Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
-        offsets.put(new TopicPartition("foo", 0), new OffsetAndMetadata(15L));
-        offsets.put(new TopicPartition("bar", 5), new OffsetAndMetadata(29L, "metadata"));
-        offsets.put(new TopicPartition("foo", 3), new OffsetAndMetadata(23L));
+        Map<TopicPartition, TxnOffsetCommitRequest.CommittedOffset> offsets = new HashMap<>();
+        offsets.put(new TopicPartition("foo", 0), new TxnOffsetCommitRequest.CommittedOffset(15L, null));
+        offsets.put(new TopicPartition("bar", 5), new TxnOffsetCommitRequest.CommittedOffset(29L, "metadata"));
+        offsets.put(new TopicPartition("foo", 3), new TxnOffsetCommitRequest.CommittedOffset(23L, null));
         return new TxnOffsetCommitRequest.Builder("consumerGroup", 23437L, (short) 99,
                 OffsetCommitRequest.DEFAULT_RETENTION_TIME, offsets).build();
     }

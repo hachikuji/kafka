@@ -20,10 +20,10 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.utils.CollectionUtils;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -110,16 +110,7 @@ public class AddPartitionsToTxnRequest extends AbstractRequest {
         struct.set(PID_KEY_NAME, pid);
         struct.set(EPOCH_KEY_NAME, epoch);
 
-        Map<String, List<Integer>> mappedPartitions = new HashMap<>();
-        for (TopicPartition partition : partitions) {
-            List<Integer> partitionList = mappedPartitions.get(partition.topic());
-            if (partitionList == null) {
-                partitionList = new ArrayList<>();
-                mappedPartitions.put(partition.topic(), partitionList);
-            }
-            partitionList.add(partition.partition());
-        }
-
+        Map<String, List<Integer>> mappedPartitions = CollectionUtils.groupDataByTopic(partitions);
         Object[] partitionsArray = new Object[mappedPartitions.size()];
         int i = 0;
         for (Map.Entry<String, List<Integer>> topicAndPartitions : mappedPartitions.entrySet()) {

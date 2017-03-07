@@ -20,11 +20,10 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
+import org.apache.kafka.common.utils.CollectionUtils;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class WriteTxnMarkerResponse extends AbstractResponse {
@@ -70,30 +69,20 @@ public class WriteTxnMarkerResponse extends AbstractResponse {
     @Override
     protected Struct toStruct(short version) {
         Struct struct = new Struct(ApiKeys.WRITE_TXN_MARKER.responseSchema(version));
-        Map<String, List<PartitionAndError>> mappedPartitions = new HashMap<>();
-        for (Map.Entry<TopicPartition, Errors> partitionErrorEntry : errors.entrySet()) {
-            TopicPartition partition = partitionErrorEntry.getKey();
-            List<PartitionAndError> partitionList = mappedPartitions.get(partition.topic());
-            if (partitionList == null) {
-                partitionList = new ArrayList<>();
-                mappedPartitions.put(partition.topic(), partitionList);
-            }
-            partitionList.add(new PartitionAndError(partition.partition(), partitionErrorEntry.getValue()));
-        }
-
+        Map<String, Map<Integer, Errors>> mappedPartitions = CollectionUtils.groupDataByTopic(errors);
         Object[] partitionsArray = new Object[mappedPartitions.size()];
         int i = 0;
-        for (Map.Entry<String, List<PartitionAndError>> topicAndPartitions : mappedPartitions.entrySet()) {
+        for (Map.Entry<String, Map<Integer, Errors>> topicAndPartitions : mappedPartitions.entrySet()) {
             Struct topicPartitionsStruct = struct.instance(TOPIC_PARTITIONS_KEY_NAME);
             topicPartitionsStruct.set(TOPIC_KEY_NAME, topicAndPartitions.getKey());
-            List<PartitionAndError> partitionAndErrors = topicAndPartitions.getValue();
+            Map<Integer, Errors> partitionAndErrors = topicAndPartitions.getValue();
 
             Object[] partitionAndErrorsArray = new Object[partitionAndErrors.size()];
             int j = 0;
-            for (PartitionAndError partitionAndError : partitionAndErrors) {
+            for (Map.Entry<Integer, Errors> partitionAndError : partitionAndErrors.entrySet()) {
                 Struct partitionAndErrorStruct = topicPartitionsStruct.instance(PARTITIONS_KEY_NAME);
-                partitionAndErrorStruct.set(PARTITION_KEY_NAME, partitionAndError.partition);
-                partitionAndErrorStruct.set(ERROR_CODE_KEY_NAME, partitionAndError.error.code());
+                partitionAndErrorStruct.set(PARTITION_KEY_NAME, partitionAndError.getKey());
+                partitionAndErrorStruct.set(ERROR_CODE_KEY_NAME, partitionAndError.getValue().code());
                 partitionAndErrorsArray[j++] = partitionAndErrorStruct;
             }
             topicPartitionsStruct.set(PARTITIONS_KEY_NAME, partitionAndErrorsArray);
@@ -110,16 +99,6 @@ public class WriteTxnMarkerResponse extends AbstractResponse {
 
     public static WriteTxnMarkerResponse parse(ByteBuffer buffer, short version) {
         return new WriteTxnMarkerResponse(ApiKeys.WRITE_TXN_MARKER.parseResponse(version, buffer));
-    }
-
-    private static class PartitionAndError {
-        private final int partition;
-        private final Errors error;
-
-        public PartitionAndError(int partition, Errors error) {
-            this.partition = partition;
-            this.error = error;
-        }
     }
 
 }

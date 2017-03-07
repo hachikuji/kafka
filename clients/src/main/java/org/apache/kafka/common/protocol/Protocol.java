@@ -1218,7 +1218,7 @@ public class Protocol {
     public static final Schema TXN_OFFSET_COMMIT_PARTITION_OFFSET_METADATA_REQUEST_V0 = new Schema(
             new Field("partition", INT32),
             new Field("offset", INT64),
-            new Field("metadata", STRING)
+            new Field("metadata", NULLABLE_STRING)
     );
 
     public static final Schema TXN_OFFSET_COMMIT_REQUEST_V0 = new Schema(
