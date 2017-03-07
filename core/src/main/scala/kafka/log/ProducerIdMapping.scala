@@ -145,8 +145,7 @@ object ProducerIdMapping {
 @nonthreadsafe
 class ProducerIdMapping(val topicPartition: TopicPartition,
                         val config: LogConfig,
-                        val snapParentDir: File,
-                        val transactionIdExpirationMs: Int) extends Logging {
+                        val snapParentDir: File) extends Logging {
   import ProducerIdMapping._
 
   val snapDir: File = new File(snapParentDir, formatDirName(topicPartition))
