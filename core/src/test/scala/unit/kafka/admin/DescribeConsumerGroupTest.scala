@@ -25,7 +25,6 @@ import java.util.Properties
 import org.easymock.EasyMock
 import org.junit.Before
 import org.junit.Test
-
 import kafka.admin.ConsumerGroupCommand.ConsumerGroupCommandOptions
 import kafka.admin.ConsumerGroupCommand.KafkaConsumerGroupService
 import kafka.admin.ConsumerGroupCommand.ZkConsumerGroupService
@@ -34,9 +33,7 @@ import kafka.consumer.Whitelist
 import kafka.integration.KafkaServerTestHarness
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
-
-import org.apache.kafka.common.errors.GroupCoordinatorNotAvailableException
-import org.apache.kafka.common.errors.WakeupException
+import org.apache.kafka.common.errors.{CoordinatorNotAvailableException, WakeupException}
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.clients.consumer.KafkaConsumer
 
@@ -185,7 +182,7 @@ class DescribeConsumerGroupTest extends KafkaServerTestHarness {
           println(state == Some("Dead") && assignments == Some(List()))
           state == Some("Dead") && assignments == Some(List())
         } catch {
-          case _: GroupCoordinatorNotAvailableException | _: IllegalArgumentException =>
+          case _: CoordinatorNotAvailableException | _: IllegalArgumentException =>
             // Do nothing while the group initializes
             false
           case e: Throwable =>
@@ -216,7 +213,7 @@ class DescribeConsumerGroupTest extends KafkaServerTestHarness {
           assignments.get.filter(_.group == group).head.clientId.exists(_.trim != ConsumerGroupCommand.MISSING_COLUMN_VALUE) &&
           assignments.get.filter(_.group == group).head.host.exists(_.trim != ConsumerGroupCommand.MISSING_COLUMN_VALUE)
         } catch {
-          case _: GroupCoordinatorNotAvailableException | _: IllegalArgumentException =>
+          case _: CoordinatorNotAvailableException | _: IllegalArgumentException =>
             // Do nothing while the group initializes
             false
           case e: Throwable =>
@@ -241,7 +238,7 @@ class DescribeConsumerGroupTest extends KafkaServerTestHarness {
           val (state, _) = consumerGroupCommand.describeGroup()
           state == Some("Stable")
         } catch {
-          case _: GroupCoordinatorNotAvailableException | _: IllegalArgumentException =>
+          case _: CoordinatorNotAvailableException | _: IllegalArgumentException =>
             // Do nothing while the group initializes
             false
           case e: Throwable =>
@@ -262,7 +259,7 @@ class DescribeConsumerGroupTest extends KafkaServerTestHarness {
           assignments.get.filter(_.group == group).head.clientId.exists(_.trim == ConsumerGroupCommand.MISSING_COLUMN_VALUE) &&
           assignments.get.filter(_.group == group).head.host.exists(_.trim == ConsumerGroupCommand.MISSING_COLUMN_VALUE)
         } catch {
-          case _: GroupCoordinatorNotAvailableException | _: IllegalArgumentException =>
+          case _: CoordinatorNotAvailableException | _: IllegalArgumentException =>
             // Do nothing while the group initializes
             false
           case e: Throwable =>
@@ -291,7 +288,7 @@ class DescribeConsumerGroupTest extends KafkaServerTestHarness {
           assignments.get.count{ x => x.group == group && x.partition.isDefined} == 1 &&
           assignments.get.count{ x => x.group == group && !x.partition.isDefined} == 1
         } catch {
-          case _: GroupCoordinatorNotAvailableException | _: IllegalArgumentException =>
+          case _: CoordinatorNotAvailableException | _: IllegalArgumentException =>
             // Do nothing while the group initializes
             false
           case e: Throwable =>
@@ -323,7 +320,7 @@ class DescribeConsumerGroupTest extends KafkaServerTestHarness {
           assignments.get.count{ x => x.group == group && x.partition.isDefined} == 2 &&
           assignments.get.count{ x => x.group == group && !x.partition.isDefined} == 0
         } catch {
-          case _: GroupCoordinatorNotAvailableException | _: IllegalArgumentException =>
+          case _: CoordinatorNotAvailableException | _: IllegalArgumentException =>
             // Do nothing while the group initializes
             false
           case e: Throwable =>
