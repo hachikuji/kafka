@@ -117,7 +117,9 @@ public class ResetIntegrationTest {
             try {
                 TestUtils.waitForCondition(consumerGroupInactive, TIMEOUT_MULTIPLIER * CLEANUP_CONSUMER_TIMEOUT,
                         "Test consumer group active even after waiting " + (TIMEOUT_MULTIPLIER * CLEANUP_CONSUMER_TIMEOUT) + " ms.");
-            } catch (TimeoutException e) {
+            } catch (CoordinatorNotAvailableException e) {
+                continue;
+            } catch (IllegalArgumentException e) {
                 continue;
             }
             break;
