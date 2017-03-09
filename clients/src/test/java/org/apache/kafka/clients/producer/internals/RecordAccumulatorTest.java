@@ -366,13 +366,8 @@ public class RecordAccumulatorTest {
         int requestTimeout = 60;
 
         RecordAccumulator accum = new RecordAccumulator(1024 + EosLogEntry.LOG_ENTRY_OVERHEAD, 10 * 1024,
-<<<<<<< HEAD
-                CompressionType.NONE, lingerMs, retryBackoffMs, metrics, time, new ApiVersions());
-        int appends = expectedNumAppends(1024);
-=======
                 CompressionType.NONE, lingerMs, retryBackoffMs, metrics, time, new ApiVersions(), null);
-        int appends = 1024 / msgSize;
->>>>>>> b4169bd... Client side implementation of the idempotent producer. (#129)
+        int appends = expectedNumAppends(1024);
 
         // Test batches not in retry
         for (int i = 0; i < appends; i++) {
@@ -480,13 +475,8 @@ public class RecordAccumulatorTest {
     public void testMutedPartitions() throws InterruptedException {
         long now = time.milliseconds();
         RecordAccumulator accum = new RecordAccumulator(1024 + EosLogEntry.LOG_ENTRY_OVERHEAD, 10 * 1024,
-<<<<<<< HEAD
-                CompressionType.NONE, 10, 100L, metrics, time, new ApiVersions());
-        int appends = expectedNumAppends(1024);
-=======
                 CompressionType.NONE, 10, 100L, metrics, time, new ApiVersions(), null);
-        int appends = 1024 / msgSize;
->>>>>>> b4169bd... Client side implementation of the idempotent producer. (#129)
+        int appends = expectedNumAppends(1024);
         for (int i = 0; i < appends; i++) {
             accum.append(tp1, 0L, key, value, null, maxBlockTimeMs);
             assertEquals("No partitions should be ready.", 0, accum.ready(cluster, now).readyNodes.size());
