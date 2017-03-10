@@ -625,10 +625,10 @@ class Log(@volatile var dir: File,
       val currentPidEntry = PidEntry(entry.lastSequence, entry.epoch, entry.lastOffset, numRecordsInEntry, entry.maxTimestamp)
       if (entry.pid != LogEntry.NO_PID) {
         pidEntryMap.get(entry.pid) match {
-          case Some(tuple) =>
-            ProducerIdMapping.validatePidEntries(entry.pid, tuple.last, currentPidEntry)
+          case Some(entryRange) =>
+            ProducerIdMapping.validatePidEntries(entry.pid, entryRange.last, currentPidEntry)
            // If we have seen this pid before, replace the last PidEntry with information from the current LogEntry
-            pidEntryMap.put(entry.pid, PidEntryRange(tuple.first, currentPidEntry))
+            pidEntryMap.put(entry.pid, PidEntryRange(entryRange.first, currentPidEntry))
           case None =>
             // If this is the first time we are seeing a particular pid, set both the first and the last PidEntry for
             // this pid to span the first and last offset/sequence of the the current LogEntry.
