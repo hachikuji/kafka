@@ -440,8 +440,8 @@ class GroupMetadataManager(val brokerId: Int,
             .records.asInstanceOf[FileRecords]
           val bufferRead = fileRecords.readInto(buffer, 0)
 
-          MemoryRecords.readableRecords(bufferRead).entries.asScala.foreach { entry =>
-            for (record <- entry.asScala) {
+          MemoryRecords.readableRecords(bufferRead).batches.asScala.foreach { batch =>
+            for (record <- batch.asScala) {
               require(record.hasKey, "Group metadata/offset entry key should not be null")
               GroupMetadataManager.readMessageKey(record.key) match {
 
@@ -474,7 +474,7 @@ class GroupMetadataManager(val brokerId: Int,
                   throw new IllegalStateException(s"Unexpected message key $unknownKey while loading offsets and group metadata")
               }
 
-              currOffset = entry.nextOffset
+              currOffset = batch.nextOffset
             }
           }
 
