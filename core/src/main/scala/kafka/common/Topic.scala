@@ -24,7 +24,7 @@ import scala.collection.immutable
 object Topic {
 
   val GroupMetadataTopicName = "__consumer_offsets"
-  val TransactionStateTopicName = "__transaction_state"
+  val TransactionStateTopicName = "__transaction_state" // TODO: Should this be in the idempotent producer patch?
   val InternalTopics = immutable.Set(GroupMetadataTopicName)
 
   val legalChars = "[a-zA-Z0-9\\._\\-]"

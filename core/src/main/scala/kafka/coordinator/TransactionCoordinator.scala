@@ -35,14 +35,14 @@ object TransactionCoordinator {
 
   def apply(config: KafkaConfig, zkUtils: ZkUtils, time: Time): TransactionCoordinator = {
 
-    val pidManager = new PidManager(config.brokerId, zkUtils)
+    val pidManager = new ProducerIdManager(config.brokerId, zkUtils)
     val logManager = new TransactionLogManager(config.brokerId, zkUtils)
     new TransactionCoordinator(config.brokerId, pidManager, logManager)
   }
 }
 
 class TransactionCoordinator(val brokerId: Int,
-                             val pidManager: PidManager,
+                             val pidManager: ProducerIdManager,
                              val logManager: TransactionLogManager) extends Logging {
 
   this.logIdent = "[Transaction Coordinator " + brokerId + "]: "

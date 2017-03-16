@@ -38,11 +38,8 @@ public class TransactionStateTest {
     public void testBasicSequenceIncrement() {
         TransactionState transactionState = new TransactionState(new MockTime());
         transactionState.incrementSequenceNumber(topicPartition, 3333);
-
         assertEquals((int) transactionState.sequenceNumber(topicPartition), 3333);
-
     }
-
 
     @Test
     public void testDefaultSequenceNumber() {

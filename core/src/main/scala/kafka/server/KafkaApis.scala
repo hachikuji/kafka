@@ -149,7 +149,6 @@ class KafkaApis(val requestChannel: RequestChannel,
             groupCoordinator.handleGroupImmigration(partition.partitionId)
           if (partition.topic == Topic.TransactionStateTopicName)
             txnCoordinator.handleTxnImmigration(partition.partitionId)
-
         }
         updatedFollowers.foreach { partition =>
           if (partition.topic == Topic.GroupMetadataTopicName)
