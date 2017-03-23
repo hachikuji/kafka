@@ -108,18 +108,19 @@ public class TransactionState {
      * Returns the next sequence number to be written to the given TopicPartition.
      */
     public synchronized Integer sequenceNumber(TopicPartition topicPartition) {
-        if (!sequenceNumbers.containsKey(topicPartition)) {
-            sequenceNumbers.put(topicPartition, 0);
+        Integer currentSequenceNumber = sequenceNumbers.get(topicPartition);
+        if (currentSequenceNumber == null) {
+            currentSequenceNumber = 0;
+            sequenceNumbers.put(topicPartition, currentSequenceNumber);
         }
-        return sequenceNumbers.get(topicPartition);
+        return currentSequenceNumber;
     }
 
     public synchronized void incrementSequenceNumber(TopicPartition topicPartition, int increment) {
-        if (!sequenceNumbers.containsKey(topicPartition)) {
-            // TODO: Should this be an illegal state or can this case actually happen?
-            sequenceNumbers.put(topicPartition, 0);
-        }
-        int currentSequenceNumber = sequenceNumbers.get(topicPartition);
+        Integer currentSequenceNumber = sequenceNumbers.get(topicPartition);
+        if (currentSequenceNumber == null)
+            throw new IllegalStateException("Attempt to increment sequence number for a partition with no current sequence.");
+
         currentSequenceNumber += increment;
         sequenceNumbers.put(topicPartition, currentSequenceNumber);
     }

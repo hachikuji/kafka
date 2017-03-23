@@ -23,6 +23,9 @@ import org.apache.kafka.common.utils.Time;
 import java.io.IOException;
 import java.util.List;
 
+/**
+ * Provides additional utilities for {@link NetworkClient} (e.g. to implement blocking behaviour).
+ */
 public class NetworkClientUtils {
 
     /**

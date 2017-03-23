@@ -282,7 +282,7 @@ public class Sender implements Runnable {
         initiateClose();
     }
 
-    private ClientResponse sendInitPidRequest(Node node) throws IOException {
+    private ClientResponse sendAndAwaitInitPidRequest(Node node) throws IOException {
         String nodeId = node.idString();
         InitPidRequest.Builder builder = new InitPidRequest.Builder(null);
         ClientRequest request = client.newClientRequest(nodeId, builder, time.milliseconds(), true, null);
@@ -305,21 +305,22 @@ public class Sender implements Runnable {
             try {
                 Node node = getReadyNode(requestTimeout);
                 if (node != null) {
-                    ClientResponse response = sendInitPidRequest(node);
+                    ClientResponse response = sendAndAwaitInitPidRequest(node);
                     if (response.hasResponse() && (response.responseBody() instanceof InitPidResponse)) {
                         InitPidResponse initPidResponse = (InitPidResponse) response.responseBody();
                         transactionState.setPidAndEpoch(initPidResponse.producerId(), initPidResponse.epoch());
                     } else {
-                        log.error("Received an unexpected response type for an InitPidRequest from " +
-                                node + ". We will back off and try again.");
+                        log.error("Received an unexpected response type for an InitPidRequest from {}. " +
+                                "We will back off and try again.", node);
                     }
                 } else {
-                    log.debug("Could not find an available broker to send an InitPidRequest to.");
+                    log.debug("Could not find an available broker to send InitPidRequest to. " +
+                            "We will back off and try again.");
                 }
             } catch (Exception e) {
                 log.warn("Received an exception {} while trying to get a pid. Will back off and retry.", e);
             }
-            log.debug("Retry InitPidRequest in {}ms.", retryBackoffMs);
+            log.trace("Retry InitPidRequest in {}ms.", retryBackoffMs);
             time.sleep(retryBackoffMs);
             metadata.requestUpdate();
         }

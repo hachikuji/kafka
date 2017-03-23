@@ -69,22 +69,22 @@ class ProducerIdManagerTest {
     val manager1: ProducerIdManager = new ProducerIdManager(0, zkUtils)
     val manager2: ProducerIdManager = new ProducerIdManager(1, zkUtils)
 
-    var pid1: Long = manager1.getNewPid()
-    var pid2: Long = manager2.getNewPid()
+    val pid1 = manager1.nextPid()
+    val pid2 = manager2.nextPid()
 
     assertEquals(0, pid1)
     assertEquals(ProducerIdManager.PidBlockSize, pid2)
 
     for (i <- 1 until ProducerIdManager.PidBlockSize.asInstanceOf[Int]) {
-      assertEquals(pid1 + i, manager1.getNewPid())
+      assertEquals(pid1 + i, manager1.nextPid())
     }
 
     for (i <- 1 until ProducerIdManager.PidBlockSize.asInstanceOf[Int]) {
-      assertEquals(pid2 + i, manager2.getNewPid())
+      assertEquals(pid2 + i, manager2.nextPid())
     }
 
-    assertEquals(pid2 + ProducerIdManager.PidBlockSize, manager1.getNewPid())
-    assertEquals(pid2 + ProducerIdManager.PidBlockSize * 2, manager2.getNewPid())
+    assertEquals(pid2 + ProducerIdManager.PidBlockSize, manager1.nextPid())
+    assertEquals(pid2 + ProducerIdManager.PidBlockSize * 2, manager2.nextPid())
   }
 
   @Test(expected = classOf[KafkaException])
@@ -99,8 +99,7 @@ class ProducerIdManagerTest {
       })
       .anyTimes()
     EasyMock.replay(zkUtils)
-
-    val manager: ProducerIdManager = new ProducerIdManager(0, zkUtils)
+    new ProducerIdManager(0, zkUtils)
   }
 }
 
