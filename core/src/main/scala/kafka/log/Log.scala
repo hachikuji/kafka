@@ -629,15 +629,15 @@ class Log(@volatile var dir: File,
         producerAppendInfos.get(pid) match {
           case Some(appendInfo) => appendInfo.append(batch)
           case None =>
-            val snapshotEntry = pidMap.lastEntry(pid).getOrElse(ProducerIdEntry.Empty)
-            if (isFromClient && snapshotEntry.isDuplicate(batch)) {
+            val lastEntry = pidMap.lastEntry(pid).getOrElse(ProducerIdEntry.Empty)
+            if (isFromClient && lastEntry.isDuplicate(batch)) {
               // This request is a duplicate so return the information about the existing entry
               isDuplicate = true
-              firstOffset = snapshotEntry.firstOffset
-              lastOffset = snapshotEntry.lastOffset
-              maxTimestamp = snapshotEntry.timestamp
+              firstOffset = lastEntry.firstOffset
+              lastOffset = lastEntry.lastOffset
+              maxTimestamp = lastEntry.timestamp
             } else {
-              val producerAppendInfo = new ProducerAppendInfo(pid, snapshotEntry)
+              val producerAppendInfo = new ProducerAppendInfo(pid, lastEntry)
               producerAppendInfos.put(pid, producerAppendInfo)
               producerAppendInfo.append(batch)
             }
