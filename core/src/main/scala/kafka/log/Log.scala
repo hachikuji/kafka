@@ -520,7 +520,7 @@ class Log(@volatile var dir: File,
 
         // update the PID sequence mapping
         for ((pid, producerAppendInfo) <- appendInfo.producerAppendInfos) {
-          trace(s"Updating pid with sequence: $pid -> ${producerAppendInfo.toSnapshotEntry}")
+          trace(s"Updating pid with sequence: $pid -> ${producerAppendInfo.lastEntry}")
           if (assignOffsets)
             producerAppendInfo.assignLastOffsetAndTimestamp(appendInfo.lastOffset, appendInfo.maxTimestamp)
           pidMap.update(producerAppendInfo)

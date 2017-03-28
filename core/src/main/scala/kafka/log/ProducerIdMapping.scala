@@ -46,12 +46,12 @@ private[log] case class ProducerIdEntry(epoch: Short, lastSeq: Int, lastOffset: 
   }
 }
 
-private[log] class ProducerAppendInfo(val pid: Long, lastEntry: ProducerIdEntry) {
-  private var epoch = lastEntry.epoch
-  private var firstSeq = lastEntry.firstSeq
-  private var lastSeq = lastEntry.lastSeq
-  private var lastOffset = lastEntry.lastOffset
-  private var lastTimestamp = lastEntry.timestamp
+private[log] class ProducerAppendInfo(val pid: Long, initialEntry: ProducerIdEntry) {
+  private var epoch = initialEntry.epoch
+  private var firstSeq = initialEntry.firstSeq
+  private var lastSeq = initialEntry.lastSeq
+  private var lastOffset = initialEntry.lastOffset
+  private var lastTimestamp = initialEntry.timestamp
 
   private def validateAppend(epoch: Short, firstSeq: Int, lastSeq: Int) = {
     if (this.epoch > epoch) {
@@ -89,7 +89,7 @@ private[log] class ProducerAppendInfo(val pid: Long, lastEntry: ProducerIdEntry)
   def append(entry: ProducerIdEntry): Unit =
     append(entry.epoch, entry.firstSeq, entry.lastSeq, entry.timestamp, entry.lastOffset)
 
-  def toSnapshotEntry: ProducerIdEntry =
+  def lastEntry: ProducerIdEntry =
     ProducerIdEntry(epoch, lastSeq, lastOffset, lastSeq - firstSeq + 1, lastTimestamp)
 }
 
@@ -275,8 +275,8 @@ class ProducerIdMapping(val config: LogConfig,
    */
   def update(appendInfo: ProducerAppendInfo): Unit = {
     if (appendInfo.pid == RecordBatch.NO_PRODUCER_ID)
-      throw new IllegalArgumentException("Invalid PID passed")
-    val entry = appendInfo.toSnapshotEntry
+      throw new IllegalArgumentException("Invalid PID passed to update")
+    val entry = appendInfo.lastEntry
     pidMap.put(appendInfo.pid, entry)
     lastMapOffset = entry.lastOffset
   }
@@ -290,18 +290,6 @@ class ProducerIdMapping(val config: LogConfig,
       pidMap.put(pid, entry)
       lastMapOffset = entry.lastOffset
     }
-  }
-
-  /**
-   * Verify the epoch and next expected sequence number. Invoked prior to appending the entries to
-   * the log.
-   */
-  def checkSeqAndEpoch(pid: Long, entry: ProducerIdEntry): ProducerAppendInfo = {
-    if (pid == RecordBatch.NO_PRODUCER_ID)
-      throw new IllegalArgumentException("Invalid PID passed")
-    val producerAppendInfo = new ProducerAppendInfo(pid, lastEntry(pid).getOrElse(ProducerIdEntry.Empty))
-    producerAppendInfo.append(entry)
-    producerAppendInfo
   }
 
   /**

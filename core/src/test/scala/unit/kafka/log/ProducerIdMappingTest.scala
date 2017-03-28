@@ -202,8 +202,9 @@ class ProducerIdMappingTest extends JUnitSuite {
                              timestamp: Long = time.milliseconds()): Unit = {
     val numRecords = 1
     val incomingPidEntry = ProducerIdEntry(epoch, seq, lastOffset, numRecords, timestamp)
-    val appendInfo = mapping.checkSeqAndEpoch(pid, incomingPidEntry)
-    mapping.update(appendInfo)
+    val producerAppendInfo = new ProducerAppendInfo(pid, mapping.lastEntry(pid).getOrElse(ProducerIdEntry.Empty))
+    producerAppendInfo.append(incomingPidEntry)
+    mapping.update(producerAppendInfo)
   }
 
 }
