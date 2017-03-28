@@ -128,25 +128,6 @@ object ProducerIdMapping {
     new Field(CrcField, Type.UNSIGNED_INT32, "CRC of the snapshot data"),
     new Field(PidEntriesField, new ArrayOf(PidSnapshotEntrySchema), "The entries in the PID table"))
 
-  def validatePidEntries(pid: Long, existingEntry: ProducerIdEntry, incomingEntry: ProducerIdEntry): Unit = {
-    // Zombie writer
-    if (existingEntry.epoch > incomingEntry.epoch)
-      throw new ProducerFencedException(s"Invalid epoch (zombie writer): ${incomingEntry.epoch} (request epoch), " +
-        s"${existingEntry.epoch}")
-    if (existingEntry.epoch < incomingEntry.epoch) {
-      if (incomingEntry.firstSeq != 0)
-        throw new OutOfOrderSequenceException(s"Invalid sequence number for new epoch: ${incomingEntry.epoch} " +
-          s"(request epoch), ${incomingEntry.firstSeq} (seq. number)")
-    } else {
-      if (incomingEntry.firstSeq > existingEntry.lastSeq + 1L)
-        throw new OutOfOrderSequenceException(s"Invalid sequence number: $pid (id), ${incomingEntry.firstSeq} " +
-          s"(seq. number), ${existingEntry.lastSeq} (expected seq. number)")
-      else if (incomingEntry.firstSeq <= existingEntry.lastSeq)
-        throw new DuplicateSequenceNumberException(s"Duplicate sequence number: $pid (id), ${incomingEntry.firstSeq} " +
-          s"(seq. number), ${existingEntry.firstSeq} (expected seq. number)")
-    }
-  }
-
   private def loadSnapshot(file: File, pidMap: mutable.Map[Long, ProducerIdEntry]) {
     val buffer = Files.readAllBytes(file.toPath)
     val struct = PidSnapshotMapSchema.read(ByteBuffer.wrap(buffer))
