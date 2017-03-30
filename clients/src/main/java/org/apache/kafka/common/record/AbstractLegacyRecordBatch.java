@@ -155,7 +155,7 @@ public abstract class AbstractLegacyRecordBatch extends AbstractRecordBatch impl
 
     @Override
     public String toString() {
-        return "LegacyRecordBatch(" + offset() + ", " + outerRecord() + ")";
+        return "LegacyRecordBatch(offset=" + offset() + ", " + outerRecord() + ")";
     }
 
     @Override
