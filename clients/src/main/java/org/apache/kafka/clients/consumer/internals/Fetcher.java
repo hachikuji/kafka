@@ -952,12 +952,12 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
             }
         }
 
-        private List<ConsumerRecord<K, V>> fetchRecords(int n) {
+        private List<ConsumerRecord<K, V>> fetchRecords(int maxRecords) {
             if (isFetched)
                 return Collections.emptyList();
 
             List<ConsumerRecord<K, V>> records = new ArrayList<>();
-            for (int i = 0; i < n; i++) {
+            for (int i = 0; i < maxRecords; i++) {
                 Record record = nextFetchedRecord();
                 if (record == null)
                     break;
