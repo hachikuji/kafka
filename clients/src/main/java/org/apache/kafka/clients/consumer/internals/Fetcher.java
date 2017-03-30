@@ -920,12 +920,8 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
         }
 
         private void maybeCloseRecordStream() {
-            try {
-                if (records != null)
-                    records.close();
-            } catch (IOException e) {
-                throw new KafkaException("Failed to close record iterator", e);
-            }
+            if (records != null)
+                records.close();
         }
 
         private Record nextFetchedRecord() {
@@ -1191,7 +1187,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         if (nextInLineRecords != null)
             nextInLineRecords.drain();
     }
