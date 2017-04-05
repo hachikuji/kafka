@@ -32,15 +32,17 @@ import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{CorruptRecordException, OffsetOutOfRangeException, RecordBatchTooLargeException, RecordTooLargeException, UnsupportedForMessageFormatException}
 import org.apache.kafka.common.record._
-import org.apache.kafka.common.requests.ListOffsetRequest
+import org.apache.kafka.common.requests.{IsolationLevel, ListOffsetRequest}
 import org.apache.kafka.common.utils.{Time, Utils}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable.ListBuffer
 import scala.collection.{Seq, mutable}
 
 object LogAppendInfo {
   val UnknownLogAppendInfo = LogAppendInfo(-1, -1, RecordBatch.NO_TIMESTAMP, -1L, RecordBatch.NO_TIMESTAMP,
-    NoCompressionCodec, NoCompressionCodec, -1, -1, offsetsMonotonic = false, Map.empty[Long, ProducerAppendInfo], false)
+    NoCompressionCodec, NoCompressionCodec, -1, -1, offsetsMonotonic = false, Map.empty[Long, ProducerAppendInfo], Nil,
+    false)
 }
 
 /**
@@ -73,7 +75,12 @@ case class LogAppendInfo(var firstOffset: Long,
                          validBytes: Int,
                          offsetsMonotonic: Boolean,
                          producerAppendInfos: Map[Long, ProducerAppendInfo],
+                         completedTransactions: List[CompletedTxn] = Nil,
                          isDuplicate: Boolean = false)
+
+case class ControlRecord(controlType: ControlRecordType, pid: Long, epoch: Short, offset: Long, timestamp: Long)
+case class CompletedTxn(pid: Long, firstOffset: Long, lastOffset: Long, isAborted: Boolean)
+
 
 /**
  * An append-only log for storing messages.
@@ -284,9 +291,12 @@ class Log(@volatile var dir: File,
       val index =  new OffsetIndex(indexFile, baseOffset = startOffset, maxIndexSize = config.maxIndexSize)
       val timeIndexFile = new File(CoreUtils.replaceSuffix(logFile.getPath, LogFileSuffix, TimeIndexFileSuffix) + SwapFileSuffix)
       val timeIndex = new TimeIndex(timeIndexFile, baseOffset = startOffset, maxIndexSize = config.maxIndexSize)
+      val txnIndexFile = new File(CoreUtils.replaceSuffix(logFile.getPath, LogFileSuffix, TxnIndexFileSuffix) + SwapFileSuffix)
+      val txnIndex = new TransactionIndex(txnIndexFile)
       val swapSegment = new LogSegment(FileRecords.open(swapFile),
                                        index = index,
                                        timeIndex = timeIndex,
+                                       txnIndex = txnIndex,
                                        baseOffset = startOffset,
                                        indexIntervalBytes = config.indexInterval,
                                        rollJitterMs = config.randomSegmentJitter,
@@ -500,7 +510,6 @@ class Log(@volatile var dir: File,
           maxTimestampInMessages = appendInfo.maxTimestamp,
           maxOffsetInMessages = appendInfo.lastOffset)
 
-
         // The incoming record doesn't have any duplicates. Append it to the local log.
         segment.append(firstOffset = appendInfo.firstOffset,
           largestOffset = appendInfo.lastOffset,
@@ -514,6 +523,15 @@ class Log(@volatile var dir: File,
           if (assignOffsets)
             producerAppendInfo.assignLastOffsetAndTimestamp(appendInfo.lastOffset, appendInfo.maxTimestamp)
           pidMap.update(producerAppendInfo)
+        }
+
+        // update the transaction index and last stable offset. The ordering is important.
+        // The index must be updated before we can advance the LSO, but the LSO value must take
+        // into account the completed transaction.
+        for (completedTxn <- appendInfo.completedTransactions) {
+          val lastStableOffset = pidMap.firstUnstableOffset(completedTxn).getOrElse(completedTxn.lastOffset + 1)
+          segment.updateTxnIndex(completedTxn, lastStableOffset)
+          pidMap.completeTxn(completedTxn)
         }
 
         // increment the log end offset
@@ -574,6 +592,7 @@ class Log(@volatile var dir: File,
     var offsetOfMaxTimestamp = -1L
     var isDuplicate = false
     val producerAppendInfos = mutable.Map[Long, ProducerAppendInfo]()
+    val completedTxns = ListBuffer.empty[CompletedTxn]
 
     for (batch <- records.batches.asScala) {
       if (isFromClient && batch.magic >= RecordBatch.MAGIC_VALUE_V2 && shallowMessageCount > 0)
@@ -616,8 +635,24 @@ class Log(@volatile var dir: File,
 
       val pid = batch.producerId
       if (pid != RecordBatch.NO_PRODUCER_ID) {
+        val maybeControlRecord = if (batch.baseSequence == RecordBatch.CONTROL_SEQUENCE) {
+          val record = batch.iterator.next()
+          val controlRecordType = ControlRecordType.parse(record.key)
+          val controlRecord = ControlRecord(controlRecordType, pid, batch.producerEpoch,
+            record.offset, record.timestamp)
+          Some(controlRecord)
+        } else None
+
+        def appendTo(appendInfo: ProducerAppendInfo) =
+          maybeControlRecord match {
+            case Some(controlRecord) =>
+              val completedTxn = appendInfo.appendControl(controlRecord)
+              completedTxns += completedTxn
+            case None => appendInfo.append(batch)
+          }
+
         producerAppendInfos.get(pid) match {
-          case Some(appendInfo) => appendInfo.append(batch)
+          case Some(appendInfo) => appendTo(appendInfo)
           case None =>
             pidMap.lastEntry(pid) match {
               case Some(lastEntry) if isFromClient && lastEntry.isDuplicate(batch) =>
@@ -627,9 +662,9 @@ class Log(@volatile var dir: File,
                 lastOffset = lastEntry.lastOffset
                 maxTimestamp = lastEntry.timestamp
               case maybeLastEntry =>
-                val producerAppendInfo = new ProducerAppendInfo(pid, maybeLastEntry)
-                producerAppendInfos.put(pid, producerAppendInfo)
-                producerAppendInfo.append(batch)
+                val appendInfo = new ProducerAppendInfo(pid, maybeLastEntry)
+                producerAppendInfos.put(pid, appendInfo)
+                appendTo(appendInfo)
             }
         }
       }
@@ -639,7 +674,8 @@ class Log(@volatile var dir: File,
     val targetCodec = BrokerCompressionCodec.getTargetCompressionCodec(config.compressionType, sourceCodec)
 
     LogAppendInfo(firstOffset, lastOffset, maxTimestamp, offsetOfMaxTimestamp, RecordBatch.NO_TIMESTAMP, sourceCodec,
-      targetCodec, shallowMessageCount, validBytesCount, monotonic, producerAppendInfos.toMap, isDuplicate)
+      targetCodec, shallowMessageCount, validBytesCount, monotonic, producerAppendInfos.toMap, completedTxns.toList,
+      isDuplicate)
   }
 
   /**
@@ -674,7 +710,8 @@ class Log(@volatile var dir: File,
    * @throws OffsetOutOfRangeException If startOffset is beyond the log end offset or before the log start offset
    * @return The fetch data information including fetch starting offset metadata and messages read.
    */
-  def read(startOffset: Long, maxLength: Int, maxOffset: Option[Long] = None, minOneMessage: Boolean = false): FetchDataInfo = {
+  def read(startOffset: Long, maxLength: Int, maxOffset: Option[Long] = None,
+           minOneMessage: Boolean = false, isolationLevel: IsolationLevel = IsolationLevel.READ_UNCOMMITTED): FetchDataInfo = {
     trace("Reading %d bytes from offset %d in log %s of length %d bytes".format(maxLength, startOffset, name, size))
 
     // Because we don't use lock for reading, the synchronization is a little bit tricky.
@@ -711,7 +748,7 @@ class Log(@volatile var dir: File,
           entry.getValue.size
         }
       }
-      val fetchInfo = entry.getValue.read(startOffset, maxOffset, maxLength, maxPosition, minOneMessage)
+      val fetchInfo = entry.getValue.read(startOffset, maxOffset, maxLength, maxPosition, minOneMessage, isolationLevel)
       if(fetchInfo == null) {
         entry = segments.higherEntry(entry.getKey)
       } else {
@@ -1217,6 +1254,9 @@ object Log {
   /** a time index file */
   val TimeIndexFileSuffix = ".timeindex"
 
+  /** an (aborted) txn index */
+  val TxnIndexFileSuffix = ".txnindex"
+
   /** a file that is scheduled to be deleted */
   val DeletedFileSuffix = ".deleted"
 
@@ -1276,6 +1316,15 @@ object Log {
    * @param offset The base offset of the log file
    */
   def timeIndexFilename(dir: File, offset: Long) =
+    new File(dir, filenamePrefixFromOffset(offset) + TimeIndexFileSuffix)
+
+  /**
+   * Construct a time index file name in the given dir using the given base offset
+   *
+   * @param dir The directory in which the log will reside
+   * @param offset The base offset of the log file
+   */
+  def txnIndexFilename(dir: File, offset: Long) =
     new File(dir, filenamePrefixFromOffset(offset) + TimeIndexFileSuffix)
 
   /**

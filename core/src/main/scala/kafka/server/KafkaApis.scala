@@ -501,7 +501,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           }
 
           tp -> new FetchResponse.PartitionData(convertedData.error, convertedData.hw, FetchResponse.INVALID_LAST_STABLE_OFFSET,
-            convertedData.logStartOffset, null, convertedData.records)
+            convertedData.logStartOffset, convertedData.abortedTransactions.asJava, convertedData.records)
         }
       }
 
@@ -556,7 +556,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         versionId <= 2,
         authorizedRequestInfo,
         replicationQuota(fetchRequest),
-        sendResponseCallback)
+        sendResponseCallback,
+        fetchRequest.isolationLevel)
     }
   }
 

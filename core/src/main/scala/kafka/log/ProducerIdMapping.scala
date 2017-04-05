@@ -25,9 +25,10 @@ import kafka.utils.{Logging, nonthreadsafe}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{DuplicateSequenceNumberException, OutOfOrderSequenceException, ProducerFencedException}
 import org.apache.kafka.common.protocol.types._
-import org.apache.kafka.common.record.{ControlRecordType, RecordBatch, Records}
+import org.apache.kafka.common.record.{ControlRecordType, RecordBatch}
 import org.apache.kafka.common.utils.{ByteUtils, Crc32}
 
+import scala.collection.mutable.ListBuffer
 import scala.collection.{immutable, mutable}
 
 private[log] object ProducerIdEntry {
@@ -54,6 +55,7 @@ private[log] class ProducerAppendInfo(val pid: Long, initialEntry: ProducerIdEnt
   private var lastOffset = initialEntry.lastOffset
   private var lastTimestamp = initialEntry.timestamp
   private var currentTxnFirstOffset = initialEntry.currentTxnFirstOffset
+  private val startedTxns = ListBuffer.empty[Long]
 
   def this(pid: Long, initialEntry: Option[ProducerIdEntry]) =
     this(pid, initialEntry.getOrElse(ProducerIdEntry.Empty))
@@ -90,34 +92,38 @@ private[log] class ProducerAppendInfo(val pid: Long, initialEntry: ProducerIdEnt
     if (isTransactional && currentTxnFirstOffset < 0) {
       val firstOffset = lastOffset - (lastSeq - firstSeq)
       currentTxnFirstOffset = firstOffset
+      startedTxns += firstOffset
     }
   }
 
-  def append(batch: RecordBatch): Unit = {
-    if (batch.baseSequence == RecordBatch.CONTROL_SEQUENCE) {
-      val controlRecord = batch.iterator.next()
-      val controlRecordType = ControlRecordType.parse(controlRecord.key())
-      appendControl(batch.producerEpoch, batch.maxTimestamp, controlRecordType)
-    } else {
-      append(batch.producerEpoch, batch.baseSequence, batch.lastSequence, batch.maxTimestamp, batch.lastOffset,
-        batch.isTransactional)
-    }
-  }
+  def append(batch: RecordBatch): Unit =
+    append(batch.producerEpoch, batch.baseSequence, batch.lastSequence, batch.maxTimestamp, batch.lastOffset,
+      batch.isTransactional)
 
-  def appendControl(epoch: Short, timestamp: Long, controlType: ControlRecordType): Unit = {
-    if (this.epoch > epoch)
-      throw new ProducerFencedException(s"Invalid epoch (zombie writer): $epoch (request epoch), ${this.epoch}")
+  def appendControl(controlRecord: ControlRecord): CompletedTxn = {
+    if (this.epoch > controlRecord.epoch)
+      throw new ProducerFencedException(s"Invalid epoch (zombie writer): ${controlRecord.epoch} (request epoch), ${this.epoch}")
 
-    controlType match {
+    controlRecord.controlType match {
       case ControlRecordType.ABORT | ControlRecordType.COMMIT =>
+        val firstOffset = if (currentTxnFirstOffset > 0)
+          currentTxnFirstOffset
+        else
+          controlRecord.offset
+
         currentTxnFirstOffset = -1
-        lastTimestamp = timestamp
-      case _ =>
+        lastTimestamp = controlRecord.timestamp
+        CompletedTxn(pid, firstOffset, controlRecord.offset, controlRecord.controlType == ControlRecordType.ABORT)
+
+      case unhandled => throw new IllegalArgumentException(s"Unhandled control type $unhandled")
     }
   }
 
   def lastEntry: ProducerIdEntry =
     ProducerIdEntry(pid, epoch, lastSeq, lastOffset, lastSeq - firstSeq + 1, lastTimestamp, currentTxnFirstOffset)
+
+  def startedTransactions: List[Long] = startedTxns.toList
+
 }
 
 private[log] class CorruptSnapshotException(msg: String) extends KafkaException(msg)
@@ -134,7 +140,9 @@ object ProducerIdMapping {
   private val PidField = "pid"
   private val LastSequenceField = "last_sequence"
   private val EpochField = "epoch"
+  private val FirstOffsetField = "first_offset"
   private val LastOffsetField = "last_offset"
+  private val LastStableOffsetField = "last_stable_offset"
   private val NumRecordsField = "num_records"
   private val TimestampField = "timestamp"
   private val PidEntriesField = "pid_entries"
@@ -253,10 +261,12 @@ class ProducerIdMapping(val config: LogConfig,
   private val pidMap = mutable.Map[Long, ProducerIdEntry]()
   private var lastMapOffset = -1L
   private var lastSnapOffset = -1L
+  private val ongoingTransactions = mutable.TreeSet.empty[Long]
 
-  @volatile private var earliestPendingTxn: Option[ProducerIdEntry] = None
+  def firstUnstableOffset: Option[Long] = ongoingTransactions.headOption
 
-  def firstUnstableOffset: Option[Long] = earliestPendingTxn.map(_.firstOffset)
+  def firstUnstableOffset(withoutTxn: CompletedTxn): Option[Long] =
+    ongoingTransactions.find( offset => offset != withoutTxn.firstOffset)
 
   /**
    * Returns the last offset of this map
@@ -314,16 +324,7 @@ class ProducerIdMapping(val config: LogConfig,
     val entry = appendInfo.lastEntry
     pidMap.put(appendInfo.pid, entry)
     lastMapOffset = entry.lastOffset
-
-    earliestPendingTxn = earliestPendingTxn match {
-      case None =>
-        if (entry.currentTxnFirstOffset >= 0) Some(entry) else None
-      case Some(pendingTxnEntry) =>
-        if (pendingTxnEntry.pid == entry.pid && pendingTxnEntry.currentTxnFirstOffset != entry.currentTxnFirstOffset)
-          findEarliestPendingTxn()
-        else
-          Some(pendingTxnEntry)
-    }
+    ongoingTransactions ++= appendInfo.startedTransactions
   }
 
   /**
@@ -370,6 +371,8 @@ class ProducerIdMapping(val config: LogConfig,
     if (pidMap.isEmpty)
       lastMapOffset = -1L
   }
+
+  def completeTxn(completedTxn: CompletedTxn): Unit = ongoingTransactions.remove(completedTxn.firstOffset)
 
   private def maybeRemove() {
     val list = listSnapshotFiles()
