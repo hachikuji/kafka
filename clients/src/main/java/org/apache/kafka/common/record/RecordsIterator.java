@@ -178,6 +178,10 @@ public class RecordsIterator extends AbstractIterator<LogEntry> {
                         logEntry = LogEntry.create(logEntry.offset(), recordWithTimestamp);
                     }
                     logEntries.addLast(logEntry);
+
+                    // break if we have reached the last record in the message set
+                    if (logEntry.offset() == wrapperRecordOffset)
+                        break;
                 }
                 if (wrapperMagic > Record.MAGIC_VALUE_V0)
                     this.absoluteBaseOffset = wrapperRecordOffset - logEntries.getLast().offset();
