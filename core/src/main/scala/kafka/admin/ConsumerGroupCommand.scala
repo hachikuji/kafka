@@ -192,15 +192,35 @@ object ConsumerGroupCommand {
         case Some(-1) => LogEndOffsetResult.Unknown
         case Some(brokerId) =>
           getZkConsumer(brokerId).map { consumer =>
-            val topicAndPartition = new TopicAndPartition(topic, partition)
-            val request = OffsetRequest(Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.LatestTime, 1)))
-            val logEndOffset = consumer.getOffsetsBefore(request).partitionErrorAndOffsets(topicAndPartition).offsets.head
-            consumer.close()
-            LogEndOffsetResult.LogEndOffset(logEndOffset)
+            try {
+              val (maybeErrMsg, result) = fetchLogEndOffset(TopicAndPartition(topic, partition), consumer)
+              maybeErrMsg.foreach(println)
+              result
+            } finally consumer.close()
           }.getOrElse(LogEndOffsetResult.Ignore)
         case None =>
           println(s"No broker for partition ${new TopicPartition(topic, partition)}")
           LogEndOffsetResult.Ignore
+      }
+    }
+
+    private[admin] def fetchLogEndOffset(topicPartition: TopicAndPartition,
+                                         consumer: SimpleConsumer): (Option[String], LogEndOffsetResult) = {
+      val request = OffsetRequest(Map(topicPartition -> PartitionOffsetRequestInfo(OffsetRequest.LatestTime, 1)))
+      val response = consumer.getOffsetsBefore(request).partitionErrorAndOffsets(topicPartition)
+
+      Errors.forCode(response.error) match {
+        case Errors.NONE =>
+          if (response.offsets.nonEmpty) {
+            (None, LogEndOffsetResult.LogEndOffset(response.offsets.head))
+          } else {
+            val errorMsg = s"No log end offset returned in ListOffsets response for partition $topicPartition"
+            (Some(errorMsg), LogEndOffsetResult.Ignore)
+          }
+
+        case error =>
+          val errorMsg = s"Error fetching log end offset for partition $topicPartition: ${error.message}"
+          (Some(errorMsg), LogEndOffsetResult.Ignore)
       }
     }
 
