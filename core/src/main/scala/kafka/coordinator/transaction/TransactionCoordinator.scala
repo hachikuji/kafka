@@ -320,6 +320,7 @@ class TransactionCoordinator(brokerId: Int,
         txnManager.coordinatorEpochFor(transactionalId) match {
           case Some(coordinatorEpoch) =>
             writeTxnMarkers(WriteTxnMarkerArgs(transactionalId, pid, epoch, nextState, newMetadata, coordinatorEpoch))
+
           case None =>
             // this one should be completed by the new coordinator
             warn(s"no longer the coordinator for transactionalId: $transactionalId")
