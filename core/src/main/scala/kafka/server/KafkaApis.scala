@@ -364,19 +364,20 @@ class KafkaApis(val requestChannel: RequestChannel,
     val produceRequest = request.body[ProduceRequest]
     val numBytesAppended = request.header.toStruct.sizeOf + request.bodyAndSize.size
 
-    def createErrorResponse(error: Errors)(throttleMs: Int): ProduceResponse = {
-      produceRequest.getErrorResponse(throttleMs, error.exception)
+    def sendErrorResponse(error: Errors): Unit = {
+      sendResponseMaybeThrottle(request, (throttleTimeMs: Int) =>
+        produceRequest.getErrorResponse(throttleTimeMs, error.exception))
     }
 
     if (produceRequest.isTransactional) {
       if (!authorize(request.session, Write, new Resource(ProducerTransactionalId, produceRequest.transactionalId))) {
-        sendResponseMaybeThrottle(request, createErrorResponse(Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED))
+        sendErrorResponse(Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED)
         return
       }
-      // Note that authorization to a particular transactionalId implies ProducerId authorization
+      // Note that authorization to a transactionalId implies ProducerId authorization
 
     } else if (produceRequest.isIdempotent && !authorize(request.session, Write, Resource.ProducerIdResource)) {
-      sendResponseMaybeThrottle(request, createErrorResponse(Errors.PRODUCER_ID_AUTHORIZATION_FAILED))
+      sendErrorResponse(Errors.PRODUCER_ID_AUTHORIZATION_FAILED)
       return
     }
 
@@ -1042,14 +1043,16 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleFindCoordinatorRequest(request: RequestChannel.Request) {
     val findCoordinatorRequest = request.body[FindCoordinatorRequest]
 
+    def sendErrorResponse(error: Errors): Unit =
+      sendResponseMaybeThrottle(request, (throttleTimeMs: Int) => new FindCoordinatorResponse(error, Node.noNode))
+
     if (findCoordinatorRequest.coordinatorType == FindCoordinatorRequest.CoordinatorType.GROUP &&
-      !authorize(request.session, Describe, new Resource(Group, findCoordinatorRequest.coordinatorKey))) {
-
-      def createResponse(throttleTimeMs: Int): AbstractResponse = new FindCoordinatorResponse(Errors.GROUP_AUTHORIZATION_FAILED, Node.noNode)
-      sendResponseMaybeThrottle(request, createResponse)
-    } else {
-      // TODO: Authorize by transactional id if coordinator type is TRANSACTION
-
+        !authorize(request.session, Describe, new Resource(Group, findCoordinatorRequest.coordinatorKey)))
+      sendErrorResponse(Errors.GROUP_AUTHORIZATION_FAILED)
+    else if (findCoordinatorRequest.coordinatorType == FindCoordinatorRequest.CoordinatorType.TRANSACTION &&
+        !authorize(request.session, Describe, new Resource(ProducerTransactionalId, findCoordinatorRequest.coordinatorKey)))
+      sendErrorResponse(Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED)
+    else {
       // get metadata (and create the topic if necessary)
       val (partition, topicMetadata) = findCoordinatorRequest.coordinatorType match {
         case FindCoordinatorRequest.CoordinatorType.GROUP =>
@@ -1093,18 +1096,18 @@ class KafkaApis(val requestChannel: RequestChannel,
     val describeRequest = request.body[DescribeGroupsRequest]
 
     val groups = describeRequest.groupIds().asScala.map { groupId =>
-        if (!authorize(request.session, Describe, new Resource(Group, groupId))) {
-          groupId -> DescribeGroupsResponse.GroupMetadata.forError(Errors.GROUP_AUTHORIZATION_FAILED)
-        } else {
-          val (error, summary) = groupCoordinator.handleDescribeGroup(groupId)
-          val members = summary.members.map { member =>
-            val metadata = ByteBuffer.wrap(member.metadata)
-            val assignment = ByteBuffer.wrap(member.assignment)
-            new DescribeGroupsResponse.GroupMember(member.memberId, member.clientId, member.clientHost, metadata, assignment)
-          }
-          groupId -> new DescribeGroupsResponse.GroupMetadata(error, summary.state, summary.protocolType,
-            summary.protocol, members.asJava)
+      if (!authorize(request.session, Describe, new Resource(Group, groupId))) {
+        groupId -> DescribeGroupsResponse.GroupMetadata.forError(Errors.GROUP_AUTHORIZATION_FAILED)
+      } else {
+        val (error, summary) = groupCoordinator.handleDescribeGroup(groupId)
+        val members = summary.members.map { member =>
+          val metadata = ByteBuffer.wrap(member.metadata)
+          val assignment = ByteBuffer.wrap(member.assignment)
+          new DescribeGroupsResponse.GroupMember(member.memberId, member.clientId, member.clientHost, metadata, assignment)
         }
+        groupId -> new DescribeGroupsResponse.GroupMetadata(error, summary.state, summary.protocolType,
+          summary.protocol, members.asJava)
+      }
     }.toMap
 
     def createResponse(throttleTimeMs: Int): AbstractResponse = new DescribeGroupsResponse(throttleTimeMs, groups.asJava)
@@ -1522,8 +1525,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     val transactionalId = addPartitionsToTxnRequest.transactionalId
     val partitionsToAdd = addPartitionsToTxnRequest.partitions
 
-    if(!authorize(request.session, Write, new Resource(ProducerTransactionalId, transactionalId)))
-      sendResponseMaybeThrottle(request, (throttleTimeMs: Int) => addPartitionsToTxnRequest.getErrorResponse(1, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.exception()))
+    if (!authorize(request.session, Write, new Resource(ProducerTransactionalId, transactionalId)))
+      sendResponseMaybeThrottle(request, (throttleTimeMs: Int) =>
+        addPartitionsToTxnRequest.getErrorResponse(throttleTimeMs, Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.exception))
     else {
       val internalTopics = partitionsToAdd.asScala.filter {tp => org.apache.kafka.common.internals.Topic.isInternal(tp.topic())}
 
@@ -1561,7 +1565,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
         txnCoordinator.handleAddPartitionsToTransaction(transactionalId,
           addPartitionsToTxnRequest.producerId,
-          addPartitionsToTxnRequest.producerEpoch(),
+          addPartitionsToTxnRequest.producerEpoch,
           partitionsToAdd.asScala.toSet,
           sendResponseCallback)
       }
@@ -1583,7 +1587,8 @@ class KafkaApis(val requestChannel: RequestChannel,
       def sendResponseCallback(error: Errors): Unit = {
         def createResponse(throttleTimeMs: Int): AbstractResponse = {
           val responseBody: AddOffsetsToTxnResponse = new AddOffsetsToTxnResponse(throttleTimeMs, error)
-          trace(s"Completed $transactionalId's AddOffsetsToTxnRequest for group $groupId as on partition $offsetTopicPartition: errors: $error from client ${request.header.clientId}")
+          trace(s"Completed $transactionalId's AddOffsetsToTxnRequest for group $groupId on partition " +
+            s"$offsetTopicPartition: errors: $error from client ${request.header.clientId}")
           responseBody
         }
         sendResponseMaybeThrottle(request, createResponse)
@@ -1601,15 +1606,19 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleTxnOffsetCommitRequest(request: RequestChannel.Request): Unit = {
     val header = request.header
     val txnOffsetCommitRequest = request.body[TxnOffsetCommitRequest]
-    // reject the request if not authorized to the group
-    if (!authorize(request.session, Read, new Resource(Group, txnOffsetCommitRequest.consumerGroupId))) {
-      val error = Errors.GROUP_AUTHORIZATION_FAILED
-      val results = txnOffsetCommitRequest.offsets.keySet.asScala.map { topicPartition =>
-        (topicPartition, error)
-      }.toMap
-      def createResponse(throttleTimeMs: Int): AbstractResponse = new TxnOffsetCommitResponse(throttleTimeMs, results.asJava)
-      sendResponseMaybeThrottle(request, createResponse)
-    } else {
+
+    def sendErrorResponse(error: Errors): Unit = {
+      sendResponseMaybeThrottle(request, (throttleTimeMs: Int) =>
+        txnOffsetCommitRequest.getErrorResponse(throttleTimeMs, error.exception))
+    }
+
+    // authorize for the transactionalId and the consumer group. Note that we skip producerId authorization
+    // since it is implied by transactionalId authorization
+    if (!authorize(request.session, Write, new Resource(ProducerTransactionalId, txnOffsetCommitRequest.transactionalId)))
+      sendErrorResponse(Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED)
+    else if (!authorize(request.session, Read, new Resource(Group, txnOffsetCommitRequest.consumerGroupId)))
+      sendErrorResponse(Errors.GROUP_AUTHORIZATION_FAILED)
+    else {
       val (existingAndAuthorizedForDescribeTopics, nonExistingOrUnauthorizedForDescribeTopics) = txnOffsetCommitRequest.offsets.asScala.toMap.partition {
         case (topicPartition, _) =>
           val authorizedForDescribe = authorize(request.session, Describe, new Resource(Topic, topicPartition.topic))

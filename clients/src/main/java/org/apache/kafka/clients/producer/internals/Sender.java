@@ -187,7 +187,7 @@ public class Sender implements Runnable {
      * @param now The current POSIX time in milliseconds
      */
     void run(long now) {
-        long pollTimeout = 0;
+        long pollTimeout = retryBackoffMs;
         if (!maybeSendTransactionalRequest(now))
             pollTimeout = sendProducerData(now);
 
@@ -296,14 +296,18 @@ public class Sender implements Runnable {
                 transactionManager.reenqueue(nextRequestHandler);
                 return false;
             } else if (transactionManager.isInErrorState()) {
-                nextRequestHandler.fatal(new KafkaException("Cannot commit transaction when there are " +
-                        "request errors. Please check your logs for the details of the errors encountered."));
+                Exception exception = transactionManager.lastError();
+                if (exception instanceof KafkaException)
+                    nextRequestHandler.fatal((KafkaException) exception);
+                else
+                    nextRequestHandler.fatal(new KafkaException("Cannot commit transaction when there are " +
+                            "request errors. Please check your logs for the details of the errors encountered.",
+                            exception));
                 return false;
             }
         }
 
         Node targetNode = null;
-
         while (targetNode == null) {
             try {
                 if (nextRequestHandler.needsCoordinator()) {
@@ -324,8 +328,8 @@ public class Sender implements Runnable {
                     if (nextRequestHandler.isRetry()) {
                         time.sleep(retryBackoffMs);
                     }
-                    ClientRequest clientRequest = client.newClientRequest(targetNode.idString(), nextRequestHandler.requestBuilder(),
-                            now, true, nextRequestHandler);
+                    ClientRequest clientRequest = client.newClientRequest(targetNode.idString(),
+                            nextRequestHandler.requestBuilder(), now, true, nextRequestHandler);
                     transactionManager.setInFlightRequestCorrelationId(clientRequest.correlationId());
                     client.send(clientRequest, now);
                     return true;

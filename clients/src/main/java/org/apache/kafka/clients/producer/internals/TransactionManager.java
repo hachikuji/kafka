@@ -24,6 +24,7 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.ProducerFencedException;
+import org.apache.kafka.common.errors.TransactionalIdAuthorizationException;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.requests.AbstractResponse;
@@ -429,8 +430,7 @@ public class TransactionManager {
         }
 
         FindCoordinatorRequest.Builder builder = new FindCoordinatorRequest.Builder(type, coordinatorKey);
-        FindCoordinatorHandler request = new FindCoordinatorHandler(builder);
-        pendingRequests.add(request);
+        pendingRequests.add(new FindCoordinatorHandler(builder));
     }
 
     private void completeTransaction() {
@@ -455,9 +455,8 @@ public class TransactionManager {
             CommittedOffset committedOffset = new CommittedOffset(offsetAndMetadata.offset(), offsetAndMetadata.metadata());
             pendingTxnOffsetCommits.put(entry.getKey(), committedOffset);
         }
-        TxnOffsetCommitRequest.Builder builder = new TxnOffsetCommitRequest.Builder(consumerGroupId,
-                producerIdAndEpoch.producerId, producerIdAndEpoch.epoch,
-                pendingTxnOffsetCommits);
+        TxnOffsetCommitRequest.Builder builder = new TxnOffsetCommitRequest.Builder(transactionalId, consumerGroupId,
+                producerIdAndEpoch.producerId, producerIdAndEpoch.epoch, pendingTxnOffsetCommits);
         return new TxnOffsetCommitHandler(result, builder);
     }
 
@@ -575,7 +574,8 @@ public class TransactionManager {
                 reenqueue();
             } else if (error == Errors.COORDINATOR_LOAD_IN_PROGRESS || error == Errors.CONCURRENT_TRANSACTIONS) {
                 reenqueue();
-            } else if (error == Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED) {
+            } else if (error == Errors.PRODUCER_ID_AUTHORIZATION_FAILED ||
+                    error == Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED) {
                 fatal(error.exception());
             } else {
                 fatal(new KafkaException("Unexpected error in InitProducerIdResponse; " + error.message()));
@@ -674,7 +674,8 @@ public class TransactionManager {
         @Override
         public void handleResponse(AbstractResponse response) {
             FindCoordinatorResponse findCoordinatorResponse = (FindCoordinatorResponse) response;
-            if (findCoordinatorResponse.error() == Errors.NONE) {
+            Errors error = findCoordinatorResponse.error();
+            if (error == Errors.NONE) {
                 Node node = findCoordinatorResponse.node();
                 switch (builder.coordinatorType()) {
                     case GROUP:
@@ -684,10 +685,12 @@ public class TransactionManager {
                         transactionCoordinator = node;
                 }
                 result.done();
-            } else if (findCoordinatorResponse.error() == Errors.COORDINATOR_NOT_AVAILABLE) {
+            } else if (error == Errors.COORDINATOR_NOT_AVAILABLE) {
                 reenqueue();
+            } else if (error == Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED) {
+                fatal(error.exception());
             } else if (findCoordinatorResponse.error() == Errors.GROUP_AUTHORIZATION_FAILED) {
-                fatal(new GroupAuthorizationException("Not authorized to commit offsets " + builder.coordinatorKey()));
+                fatal(new GroupAuthorizationException(builder.coordinatorKey()));
             } else {
                 fatal(new KafkaException(String.format("Could not find a coordinator with type %s with key %s due to" +
                         "unexpected error: %s", builder.coordinatorType(), builder.coordinatorKey(),
@@ -734,6 +737,8 @@ public class TransactionManager {
                 fenced();
             } else if (error == Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED) {
                 fatal(error.exception());
+            } else if (error == Errors.INVALID_TXN_STATE) {
+                fatal(error.exception());
             } else {
                 fatal(new KafkaException("Unhandled error in EndTxnResponse: " + error.message()));
             }
@@ -776,6 +781,8 @@ public class TransactionManager {
                 fenced();
             } else if (error == Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED) {
                 fatal(error.exception());
+            } else if (error == Errors.GROUP_AUTHORIZATION_FAILED) {
+                fatal(new GroupAuthorizationException(builder.consumerGroupId()));
             } else {
                 fatal(new KafkaException("Unexpected error in AddOffsetsToTxnResponse: " + error.message()));
             }

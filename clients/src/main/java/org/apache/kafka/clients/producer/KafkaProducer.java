@@ -34,6 +34,7 @@ import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.ApiException;
+import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.ProducerFencedException;
 import org.apache.kafka.common.errors.RecordTooLargeException;
@@ -695,10 +696,12 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             throw new ProducerFencedException("The current producer has been fenced off by a another producer using the same transactional id.");
 
         if (transactionManager.isInErrorState()) {
-            String errorMessage =
-                    "Cannot perform send because at least one previous transactional or idempotent request has failed with errors.";
+            String errorMessage = "Cannot perform send because at least one previous transactional or " +
+                    "idempotent request has failed with errors.";
             Exception lastError = transactionManager.lastError();
-            if (lastError != null)
+            if (lastError instanceof AuthorizationException)
+                throw (AuthorizationException) lastError;
+            else if (lastError != null)
                 throw new KafkaException(errorMessage, lastError);
             else
                 throw new KafkaException(errorMessage);
