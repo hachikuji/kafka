@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients.consumer;
 
+import org.apache.kafka.clients.consumer.internals.PartitionAssignor.Subscription;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.Test;
 
@@ -25,13 +26,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static java.util.Collections.singletonList;
+import static java.util.Collections.singletonMap;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class RoundRobinAssignorTest {
 
     private RoundRobinAssignor assignor = new RoundRobinAssignor();
-
 
     @Test
     public void testOneConsumerNoTopic() {
@@ -40,7 +42,7 @@ public class RoundRobinAssignorTest {
         Map<String, Integer> partitionsPerTopic = new HashMap<>();
 
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic,
-                Collections.singletonMap(consumerId, Collections.<String>emptyList()));
+                singletonMap(consumerId, new Subscription(Collections.<String>emptyList())));
         assertEquals(Collections.singleton(consumerId), assignment.keySet());
         assertTrue(assignment.get(consumerId).isEmpty());
     }
@@ -52,7 +54,7 @@ public class RoundRobinAssignorTest {
 
         Map<String, Integer> partitionsPerTopic = new HashMap<>();
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic,
-                Collections.singletonMap(consumerId, Arrays.asList(topic)));
+                singletonMap(consumerId, new Subscription(singletonList(topic))));
 
         assertEquals(Collections.singleton(consumerId), assignment.keySet());
         assertTrue(assignment.get(consumerId).isEmpty());
@@ -67,7 +69,7 @@ public class RoundRobinAssignorTest {
         partitionsPerTopic.put(topic, 3);
 
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic,
-                Collections.singletonMap(consumerId, Arrays.asList(topic)));
+                singletonMap(consumerId, new Subscription(singletonList(topic))));
         assertEquals(Arrays.asList(
                 new TopicPartition(topic, 0),
                 new TopicPartition(topic, 1),
@@ -85,7 +87,7 @@ public class RoundRobinAssignorTest {
         partitionsPerTopic.put(otherTopic, 3);
 
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic,
-                Collections.singletonMap(consumerId, Arrays.asList(topic)));
+                singletonMap(consumerId, new Subscription(singletonList(topic))));
         assertEquals(Arrays.asList(
                 new TopicPartition(topic, 0),
                 new TopicPartition(topic, 1),
@@ -103,7 +105,7 @@ public class RoundRobinAssignorTest {
         partitionsPerTopic.put(topic2, 2);
 
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic,
-                Collections.singletonMap(consumerId, Arrays.asList(topic1, topic2)));
+                singletonMap(consumerId, new Subscription(Arrays.asList(topic1, topic2))));
         assertEquals(Arrays.asList(
                 new TopicPartition(topic1, 0),
                 new TopicPartition(topic2, 0),
@@ -119,12 +121,12 @@ public class RoundRobinAssignorTest {
         Map<String, Integer> partitionsPerTopic = new HashMap<>();
         partitionsPerTopic.put(topic, 1);
 
-        Map<String, List<String>> consumers = new HashMap<>();
-        consumers.put(consumer1, Arrays.asList(topic));
-        consumers.put(consumer2, Arrays.asList(topic));
+        Map<String, Subscription> consumers = new HashMap<>();
+        consumers.put(consumer1, new Subscription(singletonList(topic)));
+        consumers.put(consumer2, new Subscription(singletonList(topic)));
 
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic, consumers);
-        assertEquals(Arrays.asList(new TopicPartition(topic, 0)), assignment.get(consumer1));
+        assertEquals(singletonList(new TopicPartition(topic, 0)), assignment.get(consumer1));
         assertEquals(Collections.<TopicPartition>emptyList(), assignment.get(consumer2));
     }
 
@@ -137,13 +139,13 @@ public class RoundRobinAssignorTest {
         Map<String, Integer> partitionsPerTopic = new HashMap<>();
         partitionsPerTopic.put(topic, 2);
 
-        Map<String, List<String>> consumers = new HashMap<>();
-        consumers.put(consumer1, Arrays.asList(topic));
-        consumers.put(consumer2, Arrays.asList(topic));
+        Map<String, Subscription> consumers = new HashMap<>();
+        consumers.put(consumer1, new Subscription(singletonList(topic)));
+        consumers.put(consumer2, new Subscription(singletonList(topic)));
 
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic, consumers);
-        assertEquals(Arrays.asList(new TopicPartition(topic, 0)), assignment.get(consumer1));
-        assertEquals(Arrays.asList(new TopicPartition(topic, 1)), assignment.get(consumer2));
+        assertEquals(singletonList(new TopicPartition(topic, 0)), assignment.get(consumer1));
+        assertEquals(singletonList(new TopicPartition(topic, 1)), assignment.get(consumer2));
     }
 
     @Test
@@ -158,20 +160,18 @@ public class RoundRobinAssignorTest {
         partitionsPerTopic.put(topic1, 3);
         partitionsPerTopic.put(topic2, 2);
 
-        Map<String, List<String>> consumers = new HashMap<>();
-        consumers.put(consumer1, Arrays.asList(topic1));
-        consumers.put(consumer2, Arrays.asList(topic1, topic2));
-        consumers.put(consumer3, Arrays.asList(topic1));
+        Map<String, Subscription> consumers = new HashMap<>();
+        consumers.put(consumer1, new Subscription(singletonList(topic1)));
+        consumers.put(consumer2, new Subscription(Arrays.asList(topic1, topic2)));
+        consumers.put(consumer3, new Subscription(singletonList(topic1)));
 
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic, consumers);
-        assertEquals(Arrays.asList(
-                new TopicPartition(topic1, 0)), assignment.get(consumer1));
+        assertEquals(singletonList(new TopicPartition(topic1, 0)), assignment.get(consumer1));
         assertEquals(Arrays.asList(
                 new TopicPartition(topic1, 1),
                 new TopicPartition(topic2, 0),
                 new TopicPartition(topic2, 1)), assignment.get(consumer2));
-        assertEquals(Arrays.asList(
-                new TopicPartition(topic1, 2)), assignment.get(consumer3));
+        assertEquals(singletonList(new TopicPartition(topic1, 2)), assignment.get(consumer3));
     }
 
     @Test
@@ -185,9 +185,9 @@ public class RoundRobinAssignorTest {
         partitionsPerTopic.put(topic1, 3);
         partitionsPerTopic.put(topic2, 3);
 
-        Map<String, List<String>> consumers = new HashMap<>();
-        consumers.put(consumer1, Arrays.asList(topic1, topic2));
-        consumers.put(consumer2, Arrays.asList(topic1, topic2));
+        Map<String, Subscription> consumers = new HashMap<>();
+        consumers.put(consumer1, new Subscription(Arrays.asList(topic1, topic2)));
+        consumers.put(consumer2, new Subscription(Arrays.asList(topic1, topic2)));
 
         Map<String, List<TopicPartition>> assignment = assignor.assign(partitionsPerTopic, consumers);
         assertEquals(Arrays.asList(
