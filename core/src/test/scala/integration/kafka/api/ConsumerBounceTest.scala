@@ -58,6 +58,7 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
   this.consumerConfig.setProperty(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "10000")
   this.consumerConfig.setProperty(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "3000")
   this.consumerConfig.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
+  this.consumerConfig.setProperty(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "100")
 
   override def generateConfigs() = {
     FixedPortTestUtils.createBrokerConfigs(serverCount, zkConnect, enableControlledShutdown = false)
@@ -82,8 +83,8 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
   }
 
   @Test
-  @Ignore // To be re-enabled once we can make it less flaky (KAFKA-4801)
-  def testConsumptionWithBrokerFailures() = consumeWithBrokerFailures(10)
+  // @Ignore // To be re-enabled once we can make it less flaky (KAFKA-4801)
+  def testConsumptionWithBrokerFailures() = consumeWithBrokerFailures(100)
 
   /*
    * 1. Produce a bunch of messages
