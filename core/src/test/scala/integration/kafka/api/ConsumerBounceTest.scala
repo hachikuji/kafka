@@ -403,9 +403,13 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
       def onPartitionsRevoked(partitions: Collection[TopicPartition]) {
       }})
     consumer.poll(3000)
-    assertTrue("Assigment did not complete on time", assignSemaphore.tryAcquire(1, TimeUnit.SECONDS))
-    if (committedRecords > 0)
-      assertEquals(committedRecords, consumer.committed(tp).offset)
+    assertTrue("Assignment did not complete on time", assignSemaphore.tryAcquire(1, TimeUnit.SECONDS))
+    if (committedRecords > 0) {
+      val offsetAndMetadata = consumer.committed(tp)
+      assertNotNull(offsetAndMetadata)
+      assertEquals(committedRecords, offsetAndMetadata.offset)
+    }
+
     consumer.close()
   }
 
