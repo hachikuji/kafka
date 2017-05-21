@@ -287,7 +287,6 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
    * immediately if rebalance is in progress. If brokers are not available,
    * close should terminate immediately without sending leave group.
    */
-  @Ignore
   @Test
   def testCloseDuringRebalance() {
     val topic = "closetest"
