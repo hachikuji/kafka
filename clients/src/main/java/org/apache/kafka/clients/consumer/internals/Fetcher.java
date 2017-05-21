@@ -679,7 +679,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                 .forConsumer(requireTimestamp, isolationLevel)
                 .setTargetTimes(timestampsToSearch);
 
-        log.trace("Sending ListOffsetRequest {} to broker {}", builder, node);
+        log.debug("Sending ListOffsetRequest {} to broker {}", builder, node);
         return client.send(node, builder)
                 .compose(new RequestFutureAdapter<ClientResponse, Map<TopicPartition, OffsetData>>() {
                     @Override

@@ -126,6 +126,7 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
     scheduler.shutdown()
   }
 
+  @Ignore
   @Test
   def testSeekAndCommitWithBrokerFailures() = seekAndCommitWithBrokerFailures(5)
 
@@ -165,6 +166,7 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
     }
   }
 
+  @Ignore
   @Test
   def testSubscribeWhenTopicUnavailable() {
     val numRecords = 1000
@@ -210,7 +212,7 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
     future.get
   }
 
-
+  @Ignore
   @Test
   def testClose() {
     val numRecords = 10
