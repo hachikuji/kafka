@@ -85,7 +85,7 @@ class ConsumerBounceTest extends IntegrationTestHarness with Logging {
 
   @Test
   // @Ignore // To be re-enabled once we can make it less flaky (KAFKA-4801)
-  def testConsumptionWithBrokerFailures() = consumeWithBrokerFailures(100)
+  def testConsumptionWithBrokerFailures() = consumeWithBrokerFailures(10)
 
   /*
    * 1. Produce a bunch of messages
