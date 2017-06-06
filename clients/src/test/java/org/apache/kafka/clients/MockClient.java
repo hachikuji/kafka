@@ -75,6 +75,8 @@ public class MockClient implements KafkaClient {
     private final Queue<FutureResponse> futureResponses = new ArrayDeque<>();
     private final Queue<MetadataUpdate> metadataUpdates = new ArrayDeque<>();
     private volatile NodeApiVersions nodeApiVersions = NodeApiVersions.create();
+    private Cluster cluster = null;
+
 
     public MockClient(Time time) {
         this(time, null);
@@ -169,12 +171,16 @@ public class MockClient implements KafkaClient {
         List<ClientResponse> copy = new ArrayList<>(this.responses);
 
         if (metadata != null && metadata.updateRequested()) {
-            MetadataUpdate metadataUpdate = metadataUpdates.poll();
-            if (metadataUpdate == null)
-                metadata.update(metadata.fetch(), this.unavailableTopics, time.milliseconds());
-            else {
-                this.unavailableTopics = metadataUpdate.unavailableTopics;
-                metadata.update(metadataUpdate.cluster, metadataUpdate.unavailableTopics, time.milliseconds());
+            if (cluster != null) {
+                metadata.update(cluster, this.unavailableTopics, time.milliseconds());
+            } else {
+                MetadataUpdate metadataUpdate = metadataUpdates.poll();
+                if (metadataUpdate == null)
+                    metadata.update(metadata.fetch(), this.unavailableTopics, time.milliseconds());
+                else {
+                    this.unavailableTopics = metadataUpdate.unavailableTopics;
+                    metadata.update(metadataUpdate.cluster, metadataUpdate.unavailableTopics, time.milliseconds());
+                }
             }
         }
 
@@ -184,6 +190,10 @@ public class MockClient implements KafkaClient {
         }
 
         return copy;
+    }
+
+    public void setCluster(Cluster cluster) {
+        this.cluster = cluster;
     }
 
     public Queue<ClientRequest> requests() {
