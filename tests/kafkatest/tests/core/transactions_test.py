@@ -44,9 +44,9 @@ class TransactionsTest(Test):
 
         # Test parameters
         self.num_input_partitions = 2
-        self.num_output_partitions = 3
+        self.num_output_partitions = 1
         self.num_seed_messages = 100000
-        self.transaction_size = 750
+        self.transaction_size = 100
         self.first_transactional_id = "my-first-transactional-id"
         self.second_transactional_id = "my-second-transactional-id"
         self.consumer_group = "transactions-test-consumer-group"
