@@ -61,7 +61,8 @@ class TransactionalMessageCopier(KafkaPathResolverMixin, BackgroundThreadService
         self.consumed = -1
         self.remaining = -1
         self.stop_timeout_sec = 60
-        self.transactional_producer_log_level = "TRACE"
+        self.log_level = "INFO"
+        self.loggers = { "org.apache.kafka.clients.producer": "TRACE" }
 
     def _worker(self, idx, node):
         node.account.ssh("mkdir -p %s" % TransactionalMessageCopier.PERSISTENT_ROOT,
