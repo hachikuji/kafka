@@ -23,17 +23,17 @@ from kafkatest.services.zookeeper import ZookeeperService
 from kafkatest.services.kafka import KafkaService
 from kafkatest.services.console_consumer import ConsoleConsumer
 from kafkatest.services.security.security_config import SecurityConfig
+from kafkatest.services.verifiable_producer import VerifiableProducer
 
 import os
 import re
-
-TOPIC = "topic-consumer-group-command"
-
 
 class ConsumerGroupCommandTest(Test):
     """
     Tests ConsumerGroupCommand
     """
+    TOPIC = "topic-consumer-group-command"
+
     # Root directory for persistent output
     PERSISTENT_ROOT = "/mnt/consumer_group_command"
     COMMAND_CONFIG_FILE = os.path.join(PERSISTENT_ROOT, "command.properties")
@@ -43,7 +43,7 @@ class ConsumerGroupCommandTest(Test):
         self.num_zk = 1
         self.num_brokers = 1
         self.topics = {
-            TOPIC: {'partitions': 1, 'replication-factor': 1}
+            self.TOPIC: {'partitions': 1, 'replication-factor': 1}
         }
         self.zk = ZookeeperService(test_context, self.num_zk)
 
@@ -59,13 +59,28 @@ class ConsumerGroupCommandTest(Test):
 
     def start_consumer(self, security_protocol):
         enable_new_consumer = security_protocol == SecurityConfig.SSL
-        self.consumer = ConsoleConsumer(self.test_context, num_nodes=self.num_brokers, kafka=self.kafka, topic=TOPIC,
+        self.consumer = ConsoleConsumer(self.test_context, num_nodes=self.num_brokers, kafka=self.kafka, topic=self.TOPIC,
                                         consumer_timeout_ms=None, new_consumer=enable_new_consumer)
         self.consumer.start()
 
+    def await_produced_messages(self, timeout_sec=10):
+        num_messages = 1000
+        producer = VerifiableProducer(self.test_context, 1, self.kafka, self.TOPIC, max_messages=num_messages)
+        producer.start()
+
+        current_acked = producer.num_acked
+        wait_until(lambda: producer.num_acked >= current_acked + num_messages, timeout_sec=timeout_sec,
+                   err_msg="Timeout awaiting messages to be produced and acked")
+
+        producer.stop()
+
     def setup_and_verify(self, security_protocol, group=None):
-        self.start_kafka(security_protocol, security_protocol)
+        self.start_kafka(security_protocol=security_protocol, interbroker_security_protocol=security_protocol)
         self.start_consumer(security_protocol)
+
+        # Ensure we have some data in the topic so that the consumer will have a positive offset to commit
+        self.await_produced_messages(producer, min_messages=1000)
+
         consumer_node = self.consumer.nodes[0]
         wait_until(lambda: self.consumer.alive(consumer_node),
                    timeout_sec=10, backoff_sec=.2, err_msg="Consumer was too slow to start")
@@ -83,15 +98,15 @@ class ConsumerGroupCommandTest(Test):
             command_config_file = self.COMMAND_CONFIG_FILE
 
         if group:
-            wait_until(lambda: re.search("topic-consumer-group-command",self.kafka.describe_consumer_group(group=group, node=kafka_node, new_consumer=enable_new_consumer, command_config=command_config_file)), timeout_sec=10,
+            wait_until(lambda: re.search("topic-consumer-group-command", self.kafka.describe_consumer_group(group=group, node=kafka_node, new_consumer=enable_new_consumer, command_config=command_config_file)), timeout_sec=15,
                        err_msg="Timed out waiting to list expected consumer groups.")
         else:
-            wait_until(lambda: "test-consumer-group" in self.kafka.list_consumer_groups(node=kafka_node, new_consumer=enable_new_consumer, command_config=command_config_file), timeout_sec=10,
+            wait_until(lambda: "test-consumer-group" in self.kafka.list_consumer_groups(node=kafka_node, new_consumer=enable_new_consumer, command_config=command_config_file), timeout_sec=15,
                        err_msg="Timed out waiting to list expected consumer groups.")
 
         self.consumer.stop()
 
-    @cluster(num_nodes=3)
+    @cluster(num_nodes=4)
     @matrix(security_protocol=['PLAINTEXT', 'SSL'])
     def test_list_consumer_groups(self, security_protocol='PLAINTEXT'):
         """
@@ -100,7 +115,7 @@ class ConsumerGroupCommandTest(Test):
         """
         self.setup_and_verify(security_protocol)
 
-    @cluster(num_nodes=3)
+    @cluster(num_nodes=4)
     @matrix(security_protocol=['PLAINTEXT', 'SSL'])
     def test_describe_consumer_group(self, security_protocol='PLAINTEXT'):
         """
