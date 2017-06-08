@@ -79,7 +79,7 @@ class ConsumerGroupCommandTest(Test):
         self.start_consumer(security_protocol)
 
         # Ensure we have some data in the topic so that the consumer will have a positive offset to commit
-        self.await_produced_messages(producer, min_messages=1000)
+        self.await_produced_messages()
 
         consumer_node = self.consumer.nodes[0]
         wait_until(lambda: self.consumer.alive(consumer_node),
