@@ -218,7 +218,7 @@ class TransactionStateManager(brokerId: Int,
         return Left(Errors.COORDINATOR_LOAD_IN_PROGRESS)
 
       if (leavingPartitions.exists(_.txnPartitionId == partitionId))
-        Right(Errors.NOT_COORDINATOR)
+        return Left(Errors.NOT_COORDINATOR)
 
       transactionMetadataCache.get(partitionId) match {
         case Some(cacheEntry) =>
@@ -448,7 +448,8 @@ class TransactionStateManager(brokerId: Int,
   def appendTransactionToLog(transactionalId: String,
                              coordinatorEpoch: Int,
                              newMetadata: TxnTransitMetadata,
-                             responseCallback: Errors => Unit): Unit = {
+                             responseCallback: Errors => Unit,
+                             retryOnError: Errors => Boolean = _ => false): Unit = {
 
     // generate the message for this transaction metadata
     val keyBytes = TransactionLog.keyToBytes(transactionalId)
@@ -515,7 +516,7 @@ class TransactionStateManager(brokerId: Int,
         getTransactionState(transactionalId) match {
 
           case Left(err) =>
-            responseCallback(err)
+            responseError = err
 
           case Right(Some(epochAndMetadata)) =>
             val metadata = epochAndMetadata.transactionMetadata
@@ -548,7 +549,8 @@ class TransactionStateManager(brokerId: Int,
             metadata synchronized {
               if (epochAndTxnMetadata.coordinatorEpoch == coordinatorEpoch) {
                 debug(s"TransactionalId ${metadata.transactionalId}, resetting pending state since we are returning error $responseError")
-                metadata.pendingState = None
+                if (!retryOnError(responseError))
+                  metadata.pendingState = None
               } else {
                 info(s"TransactionalId ${metadata.transactionalId} coordinator epoch changed from " +
                   s"${epochAndTxnMetadata.coordinatorEpoch} to $coordinatorEpoch after append to log returned $responseError")

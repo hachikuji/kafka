@@ -301,7 +301,8 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
           throw new IllegalStateException(s"Unexpected error ${errors.exceptionName} while appending to transaction log for ${txnLogAppend.transactionalId}")
       }
 
-    txnStateManager.appendTransactionToLog(txnLogAppend.transactionalId, txnLogAppend.coordinatorEpoch, txnLogAppend.newMetadata, appendCallback)
+    txnStateManager.appendTransactionToLog(txnLogAppend.transactionalId, txnLogAppend.coordinatorEpoch,
+      txnLogAppend.newMetadata, appendCallback, retryOnError = _ == Errors.COORDINATOR_NOT_AVAILABLE)
   }
 
   def addTxnMarkersToBrokerQueue(transactionalId: String, producerId: Long, producerEpoch: Short,
