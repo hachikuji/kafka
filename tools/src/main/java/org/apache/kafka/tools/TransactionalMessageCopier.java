@@ -29,11 +29,10 @@ import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -49,7 +48,8 @@ import static net.sourceforge.argparse4j.impl.Arguments.store;
  * topic transactionally, committing the offsets and messages together.
  */
 public class TransactionalMessageCopier {
-     /** Get the command-line argument parser. */
+
+    /** Get the command-line argument parser. */
     private static ArgumentParser argParser() {
         ArgumentParser parser = ArgumentParsers
                 .newArgumentParser("transactional-message-copier")
@@ -142,7 +142,7 @@ public class TransactionalMessageCopier {
         return new KafkaProducer<>(props);
     }
 
-    private static KafkaConsumer<String, String> createConsumer(Namespace parsedArgs, TopicPartition inputPartition) {
+    private static KafkaConsumer<String, String> createConsumer(Namespace parsedArgs) {
         String consumerGroup = parsedArgs.getString("consumerGroup");
         String brokerList = parsedArgs.getString("brokerList");
         Integer numMessagesPerTransaction = parsedArgs.getInt("messagesPerTransaction");
@@ -162,9 +162,7 @@ public class TransactionalMessageCopier {
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 "org.apache.kafka.common.serialization.StringDeserializer");
 
-        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
-
-        return consumer;
+        return new KafkaConsumer<>(props);
     }
 
     private static ProducerRecord<String, String> producerRecordFromConsumerRecord(String topic, ConsumerRecord<String, String> record) {
@@ -185,13 +183,13 @@ public class TransactionalMessageCopier {
             if (offsetAndMetadata != null)
                 consumer.seek(topicPartition, offsetAndMetadata.offset());
             else
-                consumer.seekToBeginning(Collections.singletonList(topicPartition));
+                consumer.seekToBeginning(singleton(topicPartition));
         }
     }
 
     private static long messagesRemaining(KafkaConsumer<String, String> consumer, TopicPartition partition) {
         long currentPosition = consumer.position(partition);
-        Map<TopicPartition, Long> endOffsets = consumer.endOffsets(Arrays.asList(partition));
+        Map<TopicPartition, Long> endOffsets = consumer.endOffsets(singleton(partition));
         if (endOffsets.containsKey(partition)) {
             return endOffsets.get(partition) - currentPosition;
         }
@@ -235,7 +233,7 @@ public class TransactionalMessageCopier {
         TopicPartition inputPartition = new TopicPartition(parsedArgs.getString("inputTopic"), parsedArgs.getInt("inputPartition"));
 
         final KafkaProducer<String, String> producer = createProducer(parsedArgs);
-        final KafkaConsumer<String, String> consumer = createConsumer(parsedArgs, inputPartition);
+        final KafkaConsumer<String, String> consumer = createConsumer(parsedArgs);
 
         consumer.assign(singleton(inputPartition));
 
@@ -270,22 +268,27 @@ public class TransactionalMessageCopier {
                 int messagesInCurrentTransaction = 0;
                 long numMessagesForNextTransaction = Math.min(numMessagesPerTransaction, remainingMessages.get());
 
-                producer.beginTransaction();
-                while (messagesInCurrentTransaction < numMessagesForNextTransaction) {
-                    ConsumerRecords<String, String> records = consumer.poll(200L);
-                    for (ConsumerRecord<String, String> record : records) {
-                        producer.send(producerRecordFromConsumerRecord(outputTopic, record));
-                        messagesInCurrentTransaction++;
+                try {
+                    producer.beginTransaction();
+                    while (messagesInCurrentTransaction < numMessagesForNextTransaction) {
+                        ConsumerRecords<String, String> records = consumer.poll(200L);
+                        for (ConsumerRecord<String, String> record : records) {
+                            producer.send(producerRecordFromConsumerRecord(outputTopic, record));
+                            messagesInCurrentTransaction++;
+                        }
                     }
-                }
-                producer.sendOffsetsToTransaction(consumerPositions(consumer), consumerGroup);
+                    producer.sendOffsetsToTransaction(consumerPositions(consumer), consumerGroup);
 
-                if (random.nextInt() % 3 == 0) {
+                    if (random.nextInt() % 3 == 0) {
+                        producer.abortTransaction();
+                        resetToLastCommittedPositions(consumer);
+                    } else {
+                        producer.commitTransaction();
+                        remainingMessages.set(maxMessages - numMessagesProcessed.addAndGet(messagesInCurrentTransaction));
+                    }
+                } catch (KafkaException e) {
                     producer.abortTransaction();
                     resetToLastCommittedPositions(consumer);
-                } else {
-                    producer.commitTransaction();
-                    remainingMessages.set(maxMessages - numMessagesProcessed.addAndGet(messagesInCurrentTransaction));
                 }
             }
         } finally {

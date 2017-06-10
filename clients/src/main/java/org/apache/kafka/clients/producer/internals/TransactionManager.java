@@ -225,7 +225,7 @@ public class TransactionManager {
         if (currentState != State.IN_TRANSACTION)
             throw new IllegalStateException("Cannot add partitions to a transaction in state " + currentState);
 
-        if (partitionsInTransaction.contains(topicPartition) || pendingPartitionsInTransaction.contains(topicPartition))
+        if (isPartitionAdded(topicPartition) || isPartitionPendingAdd(topicPartition))
             return;
 
         log.debug("{}Begin adding new partition {} to transaction", logPrefix, topicPartition);
