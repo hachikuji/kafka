@@ -31,16 +31,18 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.OutOfOrderSequenceException;
+import org.apache.kafka.common.errors.ProducerFencedException;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static java.util.Collections.singleton;
 import static net.sourceforge.argparse4j.impl.Arguments.store;
 
 /**
@@ -48,7 +50,8 @@ import static net.sourceforge.argparse4j.impl.Arguments.store;
  * topic transactionally, committing the offsets and messages together.
  */
 public class TransactionalMessageCopier {
-     /** Get the command-line argument parser. */
+
+    /** Get the command-line argument parser. */
     private static ArgumentParser argParser() {
         ArgumentParser parser = ArgumentParsers
                 .newArgumentParser("transactional-message-copier")
@@ -70,7 +73,6 @@ public class TransactionalMessageCopier {
                 .metavar("INPUT-PARTITION")
                 .dest("inputPartition")
                 .help("Consume messages from this partition of the input topic.");
-
 
         parser.addArgument("--output-topic")
                 .action(store())
@@ -116,7 +118,6 @@ public class TransactionalMessageCopier {
                 .dest("messagesPerTransaction")
                 .help("The number of messages to put in each transaction. Default is 200.");
 
-
         parser.addArgument("--transactional-id")
                 .action(store())
                 .required(true)
@@ -124,7 +125,6 @@ public class TransactionalMessageCopier {
                 .metavar("TRANSACTIONAL-ID")
                 .dest("transactionalId")
                 .help("The transactionalId to assign to the producer");
-
 
         return parser;
     }
@@ -144,7 +144,7 @@ public class TransactionalMessageCopier {
         return new KafkaProducer<>(props);
     }
 
-    private static KafkaConsumer<String, String> createConsumer(Namespace parsedArgs, TopicPartition inputPartition) {
+    private static KafkaConsumer<String, String> createConsumer(Namespace parsedArgs) {
         String consumerGroup = parsedArgs.getString("consumerGroup");
         String brokerList = parsedArgs.getString("brokerList");
         Integer numMessagesPerTransaction = parsedArgs.getInt("messagesPerTransaction");
@@ -164,10 +164,7 @@ public class TransactionalMessageCopier {
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 "org.apache.kafka.common.serialization.StringDeserializer");
 
-        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
-
-        return consumer;
-
+        return new KafkaConsumer<>(props);
     }
 
     private static ProducerRecord<String, String> producerRecordFromConsumerRecord(String topic, ConsumerRecord<String, String> record) {
@@ -188,13 +185,13 @@ public class TransactionalMessageCopier {
             if (offsetAndMetadata != null)
                 consumer.seek(topicPartition, offsetAndMetadata.offset());
             else
-                consumer.seekToBeginning(Collections.singletonList(topicPartition));
+                consumer.seekToBeginning(singleton(topicPartition));
         }
     }
 
     private static long messagesRemaining(KafkaConsumer<String, String> consumer, TopicPartition partition) {
         long currentPosition = consumer.position(partition);
-        Map<TopicPartition, Long> endOffsets = consumer.endOffsets(Arrays.asList(partition));
+        Map<TopicPartition, Long> endOffsets = consumer.endOffsets(singleton(partition));
         if (endOffsets.containsKey(partition)) {
             return endOffsets.get(partition) - currentPosition;
         }
@@ -238,9 +235,9 @@ public class TransactionalMessageCopier {
         TopicPartition inputPartition = new TopicPartition(parsedArgs.getString("inputTopic"), parsedArgs.getInt("inputPartition"));
 
         final KafkaProducer<String, String> producer = createProducer(parsedArgs);
-        final KafkaConsumer<String, String> consumer = createConsumer(parsedArgs, inputPartition);
+        final KafkaConsumer<String, String> consumer = createConsumer(parsedArgs);
 
-        consumer.assign(Arrays.asList(inputPartition));
+        consumer.assign(singleton(inputPartition));
 
         long maxMessages = parsedArgs.getInt("maxMessages") == -1 ? Long.MAX_VALUE : parsedArgs.getInt("maxMessages");
         maxMessages = Math.min(messagesRemaining(consumer, inputPartition), maxMessages);
@@ -264,12 +261,15 @@ public class TransactionalMessageCopier {
         });
 
         try {
+            Random random = new Random(System.currentTimeMillis());
+
             while (0 < remainingMessages.get()) {
                 System.out.println(statusAsJson(numMessagesProcessed.get(), remainingMessages.get(), transactionalId));
                 if (isShuttingDown.get())
                     break;
                 int messagesInCurrentTransaction = 0;
                 long numMessagesForNextTransaction = Math.min(numMessagesPerTransaction, remainingMessages.get());
+
                 try {
                     producer.beginTransaction();
                     while (messagesInCurrentTransaction < numMessagesForNextTransaction) {
@@ -280,8 +280,16 @@ public class TransactionalMessageCopier {
                         }
                     }
                     producer.sendOffsetsToTransaction(consumerPositions(consumer), consumerGroup);
-                    producer.commitTransaction();
-                    remainingMessages.set(maxMessages - numMessagesProcessed.addAndGet(messagesInCurrentTransaction));
+
+                    if (random.nextInt() % 3 == 0) {
+                        throw new KafkaException("Aborting transaction");
+                    } else {
+                        producer.commitTransaction();
+                        remainingMessages.set(maxMessages - numMessagesProcessed.addAndGet(messagesInCurrentTransaction));
+                    }
+                } catch (ProducerFencedException|OutOfOrderSequenceException e) {
+                    // We cannot recover from these errors, so just rethrow them and let the process fail
+                    throw e;
                 } catch (KafkaException e) {
                     producer.abortTransaction();
                     resetToLastCommittedPositions(consumer);
