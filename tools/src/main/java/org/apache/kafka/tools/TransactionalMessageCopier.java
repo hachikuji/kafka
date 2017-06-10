@@ -29,7 +29,6 @@ import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 
 import java.io.IOException;
@@ -38,9 +37,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static java.util.Collections.singleton;
 import static net.sourceforge.argparse4j.impl.Arguments.store;
 
 /**
@@ -70,7 +71,6 @@ public class TransactionalMessageCopier {
                 .metavar("INPUT-PARTITION")
                 .dest("inputPartition")
                 .help("Consume messages from this partition of the input topic.");
-
 
         parser.addArgument("--output-topic")
                 .action(store())
@@ -116,7 +116,6 @@ public class TransactionalMessageCopier {
                 .dest("messagesPerTransaction")
                 .help("The number of messages to put in each transaction. Default is 200.");
 
-
         parser.addArgument("--transactional-id")
                 .action(store())
                 .required(true)
@@ -124,7 +123,6 @@ public class TransactionalMessageCopier {
                 .metavar("TRANSACTIONAL-ID")
                 .dest("transactionalId")
                 .help("The transactionalId to assign to the producer");
-
 
         return parser;
     }
@@ -167,7 +165,6 @@ public class TransactionalMessageCopier {
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
 
         return consumer;
-
     }
 
     private static ProducerRecord<String, String> producerRecordFromConsumerRecord(String topic, ConsumerRecord<String, String> record) {
@@ -240,7 +237,7 @@ public class TransactionalMessageCopier {
         final KafkaProducer<String, String> producer = createProducer(parsedArgs);
         final KafkaConsumer<String, String> consumer = createConsumer(parsedArgs, inputPartition);
 
-        consumer.assign(Arrays.asList(inputPartition));
+        consumer.assign(singleton(inputPartition));
 
         long maxMessages = parsedArgs.getInt("maxMessages") == -1 ? Long.MAX_VALUE : parsedArgs.getInt("maxMessages");
         maxMessages = Math.min(messagesRemaining(consumer, inputPartition), maxMessages);
@@ -264,27 +261,31 @@ public class TransactionalMessageCopier {
         });
 
         try {
+            Random random = new Random(System.currentTimeMillis());
+
             while (0 < remainingMessages.get()) {
                 System.out.println(statusAsJson(numMessagesProcessed.get(), remainingMessages.get(), transactionalId));
                 if (isShuttingDown.get())
                     break;
                 int messagesInCurrentTransaction = 0;
                 long numMessagesForNextTransaction = Math.min(numMessagesPerTransaction, remainingMessages.get());
-                try {
-                    producer.beginTransaction();
-                    while (messagesInCurrentTransaction < numMessagesForNextTransaction) {
-                        ConsumerRecords<String, String> records = consumer.poll(200L);
-                        for (ConsumerRecord<String, String> record : records) {
-                            producer.send(producerRecordFromConsumerRecord(outputTopic, record));
-                            messagesInCurrentTransaction++;
-                        }
+
+                producer.beginTransaction();
+                while (messagesInCurrentTransaction < numMessagesForNextTransaction) {
+                    ConsumerRecords<String, String> records = consumer.poll(200L);
+                    for (ConsumerRecord<String, String> record : records) {
+                        producer.send(producerRecordFromConsumerRecord(outputTopic, record));
+                        messagesInCurrentTransaction++;
                     }
-                    producer.sendOffsetsToTransaction(consumerPositions(consumer), consumerGroup);
-                    producer.commitTransaction();
-                    remainingMessages.set(maxMessages - numMessagesProcessed.addAndGet(messagesInCurrentTransaction));
-                } catch (KafkaException e) {
+                }
+                producer.sendOffsetsToTransaction(consumerPositions(consumer), consumerGroup);
+
+                if (random.nextInt() % 3 == 0) {
                     producer.abortTransaction();
                     resetToLastCommittedPositions(consumer);
+                } else {
+                    producer.commitTransaction();
+                    remainingMessages.set(maxMessages - numMessagesProcessed.addAndGet(messagesInCurrentTransaction));
                 }
             }
         } finally {
