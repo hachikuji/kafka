@@ -208,7 +208,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
 
   private[transaction] def drainQueuedTransactionMarkers(): Iterable[RequestAndCompletionHandler] = {
     retryLogAppends()
-    val txnIdAndMarkerEntries: java.util.List[TxnIdAndMarkerEntry] = new util.ArrayList[TxnIdAndMarkerEntry]()
+    val txnIdAndMarkerEntries = new util.ArrayList[TxnIdAndMarkerEntry]()
     markersQueueForUnknownBroker.forEachTxnTopicPartition { case (_, queue) =>
       queue.drainTo(txnIdAndMarkerEntries)
     }
@@ -225,13 +225,12 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
     }
 
     markersQueuePerBroker.map { case (_, brokerRequestQueue: TxnMarkerQueue) =>
-      val txnIdAndMarkerEntries: java.util.List[TxnIdAndMarkerEntry] = new util.ArrayList[TxnIdAndMarkerEntry]()
+      val txnIdAndMarkerEntries = new util.ArrayList[TxnIdAndMarkerEntry]()
       brokerRequestQueue.forEachTxnTopicPartition { case (_, queue) =>
         queue.drainTo(txnIdAndMarkerEntries)
       }
       (brokerRequestQueue.node, txnIdAndMarkerEntries)
-    }
-      .filter { case (_, entries) => !entries.isEmpty}
+    }.filter { case (_, entries) => !entries.isEmpty }
       .map { case (node, entries) =>
         val markersToSend: java.util.List[TxnMarkerEntry] = entries.asScala.map(_.txnMarkerEntry).asJava
         val requestCompletionHandler = new TransactionMarkerRequestCompletionHandler(node.id, txnStateManager, this, entries)
