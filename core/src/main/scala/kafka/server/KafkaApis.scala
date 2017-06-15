@@ -1848,12 +1848,8 @@ class KafkaApis(val requestChannel: RequestChannel,
               new AccessControlEntry(acl.principal.toString, acl.host.toString, acl.operation.toJava,
                 acl.permissionType.toJava))
 
-            for ((filter, i) <- filtersWithIndex) {
-              if (filter.matches(binding))
-                toDelete.getOrElseUpdate(i, ArrayBuffer.empty) += ((resource, acl))
-              else
-                filterResponseMap.put(i, new AclFilterResponse(Seq.empty.asJava))
-            }
+            for ((filter, i) <- filtersWithIndex if filter.matches(binding))
+              toDelete.getOrElseUpdate(i, ArrayBuffer.empty) += ((resource, acl))
           }
         }
 
@@ -1870,10 +1866,13 @@ class KafkaApis(val requestChannel: RequestChannel,
                   aclBinding))
             }
           }.asJava
+          
           filterResponseMap.put(i, new AclFilterResponse(deletionResults))
         }
 
-        val filterResponses = Array.tabulate(filterResponseMap.size)(filterResponseMap).toSeq.asJava
+        val filterResponses = filters.indices.map { i =>
+          filterResponseMap.getOrElse(i, new AclFilterResponse(Seq.empty.asJava))
+        }.asJava
         sendResponseMaybeThrottle(request, requestThrottleMs => new DeleteAclsResponse(requestThrottleMs, filterResponses))
     }
   }
