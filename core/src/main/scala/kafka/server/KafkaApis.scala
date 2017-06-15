@@ -34,6 +34,7 @@ import kafka.coordinator.group.{GroupCoordinator, JoinGroupResult}
 import kafka.coordinator.transaction.{InitProducerIdResult, TransactionCoordinator}
 import kafka.log.{Log, LogManager, TimestampOffset}
 import kafka.network.{RequestChannel, RequestOrResponseSend}
+import kafka.security.SecurityUtils
 import kafka.security.auth._
 import kafka.utils.{CoreUtils, Exit, Logging, ZKGroupTopicDirs, ZkUtils}
 import org.apache.kafka.common.errors._
@@ -50,13 +51,12 @@ import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.apache.kafka.common.{Node, TopicPartition}
 import org.apache.kafka.common.requests.SaslHandshakeResponse
-import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.resource.{Resource => AdminResource, ResourceType => AdminResourceType}
-import org.apache.kafka.common.acl.{AccessControlEntry, AclBinding, AclBindingFilter, AclOperation, AclPermissionType}
+import org.apache.kafka.common.acl.{AccessControlEntry, AclBinding}
 
 import scala.collection._
 import scala.collection.JavaConverters._
-import scala.collection.mutable.{ArrayBuffer, ListBuffer}
+import scala.collection.mutable.ArrayBuffer
 import scala.util.{Failure, Success, Try}
 
 /**
@@ -1782,24 +1782,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  private def convertToResourceAndAcl(filter: AclBindingFilter): Try[(Resource, Acl)] = {
-      for {
-        resourceType <- Try(ResourceType.fromJava(filter.resourceFilter.resourceType))
-        principal <- Try(KafkaPrincipal.fromString(filter.entryFilter.principal))
-        operation <- Try(Operation.fromJava(filter.entryFilter.operation))
-        permissionType <- Try(PermissionType.fromJava(filter.entryFilter.permissionType))
-        resource = Resource(resourceType, filter.resourceFilter.name)
-        acl = Acl(principal, permissionType, filter.entryFilter.host, operation)
-      } yield (resource, acl)
-  }
-
-  private def convertToAclBinding(resource: Resource, acl: Acl): AclBinding = {
-    val adminResource = new AdminResource(AdminResourceType.fromString(resource.resourceType.toString), resource.name)
-    val entry = new AccessControlEntry(acl.principal.toString, acl.host.toString,
-      acl.operation.toJava, acl.permissionType.toJava)
-    new AclBinding(adminResource, entry)
-  }
-
   def handleCreateAcls(request: RequestChannel.Request): Unit = {
     authorizeClusterAlter(request)
     val createAclsRequest = request.body[CreateAclsRequest]
@@ -1810,7 +1792,7 @@ class KafkaApis(val requestChannel: RequestChannel,
             new SecurityDisabledException("No Authorizer is configured on the broker.")))
       case Some(auth) =>
         val aclCreationResults = createAclsRequest.aclCreations.asScala.map { aclCreation =>
-          convertToResourceAndAcl(aclCreation.acl.toFilter) match {
+          SecurityUtils.convertToResourceAndAcl(aclCreation.acl.toFilter) match {
             case Failure(throwable) => new AclCreationResponse(throwable)
             case Success((resource, acl)) => try {
                 if (resource.resourceType.equals(Cluster) &&
@@ -1851,7 +1833,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         if (filters.forall(_.matchesAtMostOne)) {
           // Delete based on a list of ACL fixtures.
           for ((filter, i) <- filters.zipWithIndex) {
-            convertToResourceAndAcl(filter) match {
+            SecurityUtils.convertToResourceAndAcl(filter) match {
               case Failure(throwable) => filterResponseMap.put(i, new AclFilterResponse(throwable, Seq.empty.asJava))
               case Success(fixture) => toDelete.put(i, ArrayBuffer(fixture))
             }
@@ -1877,7 +1859,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
         for ((i, acls) <- toDelete) {
           val deletionResults = acls.flatMap { case (resource, acl) =>
-            val aclBinding = convertToAclBinding(resource, acl)
+            val aclBinding = SecurityUtils.convertToAclBinding(resource, acl)
             try {
               if (auth.removeAcls(immutable.Set(acl), resource))
                 Some(new AclDeletionResult(aclBinding))
