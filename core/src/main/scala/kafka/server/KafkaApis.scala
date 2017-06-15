@@ -56,7 +56,7 @@ import org.apache.kafka.common.acl.{AccessControlEntry, AclBinding, AclBindingFi
 
 import scala.collection._
 import scala.collection.JavaConverters._
-import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.util.{Failure, Success, Try}
 
 /**
@@ -1844,27 +1844,33 @@ class KafkaApis(val requestChannel: RequestChannel,
           deleteAclsRequest.getErrorResponse(requestThrottleMs,
             new SecurityDisabledException("No Authorizer is configured on the broker.")))
       case Some(auth) =>
-        val filtersWithIndex = deleteAclsRequest.filters.asScala.zipWithIndex
-        val filterResponseMap = mutable.HashMap[Int, AclFilterResponse]()
-        val toDelete = mutable.HashMap[Int, ListBuffer[(Resource, Acl)]]()
-        if (filtersWithIndex.exists(!_._1.matchesAtMostOne())) {
-          // Delete based on filters that may match more than one ACL.
-          val aclMap: Map[Resource, Set[Acl]] = auth.getAcls()
-          for ((resource, acls) <- aclMap; acl <- acls) {
-            val binding = new AclBinding(new AdminResource(AdminResourceType.
-              fromString(resource.resourceType.toString), resource.name),
-              new AccessControlEntry(acl.principal.toString, acl.host.toString,
-                acl.operation.toJava, acl.permissionType.toJava))
-            for ((filter, i) <- filtersWithIndex if filter.matches(binding))
-              toDelete.getOrElseUpdate(i, ListBuffer.empty) += ((resource, acl))
+        val filters = deleteAclsRequest.filters.asScala
+        val filterResponseMap = mutable.Map[Int, AclFilterResponse]()
+        val toDelete = mutable.Map[Int, ArrayBuffer[(Resource, Acl)]]()
+
+        if (filters.forall(_.matchesAtMostOne)) {
+          // Delete based on a list of ACL fixtures.
+          for ((filter, i) <- filters.zipWithIndex) {
+            convertToResourceAndAcl(filter) match {
+              case Failure(throwable) => filterResponseMap.put(i, new AclFilterResponse(throwable, Seq.empty.asJava))
+              case Success(fixture) => toDelete.put(i, ArrayBuffer(fixture))
+            }
           }
         } else {
-          // Delete based on a list of ACL fixtures.
-          for ((filter, i) <- filtersWithIndex) {
-            convertToResourceAndAcl(filter) match {
-              case Failure(throwable) => filterResponseMap.put(i,
-                new AclFilterResponse(throwable, Collections.emptySet[AclDeletionResult]))
-              case Success(fixture) => toDelete.put(i, ListBuffer(fixture))
+          // Delete based on filters that may match more than one ACL.
+          val aclMap = auth.getAcls()
+          val filtersWithIndex = filters.zipWithIndex
+          for ((resource, acls) <- aclMap; acl <- acls) {
+            val binding = new AclBinding(
+              new AdminResource(AdminResourceType.fromString(resource.resourceType.toString), resource.name),
+              new AccessControlEntry(acl.principal.toString, acl.host.toString, acl.operation.toJava,
+                acl.permissionType.toJava))
+
+            for ((filter, i) <- filtersWithIndex) {
+              if (filter.matches(binding))
+                toDelete.getOrElseUpdate(i, ArrayBuffer.empty) += ((resource, acl))
+              else
+                filterResponseMap.put(i, new AclFilterResponse(Seq.empty.asJava))
             }
           }
         }
@@ -1873,23 +1879,19 @@ class KafkaApis(val requestChannel: RequestChannel,
           val deletionResults = acls.flatMap { case (resource, acl) =>
             val aclBinding = convertToAclBinding(resource, acl)
             try {
-              if (auth.removeAcls(immutable.Set(acl), resource)) {
+              if (auth.removeAcls(immutable.Set(acl), resource))
                 Some(new AclDeletionResult(aclBinding))
-              } else {
-                None
-              }
+              else None
             } catch {
               case throwable: Throwable =>
-                Some(new AclDeletionResult(new UnknownServerException("Failed to delete ACL: " + throwable.toString),
+                Some(new AclDeletionResult(new UnknownServerException(s"Failed to delete ACL $acl: $throwable"),
                   aclBinding))
             }
           }.asJava
           filterResponseMap.put(i, new AclFilterResponse(deletionResults))
         }
 
-        val filterResponses = filtersWithIndex.map { case (filter, i) =>
-          filterResponseMap.getOrElse(i, new AclFilterResponse(Collections.emptySet[AclDeletionResult]()))
-        }.asJava
+        val filterResponses = Array.tabulate(filterResponseMap.size)(filterResponseMap).toSeq.asJava
         sendResponseMaybeThrottle(request, requestThrottleMs => new DeleteAclsResponse(requestThrottleMs, filterResponses))
     }
   }
