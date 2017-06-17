@@ -294,7 +294,8 @@ public class DefaultRecord implements Record {
         ByteBuffer recordBuffer = ByteBuffer.allocate(sizeOfBodyInBytes);
         input.readFully(recordBuffer.array(), 0, sizeOfBodyInBytes);
         int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
-        return readFrom(recordBuffer, totalSizeInBytes, baseOffset, baseTimestamp, baseSequence, logAppendTime);
+        return readFrom(recordBuffer, totalSizeInBytes, sizeOfBodyInBytes, baseOffset, baseTimestamp,
+                baseSequence, logAppendTime);
     }
 
     public static DefaultRecord readFrom(ByteBuffer buffer,
@@ -307,11 +308,13 @@ public class DefaultRecord implements Record {
             return null;
 
         int totalSizeInBytes = ByteUtils.sizeOfVarint(sizeOfBodyInBytes) + sizeOfBodyInBytes;
-        return readFrom(buffer, totalSizeInBytes, baseOffset, baseTimestamp, baseSequence, logAppendTime);
+        return readFrom(buffer, totalSizeInBytes, sizeOfBodyInBytes, baseOffset, baseTimestamp,
+                baseSequence, logAppendTime);
     }
 
     private static DefaultRecord readFrom(ByteBuffer buffer,
                                           int sizeInBytes,
+                                          int sizeOfBodyInBytes,
                                           long baseOffset,
                                           long baseTimestamp,
                                           int baseSequence,
@@ -350,19 +353,23 @@ public class DefaultRecord implements Record {
             if (numHeaders < 0)
                 throw new InvalidRecordException("Found invalid number of record headers " + numHeaders);
 
+            final Header[] headers;
             if (numHeaders == 0)
-                return new DefaultRecord(sizeInBytes, attributes, offset, timestamp, sequence, key, value, Record.EMPTY_HEADERS);
+                headers = Record.EMPTY_HEADERS;
+            else
+                headers = readHeaders(buffer, numHeaders);
 
-            Header[] headers = readHeaders(buffer, numHeaders, recordStart, sizeInBytes);
+            // validate whether we have read all header bytes in the current record
+            if (buffer.position() - recordStart != sizeOfBodyInBytes)
+                throw new InvalidRecordException("Invalid record size");
 
             return new DefaultRecord(sizeInBytes, attributes, offset, timestamp, sequence, key, value, headers);
         } catch (BufferUnderflowException | IllegalArgumentException e) {
-            throw new InvalidRecordException("Invalid header data or number of headers declared for the record, reason for failure was "
-                    + e.getMessage());
+            throw new InvalidRecordException("Found invalid record structure", e);
         }
     }
 
-    private static Header[] readHeaders(ByteBuffer buffer, int numHeaders, int recordStart, int sizeInBytes) {
+    private static Header[] readHeaders(ByteBuffer buffer, int numHeaders) {
         Header[] headers = new Header[numHeaders];
         for (int i = 0; i < numHeaders; i++) {
             int headerKeySize = ByteUtils.readVarint(buffer);
@@ -383,9 +390,6 @@ public class DefaultRecord implements Record {
             headers[i] = new RecordHeader(headerKey, headerValue);
         }
 
-        // validate whether we have read all header bytes in the current record
-        if (buffer.position() - recordStart != sizeInBytes - ByteUtils.sizeOfVarint(sizeInBytes))
-            throw new InvalidRecordException("Invalid header data or number of headers declared for the record");
         return headers;
     }
 
