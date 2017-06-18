@@ -59,7 +59,7 @@ public abstract class AbstractRecords implements Records {
      * need to drop records from the batch during the conversion. Some versions of librdkafka rely on this for
      * correctness.
      */
-    protected MemoryRecords downConvert(Iterable<? extends RecordBatch> batches, byte toMagic, long firstOffset) {
+    protected MemoryRecords downConvert(Iterable<? extends RecordBatch> batches, byte toMagic, long firstOffset, int maxSizeInBytes) {
         // maintain the batch along with the decompressed records to avoid the need to decompress again
         List<RecordBatchAndRecords> recordBatchAndRecordsList = new ArrayList<>();
         int totalSizeEstimate = 0;
@@ -90,11 +90,14 @@ public abstract class AbstractRecords implements Records {
             }
         }
 
-        ByteBuffer buffer = ByteBuffer.allocate(totalSizeEstimate);
+        ByteBuffer buffer = ByteBuffer.allocate(Math.min(totalSizeEstimate, maxSizeInBytes));
         for (RecordBatchAndRecords recordBatchAndRecords : recordBatchAndRecordsList) {
-            if (recordBatchAndRecords.batch.magic() <= toMagic)
+            if (recordBatchAndRecords.batch.magic() <= toMagic) {
+                int batchSize = recordBatchAndRecords.batch.sizeInBytes();
+                if (buffer.remaining() < batchSize)
+                    break;
                 recordBatchAndRecords.batch.writeTo(buffer);
-            else
+            } else
                 buffer = convertRecordBatch(toMagic, buffer, recordBatchAndRecords);
         }
 
@@ -113,8 +116,11 @@ public abstract class AbstractRecords implements Records {
 
         MemoryRecordsBuilder builder = MemoryRecords.builder(buffer, magic, batch.compressionType(),
                 timestampType, recordBatchAndRecords.baseOffset, logAppendTime);
-        for (Record record : recordBatchAndRecords.records)
+        for (Record record : recordBatchAndRecords.records) {
+            if (!builder.hasRoomFor(record))
+                break;
             builder.append(record);
+        }
 
         builder.close();
         return builder.buffer();
@@ -199,6 +205,10 @@ public abstract class AbstractRecords implements Records {
             return Records.LOG_OVERHEAD + LegacyRecord.recordOverhead(magic) + LegacyRecord.recordSize(magic, key, value);
         else
             return Records.LOG_OVERHEAD + LegacyRecord.recordSize(magic, key, value);
+    }
+
+    public static int estimateSizeInBytesUpperBound(byte magic, CompressionType compressionType, Record record) {
+        return estimateSizeInBytesUpperBound(magic, compressionType, record.key(), record.value(), record.headers());
     }
 
     private static class RecordBatchAndRecords {

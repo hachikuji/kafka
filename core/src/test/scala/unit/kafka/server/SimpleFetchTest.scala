@@ -28,7 +28,7 @@ import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.record.{CompressionType, MemoryRecords, SimpleRecord}
+import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.requests.IsolationLevel
 import org.easymock.EasyMock
 import org.junit.Assert._
@@ -79,6 +79,7 @@ class SimpleFetchTest {
     EasyMock.expect(log.logStartOffset).andReturn(0).anyTimes()
     EasyMock.expect(log.logEndOffset).andReturn(leaderLEO).anyTimes()
     EasyMock.expect(log.dir).andReturn(TestUtils.tempDir()).anyTimes()
+    EasyMock.expect(log.configuredMagicVersion).andReturn(RecordBatch.CURRENT_MAGIC_VALUE)
     EasyMock.expect(log.logEndOffsetMetadata).andReturn(new LogOffsetMetadata(leaderLEO)).anyTimes()
     EasyMock.expect(log.read(
       startOffset = 0,
@@ -124,6 +125,7 @@ class SimpleFetchTest {
     val followerReplica= new Replica(configs(1).brokerId, partition, time)
     val leo = new LogOffsetMetadata(followerLEO, 0L, followerLEO.toInt)
     followerReplica.updateLogReadResult(new LogReadResult(info = FetchDataInfo(leo, MemoryRecords.EMPTY),
+                                                          magic = RecordBatch.CURRENT_MAGIC_VALUE,
                                                           highWatermark = leo.messageOffset,
                                                           leaderLogStartOffset = 0L,
                                                           leaderLogEndOffset = leo.messageOffset,
@@ -174,7 +176,8 @@ class SimpleFetchTest {
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
       quota = UnboundedQuota,
-      isolationLevel = IsolationLevel.READ_UNCOMMITTED).find(_._1 == topicPartition)
+      isolationLevel = IsolationLevel.READ_UNCOMMITTED,
+      maxSupportedMagic = RecordBatch.CURRENT_MAGIC_VALUE).find(_._1 == topicPartition)
     val firstReadRecord = readCommittedRecords.get._2.info.records.records.iterator.next()
     assertEquals("Reading committed data should return messages only up to high watermark", recordToHW,
       new SimpleRecord(firstReadRecord))
@@ -187,7 +190,8 @@ class SimpleFetchTest {
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
       quota = UnboundedQuota,
-      isolationLevel = IsolationLevel.READ_UNCOMMITTED).find(_._1 == topicPartition)
+      isolationLevel = IsolationLevel.READ_UNCOMMITTED,
+      maxSupportedMagic = RecordBatch.CURRENT_MAGIC_VALUE).find(_._1 == topicPartition)
 
     val firstRecord = readAllRecords.get._2.info.records.records.iterator.next()
     assertEquals("Reading any data can return messages up to the end of the log", recordToLEO,

@@ -26,7 +26,7 @@ import kafka.server.epoch.{LeaderEpochCache, LeaderEpochFileCache}
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.record.MemoryRecords
+import org.apache.kafka.common.record.{MemoryRecords, RecordBatch}
 import org.apache.kafka.common.utils.Time
 import org.easymock.EasyMock
 import org.junit.Assert._
@@ -80,6 +80,7 @@ class IsrExpirationTest {
     // let the follower catch up to the Leader logEndOffset (15)
     for (replica <- partition0.assignedReplicas - leaderReplica)
       replica.updateLogReadResult(new LogReadResult(info = FetchDataInfo(new LogOffsetMetadata(15L), MemoryRecords.EMPTY),
+                                                    magic = RecordBatch.CURRENT_MAGIC_VALUE,
                                                     highWatermark = 15L,
                                                     leaderLogStartOffset = 0L,
                                                     leaderLogEndOffset = 15L,
@@ -135,6 +136,7 @@ class IsrExpirationTest {
     // Make the remote replica not read to the end of log. It should be not be out of sync for at least 100 ms
     for (replica <- partition0.assignedReplicas - leaderReplica)
       replica.updateLogReadResult(new LogReadResult(info = FetchDataInfo(new LogOffsetMetadata(10L), MemoryRecords.EMPTY),
+                                                    magic = RecordBatch.CURRENT_MAGIC_VALUE,
                                                     highWatermark = 10L,
                                                     leaderLogStartOffset = 0L,
                                                     leaderLogEndOffset = 15L,
@@ -152,6 +154,7 @@ class IsrExpirationTest {
 
     (partition0.assignedReplicas - leaderReplica).foreach { r =>
       r.updateLogReadResult(new LogReadResult(info = FetchDataInfo(new LogOffsetMetadata(11L), MemoryRecords.EMPTY),
+                            magic = RecordBatch.CURRENT_MAGIC_VALUE,
                             highWatermark = 11L,
                             leaderLogStartOffset = 0L,
                             leaderLogEndOffset = 15L,
@@ -172,6 +175,7 @@ class IsrExpirationTest {
     // Now actually make a fetch to the end of the log. The replicas should be back in ISR
     (partition0.assignedReplicas - leaderReplica).foreach { r =>
       r.updateLogReadResult(new LogReadResult(info = FetchDataInfo(new LogOffsetMetadata(15L), MemoryRecords.EMPTY),
+                            magic = RecordBatch.CURRENT_MAGIC_VALUE,
                             highWatermark = 15L,
                             leaderLogStartOffset = 0L,
                             leaderLogEndOffset = 15L,
@@ -199,6 +203,7 @@ class IsrExpirationTest {
     // set lastCaughtUpTime to current time
     for (replica <- partition.assignedReplicas - leaderReplica)
       replica.updateLogReadResult(new LogReadResult(info = FetchDataInfo(new LogOffsetMetadata(0L), MemoryRecords.EMPTY),
+                                                    magic = RecordBatch.CURRENT_MAGIC_VALUE,
                                                     highWatermark = 0L,
                                                     leaderLogStartOffset = 0L,
                                                     leaderLogEndOffset = 0L,

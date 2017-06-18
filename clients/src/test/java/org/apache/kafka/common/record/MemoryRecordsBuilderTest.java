@@ -432,7 +432,8 @@ public class MemoryRecordsBuilderTest {
 
         buffer.flip();
 
-        Records records = MemoryRecords.readableRecords(buffer).downConvert(RecordBatch.MAGIC_VALUE_V1, 0);
+        Records records = MemoryRecords.readableRecords(buffer)
+                .downConvert(RecordBatch.MAGIC_VALUE_V1, 0, Integer.MAX_VALUE);
 
         List<? extends RecordBatch> batches = Utils.toList(records.batches().iterator());
         if (compressionType != CompressionType.NONE) {
@@ -469,7 +470,8 @@ public class MemoryRecordsBuilderTest {
 
         buffer.flip();
 
-        Records records = MemoryRecords.readableRecords(buffer).downConvert(RecordBatch.MAGIC_VALUE_V1, 0);
+        Records records = MemoryRecords.readableRecords(buffer)
+                .downConvert(RecordBatch.MAGIC_VALUE_V1, 0, Integer.MAX_VALUE);
 
         List<? extends RecordBatch> batches = Utils.toList(records.batches().iterator());
         if (compressionType != CompressionType.NONE) {
@@ -493,7 +495,8 @@ public class MemoryRecordsBuilderTest {
         assertEquals("2", utf8(logRecords.get(1).key()));
         assertEquals("3", utf8(logRecords.get(2).key()));
 
-        records = MemoryRecords.readableRecords(buffer).downConvert(RecordBatch.MAGIC_VALUE_V1, 2L);
+        records = MemoryRecords.readableRecords(buffer)
+                .downConvert(RecordBatch.MAGIC_VALUE_V1, 2L, Integer.MAX_VALUE);
 
         batches = Utils.toList(records.batches().iterator());
         logRecords = Utils.toList(records.records().iterator());

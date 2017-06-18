@@ -126,6 +126,8 @@ class Replica(val brokerId: Int,
     }
   }
 
+  def configuredMagicVersion: Option[Byte] = log.map(_.configuredMagicVersion)
+
   def logStartOffset =
     if (isLocal)
       log.get.logStartOffset

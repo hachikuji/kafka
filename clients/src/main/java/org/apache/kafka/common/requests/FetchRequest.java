@@ -17,10 +17,12 @@
 package org.apache.kafka.common.requests;
 
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.RecordBatch;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -244,6 +246,22 @@ public class FetchRequest extends AbstractRequest {
 
     public IsolationLevel isolationLevel() {
         return isolationLevel;
+    }
+
+    public byte maxSupportedMagic() {
+        switch (version()) {
+            case 0:
+            case 1:
+                return RecordBatch.MAGIC_VALUE_V0;
+            case 2:
+            case 3:
+                return RecordBatch.MAGIC_VALUE_V1;
+            case 4:
+            case 5:
+                return RecordBatch.MAGIC_VALUE_V2;
+            default:
+                throw new UnsupportedVersionException("Unexpected fetch version " + version());
+        }
     }
 
     public static FetchRequest parse(ByteBuffer buffer, short version) {

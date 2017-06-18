@@ -434,8 +434,10 @@ class Log(@volatile var dir: File,
     }
   }
 
+  def configuredMagicVersion: Byte = config.messageFormatVersion.messageFormatVersion
+
   private def loadProducerState(lastOffset: Long, reloadFromCleanShutdown: Boolean): Unit = lock synchronized {
-    val messageFormatVersion = config.messageFormatVersion.messageFormatVersion
+    val messageFormatVersion = configuredMagicVersion
     info(s"Loading producer state from offset $lastOffset for partition $topicPartition with message " +
       s"format version $messageFormatVersion")
 

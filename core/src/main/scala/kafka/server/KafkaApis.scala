@@ -499,8 +499,14 @@ class KafkaApis(val requestChannel: RequestChannel,
         FetchResponse.INVALID_HIGHWATERMARK, FetchResponse.INVALID_LAST_STABLE_OFFSET, FetchResponse.INVALID_LOG_START_OFFSET, null, MemoryRecords.EMPTY))
     }
 
-    def convertedPartitionData(tp: TopicPartition, data: FetchResponse.PartitionData) = {
+    def convertPartitionData(data: FetchPartitionData): FetchResponse.PartitionData = {
+      val abortedTransactions = data.abortedTransactions.map(_.asJava).orNull
+      val lastStableOffset = data.lastStableOffset.getOrElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
+      new FetchResponse.PartitionData(data.error, data.highWatermark, lastStableOffset,
+        data.logStartOffset, abortedTransactions, data.records)
+    }
 
+    def maybeDownConvertPartitionData(tp: TopicPartition, data: FetchPartitionData, maxSizeInBytes: Int) = {
       // Down-conversion of the fetched records is needed when the stored magic version is
       // greater than that supported by the client (as indicated by the fetch request version). If the
       // configured magic version for the topic is less than or equal to that supported by the version of the
@@ -508,57 +514,40 @@ class KafkaApis(val requestChannel: RequestChannel,
       // know it must be supported. However, if the magic version is changed from a higher version back to a
       // lower version, this check will no longer be valid and we will fail to down-convert the messages
       // which were written in the new format prior to the version downgrade.
-      replicaManager.getMagic(tp).flatMap { magic =>
-        val downConvertMagic = {
-          if (magic > RecordBatch.MAGIC_VALUE_V0 && versionId <= 1 && !data.records.hasCompatibleMagic(RecordBatch.MAGIC_VALUE_V0))
-            Some(RecordBatch.MAGIC_VALUE_V0)
-          else if (magic > RecordBatch.MAGIC_VALUE_V1 && versionId <= 3 && !data.records.hasCompatibleMagic(RecordBatch.MAGIC_VALUE_V1))
-            Some(RecordBatch.MAGIC_VALUE_V1)
-          else
-            None
-        }
+      val downConvertMagic = {
+        val maxSupportedMagic = fetchRequest.maxSupportedMagic
+        if (data.magic > maxSupportedMagic && !data.records.hasCompatibleMagic(maxSupportedMagic))
+          Some(maxSupportedMagic)
+        else
+          None
+      }
 
-        downConvertMagic.map { magic =>
-          trace(s"Down converting records from partition $tp to message format version $magic for fetch request from $clientId")
-          val converted = data.records.downConvert(magic, fetchRequest.fetchData.get(tp).fetchOffset)
-          new FetchResponse.PartitionData(data.error, data.highWatermark, FetchResponse.INVALID_LAST_STABLE_OFFSET,
-            data.logStartOffset, data.abortedTransactions, converted)
-        }
-
-      }.getOrElse(data)
+      downConvertMagic.map { magic =>
+        trace(s"Down-converting records from partition $tp to message format version $magic for fetch request from $clientId")
+        val adjustedMaxSizeInBytes = math.min(maxSizeInBytes, fetchRequest.fetchData.get(tp).maxBytes)
+        val converted = data.records.downConvert(magic, fetchRequest.fetchData.get(tp).fetchOffset, adjustedMaxSizeInBytes)
+        new FetchResponse.PartitionData(data.error, data.highWatermark, FetchResponse.INVALID_LAST_STABLE_OFFSET,
+          data.logStartOffset, data.abortedTransactions.map(_.asJava).orNull, converted)
+      }.getOrElse(convertPartitionData(data))
     }
 
     // the callback for process a fetch response, invoked before throttling
     def processResponseCallback(responsePartitionData: Seq[(TopicPartition, FetchPartitionData)]) {
-      val partitionData = {
-        responsePartitionData.map { case (tp, data) =>
-          val abortedTransactions = data.abortedTransactions.map(_.asJava).orNull
-          val lastStableOffset = data.lastStableOffset.getOrElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
-          tp -> new FetchResponse.PartitionData(data.error, data.highWatermark, lastStableOffset,
-            data.logStartOffset, abortedTransactions, data.records)
-        }
-      }
-
-      val mergedPartitionData = partitionData ++ unauthorizedForReadPartitionData ++ nonExistingOrUnauthorizedForDescribePartitionData
-
-      val fetchedPartitionData = new util.LinkedHashMap[TopicPartition, FetchResponse.PartitionData]()
-
-      mergedPartitionData.foreach { case (topicPartition, data) =>
-        if (data.error != Errors.NONE)
-          debug(s"Fetch request with correlation id ${request.header.correlationId} from client $clientId " +
-            s"on partition $topicPartition failed due to ${data.error.exceptionName}")
-
-        fetchedPartitionData.put(topicPartition, data)
-      }
-
       // fetch response callback invoked after any throttling
       def fetchResponseCallback(bandwidthThrottleTimeMs: Int) {
         def createResponse(requestThrottleTimeMs: Int): RequestChannel.Response = {
-          val convertedData = new util.LinkedHashMap[TopicPartition, FetchResponse.PartitionData]
-          fetchedPartitionData.asScala.foreach { case (tp, partitionData) =>
-            convertedData.put(tp, convertedPartitionData(tp, partitionData))
+          val fetchedData = new util.LinkedHashMap[TopicPartition, FetchResponse.PartitionData]
+          var limitBytes = fetchRequest.maxBytes()
+          responsePartitionData.foreach { case (tp, data) =>
+            val convertedPartitionData = maybeDownConvertPartitionData(tp, data, limitBytes)
+            limitBytes = math.max(0, limitBytes - convertedPartitionData.records.sizeInBytes)
+            fetchedData.put(tp, convertedPartitionData)
           }
-          val response = new FetchResponse(convertedData, 0)
+          (unauthorizedForReadPartitionData ++ nonExistingOrUnauthorizedForDescribePartitionData).foreach { case (tp, data) =>
+            fetchedData.put(tp, data)
+          }
+
+          val response = new FetchResponse(fetchedData, 0)
           val responseStruct = response.toStruct(versionId)
 
           trace(s"Sending fetch response to client $clientId of ${responseStruct.sizeOf} bytes.")
@@ -579,6 +568,17 @@ class KafkaApis(val requestChannel: RequestChannel,
             requestChannel.sendResponse(createResponse(requestThrottleMs)))
       }
 
+      val partitionData = responsePartitionData.map { case (tp, data) =>
+        tp -> convertPartitionData(data)
+      }
+      val mergedPartitionData = partitionData ++ unauthorizedForReadPartitionData ++ nonExistingOrUnauthorizedForDescribePartitionData
+      if (isDebugEnabled) {
+        mergedPartitionData.filter(_._2.error != Errors.NONE).foreach { case (tp, data) =>
+          debug(s"Fetch request with correlation id ${request.header.correlationId} from client $clientId " +
+            s"on partition $tp failed due to ${data.error.exceptionName}")
+        }
+      }
+
       // When this callback is triggered, the remote API call has completed.
       // Record time before any byte-rate throttling.
       request.apiRemoteCompleteTimeNanos = time.nanoseconds
@@ -592,6 +592,10 @@ class KafkaApis(val requestChannel: RequestChannel,
         // Fetch size used to determine throttle time is calculated before any down conversions.
         // This may be slightly different from the actual response size. But since down conversions
         // result in data being loaded into memory, it is better to do this after throttling to avoid OOM.
+        val fetchedPartitionData = new util.LinkedHashMap[TopicPartition, FetchResponse.PartitionData]()
+        mergedPartitionData.foreach { case (topicPartition, data) =>
+          fetchedPartitionData.put(topicPartition, data)
+        }
         val response = new FetchResponse(fetchedPartitionData, 0)
         val responseStruct = response.toStruct(versionId)
         quotas.fetch.recordAndMaybeThrottle(request.session.sanitizedUser, clientId, responseStruct.sizeOf,
@@ -604,15 +608,16 @@ class KafkaApis(val requestChannel: RequestChannel,
     else {
       // call the replica manager to fetch messages from the local replica
       replicaManager.fetchMessages(
-        fetchRequest.maxWait.toLong,
-        fetchRequest.replicaId,
-        fetchRequest.minBytes,
-        fetchRequest.maxBytes,
-        versionId <= 2,
-        authorizedRequestInfo,
-        replicationQuota(fetchRequest),
-        processResponseCallback,
-        fetchRequest.isolationLevel)
+        timeout = fetchRequest.maxWait.toLong,
+        replicaId = fetchRequest.replicaId,
+        fetchMinBytes = fetchRequest.minBytes,
+        fetchMaxBytes = fetchRequest.maxBytes,
+        hardMaxBytesLimit = versionId <= 2,
+        fetchInfos = authorizedRequestInfo,
+        quota = replicationQuota(fetchRequest),
+        responseCallback = processResponseCallback,
+        isolationLevel = fetchRequest.isolationLevel,
+        maxSupportedMagic = fetchRequest.maxSupportedMagic)
     }
   }
 

@@ -100,6 +100,10 @@ public class Utils {
         return utf8(buffer, 0, length);
     }
 
+    public static String utf8(ByteBuffer buffer) {
+        return utf8(buffer, 0, buffer.remaining());
+    }
+
     /**
      * Read a UTF8 string from a byte buffer at a given offset. Note that the position of the byte buffer
      * is not affected by this method.

@@ -470,7 +470,8 @@ class ReplicaManagerTest {
       hardMaxBytesLimit = false,
       fetchInfos = Seq(partition -> partitionData),
       responseCallback = fetchCallback,
-      isolationLevel = isolationLevel)
+      isolationLevel = isolationLevel,
+      maxSupportedMagic = RecordBatch.CURRENT_MAGIC_VALUE)
 
     result
   }

@@ -74,6 +74,7 @@ case class LogDeleteRecordsResult(requestedOffset: Long, lowWatermark: Long, exc
  * @param error Exception if error encountered while reading from the log
  */
 case class LogReadResult(info: FetchDataInfo,
+                         magic: Byte,
                          highWatermark: Long,
                          leaderLogStartOffset: Long,
                          leaderLogEndOffset: Long,
@@ -95,6 +96,7 @@ case class LogReadResult(info: FetchDataInfo,
 }
 
 case class FetchPartitionData(error: Errors = Errors.NONE,
+                              magic: Byte,
                               highWatermark: Long,
                               logStartOffset: Long,
                               records: Records,
@@ -103,6 +105,7 @@ case class FetchPartitionData(error: Errors = Errors.NONE,
 
 object LogReadResult {
   val UnknownLogReadResult = LogReadResult(info = FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY),
+                                           magic = RecordBatch.CURRENT_MAGIC_VALUE,
                                            highWatermark = -1L,
                                            leaderLogStartOffset = -1L,
                                            leaderLogEndOffset = -1L,
@@ -600,7 +603,8 @@ class ReplicaManager(val config: KafkaConfig,
                     fetchInfos: Seq[(TopicPartition, PartitionData)],
                     quota: ReplicaQuota = UnboundedQuota,
                     responseCallback: Seq[(TopicPartition, FetchPartitionData)] => Unit,
-                    isolationLevel: IsolationLevel) {
+                    isolationLevel: IsolationLevel,
+                    maxSupportedMagic: Byte) {
     val isFromFollower = replicaId >= 0
     val fetchOnlyFromLeader: Boolean = replicaId != Request.DebuggingConsumerId
     val fetchOnlyCommitted: Boolean = ! Request.isValidBrokerId(replicaId)
@@ -614,7 +618,8 @@ class ReplicaManager(val config: KafkaConfig,
       hardMaxBytesLimit = hardMaxBytesLimit,
       readPartitionInfo = fetchInfos,
       quota = quota,
-      isolationLevel = isolationLevel)
+      isolationLevel = isolationLevel,
+      maxSupportedMagic = maxSupportedMagic)
 
     // if the fetch comes from the follower,
     // update its corresponding log end offset
@@ -633,8 +638,8 @@ class ReplicaManager(val config: KafkaConfig,
     //                        4) some error happens while reading data
     if (timeout <= 0 || fetchInfos.isEmpty || bytesReadable >= fetchMinBytes || errorReadingData) {
       val fetchPartitionData = logReadResults.map { case (tp, result) =>
-        tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
-          result.lastStableOffset, result.info.abortedTransactions)
+        tp -> FetchPartitionData(result.error, result.magic, result.highWatermark, result.leaderLogStartOffset,
+          result.info.records, result.lastStableOffset, result.info.abortedTransactions)
       }
       responseCallback(fetchPartitionData)
     } else {
@@ -647,7 +652,8 @@ class ReplicaManager(val config: KafkaConfig,
       }
       val fetchMetadata = FetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, fetchOnlyFromLeader,
         fetchOnlyCommitted, isFromFollower, replicaId, fetchPartitionStatus)
-      val delayedFetch = new DelayedFetch(timeout, fetchMetadata, this, quota, isolationLevel, responseCallback)
+      val delayedFetch = new DelayedFetch(timeout, fetchMetadata, this, quota, isolationLevel, maxSupportedMagic,
+        responseCallback)
 
       // create a list of (topic, partition) pairs to use as keys for this delayed fetch operation
       val delayedFetchKeys = fetchPartitionStatus.map { case (tp, _) => new TopicPartitionOperationKey(tp) }
@@ -669,7 +675,8 @@ class ReplicaManager(val config: KafkaConfig,
                        hardMaxBytesLimit: Boolean,
                        readPartitionInfo: Seq[(TopicPartition, PartitionData)],
                        quota: ReplicaQuota,
-                       isolationLevel: IsolationLevel): Seq[(TopicPartition, LogReadResult)] = {
+                       isolationLevel: IsolationLevel,
+                       maxSupportedMagic: Byte): Seq[(TopicPartition, LogReadResult)] = {
 
     def read(tp: TopicPartition, fetchInfo: PartitionData, limitBytes: Int, minOneMessage: Boolean): LogReadResult = {
       val offset = fetchInfo.fetchOffset
@@ -702,6 +709,8 @@ class ReplicaManager(val config: KafkaConfig,
         else
           None
 
+        val magic = localReplica.configuredMagicVersion.getOrElse(throw new NotLeaderForPartitionException())
+
         /* Read the LogOffsetMetadata prior to performing the read from the log.
          * We use the LogOffsetMetadata to determine if a particular replica is in-sync or not.
          * Using the log end offset after performing the read can lead to a race condition
@@ -715,8 +724,14 @@ class ReplicaManager(val config: KafkaConfig,
           case Some(log) =>
             val adjustedFetchSize = math.min(partitionFetchSize, limitBytes)
 
+            // If down-conversion may be required, then we attempt to fetch at least one full message.
+            // Specifically, this allows us to down-convert the v2 batching format to v0 or v1 non-batching
+            // format for cases where the fetch size is lower than the batch size. In this case, we depend
+            // on the down-conversion logic to enforce fetch size limits.
+            val maybeDownConvert = maxSupportedMagic < magic
+
             // Try the read first, this tells us whether we need all of adjustedFetchSize for this partition
-            val fetch = log.read(offset, adjustedFetchSize, maxOffsetOpt, minOneMessage, isolationLevel)
+            val fetch = log.read(offset, adjustedFetchSize, maxOffsetOpt, minOneMessage || maybeDownConvert, isolationLevel)
 
             // If the partition is being throttled, simply return an empty set.
             if (shouldLeaderThrottle(quota, tp, replicaId))
@@ -733,6 +748,7 @@ class ReplicaManager(val config: KafkaConfig,
         }
 
         LogReadResult(info = logReadInfo,
+                      magic = magic,
                       highWatermark = initialHighWatermark,
                       leaderLogStartOffset = initialLogStartOffset,
                       leaderLogEndOffset = initialLogEndOffset,
@@ -749,6 +765,7 @@ class ReplicaManager(val config: KafkaConfig,
                  _: ReplicaNotAvailableException |
                  _: OffsetOutOfRangeException) =>
           LogReadResult(info = FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY),
+                        magic = RecordBatch.CURRENT_MAGIC_VALUE,
                         highWatermark = -1L,
                         leaderLogStartOffset = -1L,
                         leaderLogEndOffset = -1L,
@@ -762,6 +779,7 @@ class ReplicaManager(val config: KafkaConfig,
           brokerTopicStats.allTopicsStats.failedFetchRequestRate.mark()
           error(s"Error processing fetch operation on partition $tp, offset $offset", e)
           LogReadResult(info = FetchDataInfo(LogOffsetMetadata.UnknownOffsetMetadata, MemoryRecords.EMPTY),
+                        magic = RecordBatch.CURRENT_MAGIC_VALUE,
                         highWatermark = -1L,
                         leaderLogStartOffset = -1L,
                         leaderLogEndOffset = -1L,

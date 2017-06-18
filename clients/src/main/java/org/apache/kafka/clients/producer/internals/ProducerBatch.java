@@ -363,7 +363,7 @@ public final class ProducerBatch {
     }
 
     public int sizeInBytes() {
-        return recordsBuilder.sizeInBytes();
+        return recordsBuilder.estimateSizeInBytes();
     }
 
     public double compressionRatio() {

@@ -24,7 +24,7 @@ import kafka.log.Log
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.record.{CompressionType, MemoryRecords, SimpleRecord}
+import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, SimpleRecord}
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.easymock.EasyMock
 import EasyMock._
@@ -62,7 +62,8 @@ class ReplicaManagerQuotasTest {
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
       quota = quota,
-      isolationLevel = IsolationLevel.READ_UNCOMMITTED)
+      isolationLevel = IsolationLevel.READ_UNCOMMITTED,
+      maxSupportedMagic = RecordBatch.CURRENT_MAGIC_VALUE)
     assertEquals("Given two partitions, with only one throttled, we should get the first", 1,
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
 
@@ -88,7 +89,8 @@ class ReplicaManagerQuotasTest {
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
       quota = quota,
-      isolationLevel = IsolationLevel.READ_UNCOMMITTED)
+      isolationLevel = IsolationLevel.READ_UNCOMMITTED,
+      maxSupportedMagic = RecordBatch.CURRENT_MAGIC_VALUE)
     assertEquals("Given two partitions, with both throttled, we should get no messages", 0,
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
     assertEquals("Given two partitions, with both throttled, we should get no messages", 0,
@@ -113,7 +115,8 @@ class ReplicaManagerQuotasTest {
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
       quota = quota,
-      isolationLevel = IsolationLevel.READ_UNCOMMITTED)
+      isolationLevel = IsolationLevel.READ_UNCOMMITTED,
+      maxSupportedMagic = RecordBatch.CURRENT_MAGIC_VALUE)
     assertEquals("Given two partitions, with both non-throttled, we should get both messages", 1,
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
     assertEquals("Given two partitions, with both non-throttled, we should get both messages", 1,
@@ -138,7 +141,8 @@ class ReplicaManagerQuotasTest {
       hardMaxBytesLimit = false,
       readPartitionInfo = fetchInfo,
       quota = quota,
-      isolationLevel = IsolationLevel.READ_UNCOMMITTED)
+      isolationLevel = IsolationLevel.READ_UNCOMMITTED,
+      maxSupportedMagic = RecordBatch.CURRENT_MAGIC_VALUE)
     assertEquals("Given two partitions, with only one throttled, we should get the first", 1,
       fetch.find(_._1 == topicPartition1).get._2.info.records.batches.asScala.size)
 

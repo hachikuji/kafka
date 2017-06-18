@@ -18,16 +18,43 @@ package org.apache.kafka.common.record;
 
 import org.apache.kafka.common.utils.ByteBufferOutputStream;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.test.TestUtils;
 import org.junit.Test;
 
 import java.io.DataOutputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.List;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
 public class SimpleLegacyRecordTest {
+
+    @Test
+    public void testDownConvertToLegacyRecordIfBatchSizeLargerThanFetchSize() {
+        for (byte legacyMagic : Arrays.asList(RecordBatch.MAGIC_VALUE_V0, RecordBatch.MAGIC_VALUE_V1)) {
+            int sizeOfLegacyRecord = AbstractRecords.estimateSizeInBytesUpperBound(legacyMagic,
+                    CompressionType.NONE, "key".getBytes(), "0".getBytes(), Record.EMPTY_HEADERS);
+            MemoryRecords records = MemoryRecords.withRecords(CompressionType.NONE,
+                    new SimpleRecord("key".getBytes(), "0".getBytes()),
+                    new SimpleRecord("key".getBytes(), "1".getBytes()),
+                    new SimpleRecord("key".getBytes(), "2".getBytes()),
+                    new SimpleRecord("key".getBytes(), "3".getBytes()),
+                    new SimpleRecord("key".getBytes(), "4".getBytes()));
+
+            for (long offset = 0; offset < 5; offset++) {
+                MemoryRecords legacyRecords = records.downConvert(legacyMagic, offset, sizeOfLegacyRecord);
+                List<Record> recordList = TestUtils.toList(legacyRecords.records());
+                assertEquals(1, recordList.size());
+                Record record = recordList.get(0);
+                assertEquals("key", Utils.utf8(record.key()));
+                assertEquals("" + offset, Utils.utf8(record.value()));
+            }
+        }
+    }
 
     @Test(expected = InvalidRecordException.class)
     public void testCompressedIterationWithNullValue() throws Exception {

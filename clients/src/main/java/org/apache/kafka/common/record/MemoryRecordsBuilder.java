@@ -662,7 +662,7 @@ public class MemoryRecordsBuilder {
      */
     private int estimatedBytesWritten() {
         if (compressionType == CompressionType.NONE) {
-            return buffer().position();
+            return buffer().position() - initialPosition;
         } else {
             // estimate the written bytes to the underlying byte buffer based on uncompressed written bytes
             return (int) (writtenUncompressed * estimatedCompressionRatio * COMPRESSION_RATE_ESTIMATION_FACTOR);
@@ -693,6 +693,15 @@ public class MemoryRecordsBuilder {
      * re-allocation in the underlying byte buffer stream.
      */
     public boolean hasRoomFor(long timestamp, ByteBuffer key, ByteBuffer value, Header[] headers) {
+        long nextOffset = nextSequentialOffset();
+        return hasRoomFor(nextOffset, timestamp, key, value, headers);
+    }
+
+    public boolean hasRoomFor(Record record) {
+        return hasRoomFor(record.offset(), record.timestamp(), record.key(), record.value(), record.headers());
+    }
+
+    private boolean hasRoomFor(long offset, long timestamp, ByteBuffer key, ByteBuffer value, Header[] headers) {
         if (isFull())
             return false;
 
@@ -704,12 +713,10 @@ public class MemoryRecordsBuilder {
         if (magic < RecordBatch.MAGIC_VALUE_V2) {
             recordSize = Records.LOG_OVERHEAD + LegacyRecord.recordSize(magic, key, value);
         } else {
-            int nextOffsetDelta = lastOffset == null ? 0 : (int) (lastOffset - baseOffset + 1);
+            int nextOffsetDelta = (int) (offset - baseOffset + 1);
             long timestampDelta = baseTimestamp == null ? 0 : timestamp - baseTimestamp;
             recordSize = DefaultRecord.sizeInBytes(nextOffsetDelta, timestampDelta, key, value, headers);
         }
-
-        // Be conservative and not take compression of the new record into consideration.
         return this.writeLimit >= estimatedBytesWritten() + recordSize;
     }
 
@@ -723,7 +730,7 @@ public class MemoryRecordsBuilder {
         return appendStreamIsClosed || (this.numRecords > 0 && this.writeLimit <= estimatedBytesWritten());
     }
 
-    public int sizeInBytes() {
+    public int estimateSizeInBytes() {
         return builtRecords != null ? builtRecords.sizeInBytes() : estimatedBytesWritten();
     }
 

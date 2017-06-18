@@ -61,6 +61,7 @@ class DelayedFetch(delayMs: Long,
                    replicaManager: ReplicaManager,
                    quota: ReplicaQuota,
                    isolationLevel: IsolationLevel,
+                   maxSupportedMagic: Byte,
                    responseCallback: Seq[(TopicPartition, FetchPartitionData)] => Unit)
   extends DelayedOperation(delayMs) {
 
@@ -153,11 +154,12 @@ class DelayedFetch(delayMs: Long,
       hardMaxBytesLimit = fetchMetadata.hardMaxBytesLimit,
       readPartitionInfo = fetchMetadata.fetchPartitionStatus.map { case (tp, status) => tp -> status.fetchInfo },
       quota = quota,
-      isolationLevel = isolationLevel)
+      isolationLevel = isolationLevel,
+      maxSupportedMagic = maxSupportedMagic)
 
     val fetchPartitionData = logReadResults.map { case (tp, result) =>
-      tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
-        result.lastStableOffset, result.info.abortedTransactions)
+      tp -> FetchPartitionData(result.error, result.magic, result.highWatermark, result.leaderLogStartOffset,
+        result.info.records, result.lastStableOffset, result.info.abortedTransactions)
     }
 
     responseCallback(fetchPartitionData)
