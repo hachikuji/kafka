@@ -96,16 +96,17 @@ class TransactionsTest(Test):
         return self.drain_consumer(consumer)
 
     def bounce_brokers(self, clean_shutdown):
-       for node in self.kafka.nodes:
-            if clean_shutdown:
-                self.kafka.restart_node(node, clean_shutdown = True)
-            else:
-                self.kafka.stop_node(node, clean_shutdown = False)
-                wait_until(lambda: len(self.kafka.pids(node)) == 0 and not self.kafka.is_registered(node),
-                           timeout_sec=self.kafka.zk_session_timeout + 5,
-                           err_msg="Failed to see timely deregistration of \
-                           hard-killed broker %s" % str(node.account))
-                self.kafka.start_node(node)
+        for _ in range(5):
+            for node in self.kafka.nodes:
+                if clean_shutdown:
+                    self.kafka.restart_node(node, clean_shutdown = True)
+                else:
+                    self.kafka.stop_node(node, clean_shutdown = False)
+                    wait_until(lambda: len(self.kafka.pids(node)) == 0 and not self.kafka.is_registered(node),
+                               timeout_sec=self.kafka.zk_session_timeout + 5,
+                               err_msg="Failed to see timely deregistration of \
+                               hard-killed broker %s" % str(node.account))
+                    self.kafka.start_node(node)
 
     def create_and_start_message_copier(self, input_partition, transactional_id):
         message_copier = TransactionalMessageCopier(
@@ -127,7 +128,7 @@ class TransactionsTest(Test):
         return message_copier
 
     def bounce_copiers(self, copiers, clean_shutdown):
-        for _ in range(3):
+        for _ in range(5):
             for copier in copiers:
                 wait_until(lambda: copier.progress_percent() >= 20.0,
                            timeout_sec=30,
