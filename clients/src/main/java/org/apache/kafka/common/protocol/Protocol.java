@@ -38,15 +38,17 @@ import static org.apache.kafka.common.protocol.types.Type.NULLABLE_STRING;
 
 public class Protocol {
 
-    public static final Schema REQUEST_HEADER = new Schema(new Field("api_key", INT16, "The id of the request type."),
-                                                           new Field("api_version", INT16, "The version of the API."),
-                                                           new Field("correlation_id",
-                                                                     INT32,
-                                                                     "A user-supplied integer value that will be passed back with the response"),
-                                                           new Field("client_id",
-                                                                     NULLABLE_STRING,
-                                                                     "A user specified identifier for the client making the request.",
-                                                                     ""));
+    public static final Schema REQUEST_HEADER = new Schema(
+            new Field("api_key", INT16, "The id of the request type."),
+            new Field("api_version", INT16, "The version of the API."),
+            new Field("correlation_id", INT32, "A user-supplied integer value that will be passed back with the response"),
+            new Field("client_id", NULLABLE_STRING, "A user specified identifier for the client making the request.", ""));
+
+    public static final Schema CONTROLLED_SHUTDOWN_REQUEST_V0_HEADER = new Schema(
+            new Field("api_key", INT16, "The id of the request type."),
+            new Field("api_version", INT16, "The version of the API."),
+            new Field("correlation_id", INT32, "A user-supplied integer value that will be passed back with the response"));
+
 
     public static final Schema RESPONSE_HEADER = new Schema(new Field("correlation_id",
                                                                       INT32,
@@ -868,23 +870,26 @@ public class Protocol {
     public static final Schema[] FIND_COORDINATOR_RESPONSE = {FIND_COORDINATOR_RESPONSE_V0, FIND_COORDINATOR_RESPONSE_V1};
 
     /* Controlled shutdown api */
-    public static final Schema CONTROLLED_SHUTDOWN_REQUEST_V1 = new Schema(new Field("broker_id",
+    public static final Schema CONTROLLED_SHUTDOWN_REQUEST_V0 = new Schema(new Field("broker_id",
                                                                                      INT32,
                                                                                      "The id of the broker for which controlled shutdown has been requested."));
 
-    public static final Schema CONTROLLED_SHUTDOWN_PARTITION_V1 = new Schema(new Field("topic", STRING),
+    public static final Schema CONTROLLED_SHUTDOWN_PARTITION_V0 = new Schema(new Field("topic", STRING),
                                                                              new Field("partition",
                                                                                        INT32,
                                                                                        "Topic partition id."));
 
-    public static final Schema CONTROLLED_SHUTDOWN_RESPONSE_V1 = new Schema(new Field("error_code", INT16),
+    public static final Schema CONTROLLED_SHUTDOWN_RESPONSE_V0 = new Schema(new Field("error_code", INT16),
                                                                             new Field("partitions_remaining",
-                                                                                      new ArrayOf(CONTROLLED_SHUTDOWN_PARTITION_V1),
+                                                                                      new ArrayOf(CONTROLLED_SHUTDOWN_PARTITION_V0),
                                                                                       "The partitions that the broker still leads."));
 
+    public static final Schema CONTROLLED_SHUTDOWN_REQUEST_V1 = CONTROLLED_SHUTDOWN_REQUEST_V0;
+    public static final Schema CONTROLLED_SHUTDOWN_RESPONSE_V1 = CONTROLLED_SHUTDOWN_RESPONSE_V0;
+
     /* V0 is not supported as it would require changes to the request header not to include `clientId` */
-    public static final Schema[] CONTROLLED_SHUTDOWN_REQUEST = {null, CONTROLLED_SHUTDOWN_REQUEST_V1};
-    public static final Schema[] CONTROLLED_SHUTDOWN_RESPONSE = {null, CONTROLLED_SHUTDOWN_RESPONSE_V1};
+    public static final Schema[] CONTROLLED_SHUTDOWN_REQUEST = {CONTROLLED_SHUTDOWN_REQUEST_V0, CONTROLLED_SHUTDOWN_REQUEST_V1};
+    public static final Schema[] CONTROLLED_SHUTDOWN_RESPONSE = {CONTROLLED_SHUTDOWN_RESPONSE_V0, CONTROLLED_SHUTDOWN_RESPONSE_V1};
 
     /* Join group api */
     public static final Schema JOIN_GROUP_REQUEST_PROTOCOL_V0 = new Schema(new Field("protocol_name", STRING),
@@ -1820,6 +1825,14 @@ public class Protocol {
         return new Field("throttle_time_ms", INT32,
                 "Duration in milliseconds for which the request was throttled due to quota violation. (Zero if the request did not violate any quota.)",
                 0);
+    }
+
+    public static Schema requestHeaderSchema(short apiKey, short version) {
+        if (apiKey == ApiKeys.CONTROLLED_SHUTDOWN_KEY.id && version == 0)
+            // TODO: this will be removed once we remove support for v0 of ControlledShutdownRequest, which
+            // depends on a non-standard request header (it does not have a clientId)
+            return CONTROLLED_SHUTDOWN_REQUEST_V0_HEADER;
+        return REQUEST_HEADER;
     }
 
     private static String indentString(int size) {

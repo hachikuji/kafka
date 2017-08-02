@@ -42,7 +42,7 @@ class KafkaRequestHandler(id: Int,
   def run() {
     while (true) {
       try {
-        var req : RequestChannel.Request = null
+        var req: RequestChannel.Request = null
         while (req == null) {
           // We use a single meter for aggregate idle percentage for the thread pool.
           // Since meter is calculated as total_recorded_value / time_window and
