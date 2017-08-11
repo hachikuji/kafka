@@ -46,6 +46,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static java.util.Collections.singleton;
 
@@ -126,11 +127,9 @@ class WorkerSinkTask extends WorkerTask {
 
     @Override
     protected void close() {
-        // FIXME Kafka needs to add a timeout parameter here for us to properly obey the timeout
-        // passed in
         task.stop();
         if (consumer != null)
-            consumer.close();
+            consumer.close(30, TimeUnit.SECONDS);
         transformationChain.close();
     }
 
