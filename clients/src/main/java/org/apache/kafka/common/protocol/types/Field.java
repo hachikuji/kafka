@@ -19,7 +19,7 @@ package org.apache.kafka.common.protocol.types;
 /**
  * A field in a schema
  */
-public class Field {
+public class Field implements Fieldable {
 
     public static final Object NO_DEFAULT = new Object();
 
@@ -74,5 +74,10 @@ public class Field {
     @Override
     public String toString() {
         return name + ":" + type;
+    }
+
+    @Override
+    public Field toField() {
+        return this;
     }
 }

@@ -33,15 +33,15 @@ public class Schema extends Type {
      *
      * @throws SchemaException If the given list have duplicate fields
      */
-    public Schema(Field... fs) {
+    public Schema(Fieldable... fs) {
         this.fields = new Field[fs.length];
         this.fieldsByName = new HashMap<>();
         for (int i = 0; i < this.fields.length; i++) {
-            Field field = fs[i];
+            Field field = fs[i].toField();
             if (fieldsByName.containsKey(field.name))
                 throw new SchemaException("Schema contains a duplicate field: " + field.name);
             this.fields[i] = new Field(i, field.name, field.type, field.doc, field.defaultValue, this);
-            this.fieldsByName.put(fs[i].name, this.fields[i]);
+            this.fieldsByName.put(field.name, this.fields[i]);
         }
     }
 

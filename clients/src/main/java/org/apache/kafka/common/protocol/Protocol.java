@@ -18,6 +18,7 @@ package org.apache.kafka.common.protocol;
 
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
+import org.apache.kafka.common.protocol.types.Fields;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Type;
 
@@ -41,7 +42,6 @@ import static org.apache.kafka.common.protocol.types.Type.STRING;
 import static org.apache.kafka.common.protocol.types.Type.NULLABLE_STRING;
 
 public class Protocol {
-
     public static final Schema REQUEST_HEADER = new Schema(
             new Field("api_key", INT16, "The id of the request type."),
             new Field("api_version", INT16, "The version of the API."),
@@ -94,29 +94,17 @@ public class Protocol {
                                                    new Field("port", INT32,
                                                              "The port on which the broker accepts requests."));
 
-    public static final Schema PARTITION_METADATA_V0 = new Schema(new Field("partition_error_code",
-                                                                            INT16,
-                                                                            "The error code for the partition, if any."),
-                                                                  new Field("partition_id",
-                                                                            INT32,
-                                                                            "The id of the partition."),
-                                                                  new Field("leader",
-                                                                            INT32,
-                                                                            "The id of the broker acting as leader for this partition."),
-                                                                  new Field("replicas",
-                                                                            new ArrayOf(INT32),
-                                                                            "The set of all nodes that host this partition."),
-                                                                  new Field("isr",
-                                                                            new ArrayOf(INT32),
-                                                                            "The set of nodes that are in sync with the leader for this partition."));
+    public static final Schema PARTITION_METADATA_V0 = new Schema(
+            Fields.ERROR_CODE,
+            Fields.PARTITION,
+            new Field("leader", INT32, "The id of the broker acting as leader for this partition."),
+            new Field("replicas", new ArrayOf(INT32), "The set of all nodes that host this partition."),
+            new Field("isr", new ArrayOf(INT32), "The set of nodes that are in sync with the leader for this partition."));
 
-    public static final Schema TOPIC_METADATA_V0 = new Schema(new Field("topic_error_code",
-                                                                        INT16,
-                                                                        "The error code for the given topic."),
-                                                              new Field("topic", STRING, "The name of the topic"),
-                                                              new Field("partition_metadata",
-                                                                        new ArrayOf(PARTITION_METADATA_V0),
-                                                                        "Metadata for each partition of the topic."));
+    public static final Schema TOPIC_METADATA_V0 = new Schema(
+            Fields.ERROR_CODE,
+            Fields.TOPIC,
+            new Field("partition_metadata", new ArrayOf(PARTITION_METADATA_V0), "Metadata for each partition of the topic."));
 
     public static final Schema METADATA_RESPONSE_V0 = new Schema(new Field("brokers",
                                                                            new ArrayOf(METADATA_BROKER_V0),
@@ -124,48 +112,35 @@ public class Protocol {
                                                                  new Field("topic_metadata",
                                                                            new ArrayOf(TOPIC_METADATA_V0)));
 
-    public static final Schema METADATA_BROKER_V1 = new Schema(new Field("node_id", INT32, "The broker id."),
-                                                      new Field("host", STRING, "The hostname of the broker."),
-                                                      new Field("port", INT32,
-                                                        "The port on which the broker accepts requests."),
-                                                      new Field("rack", NULLABLE_STRING, "The rack of the broker."));
+    public static final Schema METADATA_BROKER_V1 = new Schema(
+            new Field("node_id", INT32, "The broker id."),
+            new Field("host", STRING, "The hostname of the broker."),
+            new Field("port", INT32, "The port on which the broker accepts requests."),
+            new Field("rack", NULLABLE_STRING, "The rack of the broker."));
 
     public static final Schema PARTITION_METADATA_V1 = PARTITION_METADATA_V0;
 
     // PARTITION_METADATA_V2 added a per-partition offline_replicas field. This field specifies the list of replicas that are offline.
-    public static final Schema PARTITION_METADATA_V2 = new Schema(new Field("partition_error_code",
-                                                                            INT16,
-                                                                            "The error code for the partition, if any."),
-                                                                  new Field("partition_id",
-                                                                            INT32,
-                                                                            "The id of the partition."),
-                                                                  new Field("leader",
-                                                                            INT32,
-                                                                            "The id of the broker acting as leader for this partition."),
-                                                                  new Field("replicas",
-                                                                            new ArrayOf(INT32),
-                                                                            "The set of all nodes that host this partition."),
-                                                                  new Field("isr",
-                                                                            new ArrayOf(INT32),
-                                                                            "The set of nodes that are in sync with the leader for this partition."),
-                                                                  new Field("offline_replicas",
-                                                                            new ArrayOf(INT32),
-                                                                            "The set of offline replicas of this partition."));
+    public static final Schema PARTITION_METADATA_V2 = new Schema(
+            Fields.ERROR_CODE,
+            Fields.PARTITION,
+            new Field("leader", INT32, "The id of the broker acting as leader for this partition."),
+            new Field("replicas", new ArrayOf(INT32), "The set of all nodes that host this partition."),
+            new Field("isr", new ArrayOf(INT32), "The set of nodes that are in sync with the leader for this partition."),
+            new Field("offline_replicas", new ArrayOf(INT32), "The set of offline replicas of this partition."));
 
-    public static final Schema TOPIC_METADATA_V1 = new Schema(new Field("topic_error_code", INT16, "The error code for the given topic."),
-                                                              new Field("topic", STRING, "The name of the topic"),
-                                                              new Field("is_internal", BOOLEAN,
-                                                                  "Indicates if the topic is considered a Kafka internal topic"),
-                                                              new Field("partition_metadata", new ArrayOf(PARTITION_METADATA_V1),
-                                                                  "Metadata for each partition of the topic."));
+    public static final Schema TOPIC_METADATA_V1 = new Schema(
+            Fields.ERROR_CODE,
+            Fields.TOPIC,
+            new Field("is_internal", BOOLEAN, "Indicates if the topic is considered a Kafka internal topic"),
+            new Field("partition_metadata", new ArrayOf(PARTITION_METADATA_V1), "Metadata for each partition of the topic."));
 
     // TOPIC_METADATA_V2 added a per-partition offline_replicas field. This field specifies the list of replicas that are offline.
-    public static final Schema TOPIC_METADATA_V2 = new Schema(new Field("topic_error_code", INT16, "The error code for the given topic."),
-                                                              new Field("topic", STRING, "The name of the topic"),
-                                                              new Field("is_internal", BOOLEAN,
-                                                                  "Indicates if the topic is considered a Kafka internal topic"),
-                                                              new Field("partition_metadata", new ArrayOf(PARTITION_METADATA_V2),
-                                                                  "Metadata for each partition of the topic."));
+    public static final Schema TOPIC_METADATA_V2 = new Schema(
+            Fields.ERROR_CODE,
+            Fields.TOPIC,
+            new Field("is_internal", BOOLEAN, "Indicates if the topic is considered a Kafka internal topic"),
+            new Field("partition_metadata", new ArrayOf(PARTITION_METADATA_V2), "Metadata for each partition of the topic."));
 
     public static final Schema METADATA_RESPONSE_V1 = new Schema(new Field("brokers", new ArrayOf(METADATA_BROKER_V1),
                                                                     "Host and port information for all brokers."),
@@ -209,25 +184,24 @@ public class Protocol {
 
     /* Produce api */
 
-    public static final Schema TOPIC_PRODUCE_DATA_V0 = new Schema(new Field("topic", STRING),
-                                                                  new Field("data", new ArrayOf(new Schema(new Field("partition", INT32),
-                                                                                                     new Field("record_set", RECORDS)))));
+    public static final Schema TOPIC_PRODUCE_DATA_V0 = new Schema(
+            Fields.TOPIC,
+            new Field("data", new ArrayOf(new Schema(Fields.PARTITION, new Field("record_set", RECORDS)))));
 
-    public static final Schema PRODUCE_REQUEST_V0 = new Schema(new Field("acks",
-                                                                   INT16,
-                                                                   "The number of acknowledgments the producer requires the leader to have received before considering a request complete. Allowed values: 0 for no acknowledgments, 1 for only the leader and -1 for the full ISR."),
-                                                               new Field("timeout", INT32, "The time to await a response in ms."),
-                                                               new Field("topic_data", new ArrayOf(TOPIC_PRODUCE_DATA_V0)));
+    public static final Schema PRODUCE_REQUEST_V0 = new Schema(
+            new Field("acks", INT16, "The number of acknowledgments the producer requires the leader to have received " +
+                    "before considering a request complete. Allowed values: 0 for no acknowledgments, 1 for only the " +
+                    "leader and -1 for the full ISR."),
+            new Field("timeout", INT32, "The time to await a response in ms."),
+            new Field("topic_data", new ArrayOf(TOPIC_PRODUCE_DATA_V0)));
 
-    public static final Schema PRODUCE_RESPONSE_V0 = new Schema(new Field("responses",
-                                                                    new ArrayOf(new Schema(new Field("topic", STRING),
-                                                                                           new Field("partition_responses",
-                                                                                                     new ArrayOf(new Schema(new Field("partition",
-                                                                                                                                      INT32),
-                                                                                                                            new Field("error_code",
-                                                                                                                                      INT16),
-                                                                                                                            new Field("base_offset",
-                                                                                                                                      INT64))))))));
+    public static final Schema PRODUCE_RESPONSE_V0 = new Schema(
+            new Field("responses", new ArrayOf(new Schema(
+                    Fields.TOPIC,
+                    new Field("partition_responses", new ArrayOf(new Schema(
+                            Fields.PARTITION,
+                            Fields.ERROR_CODE,
+                            new Field("base_offset", INT64))))))));
     /**
      * The body of PRODUCE_REQUEST_V1 is the same as PRODUCE_REQUEST_V0.
      * The version number is bumped up to indicate that the client supports quota throttle time field in the response.

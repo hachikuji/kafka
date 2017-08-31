@@ -98,6 +98,10 @@ public class Struct {
         return schema.get(name) != null;
     }
 
+    public boolean hasField(Fields field) {
+        return hasField(field.fieldName);
+    }
+
     public Struct getStruct(Field field) {
         return (Struct) get(field);
     }
@@ -126,12 +130,24 @@ public class Struct {
         return (Short) get(name);
     }
 
+    public short getShort(Fields field) {
+        return (Short) get(field.fieldName);
+    }
+
+    public short getErrorCode() {
+        return getShort(Fields.ERROR_CODE.fieldName);
+    }
+
     public Integer getInt(Field field) {
         return (Integer) get(field);
     }
 
     public Integer getInt(String name) {
         return (Integer) get(name);
+    }
+
+    public Integer getPartitionId() {
+        return getInt(Fields.PARTITION.fieldName);
     }
 
     public Long getUnsignedInt(String name) {
@@ -160,6 +176,14 @@ public class Struct {
 
     public String getString(String name) {
         return (String) get(name);
+    }
+
+    public String getString(Fields field) {
+        return (String) get(field.fieldName);
+    }
+
+    public String getTopic() {
+        return getString(Fields.TOPIC.fieldName);
     }
 
     public Boolean getBoolean(Field field) {
@@ -210,6 +234,18 @@ public class Struct {
             throw new SchemaException("Unknown field: " + name);
         this.values[field.index] = value;
         return this;
+    }
+
+    public Struct set(Fields field, Object value) {
+        return set(field.fieldName, value);
+    }
+
+    public Struct setPartitionId(int partitionId) {
+        return set(Fields.PARTITION.fieldName, partitionId);
+    }
+
+    public Struct setErrorCode(short errorCode) {
+        return set(Fields.ERROR_CODE.fieldName, errorCode);
     }
 
     /**

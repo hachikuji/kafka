@@ -22,6 +22,7 @@ import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.errors.InvalidMetadataException;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.types.Fields;
 import org.apache.kafka.common.protocol.types.Struct;
 import org.apache.kafka.common.utils.Utils;
 
@@ -51,7 +52,6 @@ public class MetadataResponse extends AbstractResponse {
     private static final String CLUSTER_ID_KEY_NAME = "cluster_id";
 
     // topic level field names
-    private static final String TOPIC_ERROR_CODE_KEY_NAME = "topic_error_code";
 
     /**
      * Possible error codes:
@@ -62,12 +62,10 @@ public class MetadataResponse extends AbstractResponse {
      * TopicAuthorizationFailed (29)
      */
 
-    private static final String TOPIC_KEY_NAME = "topic";
     private static final String IS_INTERNAL_KEY_NAME = "is_internal";
     private static final String PARTITION_METADATA_KEY_NAME = "partition_metadata";
 
     // partition level field names
-    private static final String PARTITION_ERROR_CODE_KEY_NAME = "partition_error_code";
 
     /**
      * Possible error codes:
@@ -76,7 +74,6 @@ public class MetadataResponse extends AbstractResponse {
      * ReplicaNotAvailable (9)
      */
 
-    private static final String PARTITION_KEY_NAME = "partition_id";
     private static final String LEADER_KEY_NAME = "leader";
     private static final String REPLICAS_KEY_NAME = "replicas";
     private static final String ISR_KEY_NAME = "isr";
@@ -135,8 +132,8 @@ public class MetadataResponse extends AbstractResponse {
         Object[] topicInfos = (Object[]) struct.get(TOPIC_METADATA_KEY_NAME);
         for (Object topicInfoObj : topicInfos) {
             Struct topicInfo = (Struct) topicInfoObj;
-            Errors topicError = Errors.forCode(topicInfo.getShort(TOPIC_ERROR_CODE_KEY_NAME));
-            String topic = topicInfo.getString(TOPIC_KEY_NAME);
+            Errors topicError = Errors.forCode(topicInfo.getErrorCode());
+            String topic = topicInfo.getTopic();
             // This field only exists in v1+
             // When we can't know if a topic is internal or not in a v0 response we default to false
             boolean isInternal = topicInfo.hasField(IS_INTERNAL_KEY_NAME) ? topicInfo.getBoolean(IS_INTERNAL_KEY_NAME) : false;
@@ -146,8 +143,8 @@ public class MetadataResponse extends AbstractResponse {
             Object[] partitionInfos = (Object[]) topicInfo.get(PARTITION_METADATA_KEY_NAME);
             for (Object partitionInfoObj : partitionInfos) {
                 Struct partitionInfo = (Struct) partitionInfoObj;
-                Errors partitionError = Errors.forCode(partitionInfo.getShort(PARTITION_ERROR_CODE_KEY_NAME));
-                int partition = partitionInfo.getInt(PARTITION_KEY_NAME);
+                Errors partitionError = Errors.forCode(partitionInfo.getErrorCode());
+                int partition = partitionInfo.getPartitionId();
                 int leader = partitionInfo.getInt(LEADER_KEY_NAME);
                 Node leaderNode = leader == -1 ? null : brokers.get(leader);
 
@@ -426,8 +423,8 @@ public class MetadataResponse extends AbstractResponse {
         List<Struct> topicMetadataArray = new ArrayList<>(topicMetadata.size());
         for (TopicMetadata metadata : topicMetadata) {
             Struct topicData = struct.instance(TOPIC_METADATA_KEY_NAME);
-            topicData.set(TOPIC_KEY_NAME, metadata.topic);
-            topicData.set(TOPIC_ERROR_CODE_KEY_NAME, metadata.error.code());
+            topicData.set(Fields.TOPIC, metadata.topic);
+            topicData.setErrorCode(metadata.error.code());
             // This field only exists in v1+
             if (topicData.hasField(IS_INTERNAL_KEY_NAME))
                 topicData.set(IS_INTERNAL_KEY_NAME, metadata.isInternal());
@@ -435,8 +432,8 @@ public class MetadataResponse extends AbstractResponse {
             List<Struct> partitionMetadataArray = new ArrayList<>(metadata.partitionMetadata.size());
             for (PartitionMetadata partitionMetadata : metadata.partitionMetadata()) {
                 Struct partitionData = topicData.instance(PARTITION_METADATA_KEY_NAME);
-                partitionData.set(PARTITION_ERROR_CODE_KEY_NAME, partitionMetadata.error.code());
-                partitionData.set(PARTITION_KEY_NAME, partitionMetadata.partition);
+                partitionData.setErrorCode(partitionMetadata.error.code());
+                partitionData.setPartitionId(partitionMetadata.partition);
                 partitionData.set(LEADER_KEY_NAME, partitionMetadata.leader.id());
                 ArrayList<Integer> replicas = new ArrayList<>(partitionMetadata.replicas.size());
                 for (Node node : partitionMetadata.replicas)
