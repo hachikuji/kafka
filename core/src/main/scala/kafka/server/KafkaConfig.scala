@@ -35,6 +35,7 @@ import org.apache.kafka.common.metrics.Sensor
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.SecurityProtocol
 import org.apache.kafka.common.record.TimestampType
+import org.apache.kafka.server.interceptor.{BrokerInterceptor, DefaultBrokerInterceptor}
 
 import scala.collection.JavaConverters._
 import scala.collection.Map
@@ -213,6 +214,9 @@ object Defaults {
   val SaslKerberosTicketRenewJitter = SaslConfigs.DEFAULT_KERBEROS_TICKET_RENEW_JITTER
   val SaslKerberosMinTimeBeforeRelogin = SaslConfigs.DEFAULT_KERBEROS_MIN_TIME_BEFORE_RELOGIN
   val SaslKerberosPrincipalToLocalRules = BrokerSecurityConfigs.DEFAULT_SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES
+
+  /** ********* Confluent Configuration ****************/
+  val BrokerInterceptorClass = classOf[DefaultBrokerInterceptor]
 }
 
 object KafkaConfig {
@@ -405,6 +409,9 @@ object KafkaConfig {
   val SaslKerberosTicketRenewJitterProp = SaslConfigs.SASL_KERBEROS_TICKET_RENEW_JITTER
   val SaslKerberosMinTimeBeforeReloginProp = SaslConfigs.SASL_KERBEROS_MIN_TIME_BEFORE_RELOGIN
   val SaslKerberosPrincipalToLocalRulesProp = BrokerSecurityConfigs.SASL_KERBEROS_PRINCIPAL_TO_LOCAL_RULES_CONFIG
+
+  /** ********* Confluent Configuration ****************/
+  val BrokerInterceptorProp = "broker.interceptor.class"
 
   /* Documentation */
   /** ********* Zookeeper Configuration ***********/
@@ -631,6 +638,9 @@ object KafkaConfig {
   val CompressionTypeDoc = "Specify the final compression type for a given topic. This configuration accepts the standard compression codecs " +
   "('gzip', 'snappy', 'lz4'). It additionally accepts 'uncompressed' which is equivalent to no compression; and " +
   "'producer' which means retain the original compression codec set by the producer."
+
+  /** ********* Confluent Configuration ****************/
+  val BrokerInterceptorDoc = "Optional custom interceptor capable of modifying inbound requests and outbound responses."
 
   /** ********* Kafka Metrics Configuration ***********/
   val MetricSampleWindowMsDoc = CommonClientConfigs.METRICS_SAMPLE_WINDOW_MS_DOC
@@ -866,6 +876,8 @@ object KafkaConfig {
       .define(SaslKerberosMinTimeBeforeReloginProp, LONG, Defaults.SaslKerberosMinTimeBeforeRelogin, MEDIUM, SaslKerberosMinTimeBeforeReloginDoc)
       .define(SaslKerberosPrincipalToLocalRulesProp, LIST, Defaults.SaslKerberosPrincipalToLocalRules, MEDIUM, SaslKerberosPrincipalToLocalRulesDoc)
 
+      /** ********* Confluent Configuration ****************/
+      .define(BrokerInterceptorProp, CLASS, Defaults.BrokerInterceptorClass, LOW, BrokerInterceptorDoc)
   }
 
   def configNames() = configDef.names().asScala.toList.sorted
@@ -1084,6 +1096,10 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean) extends Abstra
   val compressionType = getString(KafkaConfig.CompressionTypeProp)
   val listeners: Seq[EndPoint] = getListeners
   val advertisedListeners: Seq[EndPoint] = getAdvertisedListeners
+
+  /** ********* Confluent Configuration ****************/
+  val brokerInterceptor = getConfiguredInstance(KafkaConfig.BrokerInterceptorProp, classOf[BrokerInterceptor])
+
   private[kafka] lazy val listenerSecurityProtocolMap = getListenerSecurityProtocolMap
 
   private def getLogRetentionTimeMillis: Long = {
