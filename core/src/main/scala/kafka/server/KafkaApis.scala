@@ -95,6 +95,13 @@ class KafkaApis(val requestChannel: RequestChannel,
     try {
       trace(s"Handling request:${request.requestDesc(true)} from connection ${request.context.connectionId};" +
         s"securityProtocol:${request.context.securityProtocol},principal:${request.context.principal}")
+
+      if (request.context.shouldIntercept) {
+        sendResponseMaybeThrottle(request, throttleTimeMs =>
+          request.context.intercept(request.body[AbstractRequest], throttleTimeMs))
+        return
+      }
+
       request.header.apiKey match {
         case ApiKeys.PRODUCE => handleProduceRequest(request)
         case ApiKeys.FETCH => handleFetchRequest(request)

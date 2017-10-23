@@ -73,6 +73,14 @@ public class RequestContext {
         }
     }
 
+    public boolean shouldIntercept() {
+        return false;
+    }
+
+    public AbstractResponse intercept(AbstractRequest request, int throttleTimeMs) {
+        throw new UnsupportedOperationException();
+    }
+
     public Send buildResponse(AbstractResponse body) {
         ResponseHeader responseHeader = header.toResponseHeader();
         short version = header.apiVersion();
