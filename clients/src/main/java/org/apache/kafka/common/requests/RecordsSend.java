@@ -29,14 +29,17 @@ public class RecordsSend implements Send {
     private static final ByteBuffer EMPTY_BYTE_BUFFER = ByteBuffer.allocate(0);
 
     private final String destination;
-    private final Records records;
+    private final int size;
+
+    private Records records;
     private int remaining;
     private boolean pending = false;
 
     public RecordsSend(String destination, Records records) {
         this.destination = destination;
         this.records = records;
-        this.remaining = records.sizeInBytes();
+        this.size = records.sizeInBytes();
+        this.remaining = size;
     }
 
     @Override
@@ -61,14 +64,16 @@ public class RecordsSend implements Send {
         }
 
         pending = TransportLayers.hasPendingWrites(channel);
-        if (remaining <= 0 && pending)
-            channel.write(EMPTY_BYTE_BUFFER);
-
+        if (remaining <= 0) {
+            records = null;
+            if (pending)
+                channel.write(EMPTY_BYTE_BUFFER);
+        }
         return written;
     }
 
     @Override
     public long size() {
-        return records.sizeInBytes();
+        return size;
     }
 }
