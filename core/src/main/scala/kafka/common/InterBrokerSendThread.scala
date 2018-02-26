@@ -71,7 +71,7 @@ abstract class InterBrokerSendThread(name: String,
           completionHandler.onComplete(disconnectResponse)
         }
       }
-      networkClient.poll(pollTimeout, now)
+      networkClient.poll(50, now)
     } catch {
       case e: FatalExitError => throw e
       case t: Throwable =>
@@ -84,7 +84,7 @@ abstract class InterBrokerSendThread(name: String,
     }
   }
 
-  def wakeup(): Unit = networkClient.wakeup()
+  def wakeup(): Unit = {}
 
 }
 
