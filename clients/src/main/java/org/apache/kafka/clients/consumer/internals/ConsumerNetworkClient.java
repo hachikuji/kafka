@@ -390,6 +390,7 @@ public class ConsumerNetworkClient implements Closeable {
         failUnsentRequests(node, DisconnectException.INSTANCE);
 
         synchronized (this) {
+            log.debug("Proactive disconnect from node {}", node);
             client.disconnect(node.idString());
         }
 
