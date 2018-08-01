@@ -32,8 +32,6 @@ import scala.collection.JavaConverters._
 
 class MetricsTest extends IntegrationTestHarness with SaslSetup {
 
-  override val producerCount = 1
-  override val consumerCount = 1
   override val serverCount = 1
 
   override protected def listenerName = new ListenerName("CLIENT")
@@ -79,17 +77,17 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
     // Produce and consume some records
     val numRecords = 10
     val recordSize = 1000
-    val producer = producers.head
+    val producer = createProducer()
     sendRecords(producer, numRecords, recordSize, tp)
 
-    val consumer = this.consumers.head
+    val consumer = createConsumer()
     consumer.assign(List(tp).asJava)
     consumer.seek(tp, 0)
     TestUtils.consumeRecords(consumer, numRecords)
 
     verifyKafkaRateMetricsHaveCumulativeCount()
     verifyClientVersionMetrics(consumer.metrics, "Consumer")
-    verifyClientVersionMetrics(this.producers.head.metrics, "Producer")
+    verifyClientVersionMetrics(producer.metrics, "Producer")
 
     val server = servers.head
     verifyBrokerMessageConversionMetrics(server, recordSize, tp)
@@ -120,7 +118,7 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
     // Use acks=0 to verify error metric when connection is closed without a response
     saslProps.put(ProducerConfig.ACKS_CONFIG, "0")
     val producer = TestUtils.createProducer(brokerList, securityProtocol = securityProtocol,
-        trustStoreFile = trustStoreFile, saslProperties = Some(saslProps), props = Some(producerProps))
+        trustStoreFile = trustStoreFile, saslProperties = Some(saslProps), overrides = Some(producerProps))
 
     try {
       producer.send(new ProducerRecord(tp.topic, tp.partition, "key".getBytes, "value".getBytes)).get
@@ -145,12 +143,12 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
           totalExists || totalTimeExists)
     }
 
-    val consumer = this.consumers.head
+    val consumer = createConsumer()
     val consumerMetricNames = consumer.metrics.keySet.asScala.toSet
     consumerMetricNames.filter(_.name.endsWith("-rate"))
         .foreach(verify(_, consumerMetricNames))
 
-    val producer = this.producers.head
+    val producer = createProducer()
     val producerMetricNames = producer.metrics.keySet.asScala.toSet
     val producerExclusions = Set("compression-rate") // compression-rate is an Average metric, not Rate
     producerMetricNames.filter(_.name.endsWith("-rate"))
@@ -199,12 +197,13 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
     verifyYammerMetricRecorded(s"kafka.server:type=BrokerTopicMetrics,name=ProduceMessageConversionsPerSec")
 
     // Conversion time less than 1 millisecond is reported as zero, so retry with larger batches until time > 0
+    val producer = createProducer()
     var iteration = 0
     TestUtils.retry(5000) {
       val conversionTimeMs = yammerMetricValue(s"$requestMetricsPrefix,name=MessageConversionsTimeMs,request=Produce").asInstanceOf[Double]
       if (conversionTimeMs <= 0.0) {
         iteration += 1
-        sendRecords(producers.head, 1000 * iteration, 100, tp)
+        sendRecords(producer, numRecords = 1000 * iteration, 100, tp)
       }
       assertTrue(s"Message conversion time not recorded $conversionTimeMs", conversionTimeMs > 0.0)
     }
@@ -239,7 +238,8 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
     verifyYammerMetricRecorded(s"$errorMetricPrefix,request=Metadata,error=NONE")
 
     try {
-      consumers.head.partitionsFor("12{}!")
+      val consumer = createConsumer()
+      consumer.partitionsFor("12{}!")
     } catch {
       case _: InvalidTopicException => // expected
     }
@@ -251,7 +251,8 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
     assertTrue(s"Too many error metrics $currentErrorMetricCount" , currentErrorMetricCount < 10)
 
     // Verify that error metric is updated with producer acks=0 when no response is sent
-    sendRecords(producers.head, 1, 100, new TopicPartition("non-existent", 0))
+    val producer = createProducer()
+    sendRecords(producer, numRecords = 1, recordSize = 100, new TopicPartition("non-existent", 0))
     verifyYammerMetricRecorded(s"$errorMetricPrefix,request=Metadata,error=LEADER_NOT_AVAILABLE")
   }
 
@@ -260,7 +261,7 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
     val matchingMetrics = metrics.asScala.filter {
       case (metricName, _) => metricName.name == name && group.forall(_ == metricName.group)
     }
-    assertTrue(s"Metric not found $name", matchingMetrics.size > 0)
+    assertTrue(s"Metric not found $name", matchingMetrics.nonEmpty)
     verify(matchingMetrics.values)
   }
 
