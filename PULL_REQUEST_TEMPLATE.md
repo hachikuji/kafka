@@ -7,8 +7,3 @@ comment to ping reviewers.*
 for the feature or bug fix. Unit and/or integration
 tests are expected for any behaviour change and
 system tests should be considered for larger changes.*
-
-### Committer Checklist (excluded from commit message)
-- [ ] Verify design and implementation 
-- [ ] Verify test coverage and CI build status
-- [ ] Verify documentation (including upgrade notes)
