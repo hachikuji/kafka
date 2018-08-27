@@ -20,6 +20,7 @@ import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.InterBrokerApiVersion;
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
@@ -36,6 +37,7 @@ import java.util.Set;
 
 import static org.apache.kafka.common.protocol.CommonFields.PARTITION_ID;
 import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_1_0_IV0;
 import static org.apache.kafka.common.protocol.types.Type.BOOLEAN;
 import static org.apache.kafka.common.protocol.types.Type.INT32;
 import static org.apache.kafka.common.protocol.types.Type.STRING;
@@ -103,6 +105,13 @@ public class LeaderAndIsrRequest extends AbstractRequest {
 
     public static Schema[] schemaVersions() {
         return new Schema[]{LEADER_AND_ISR_REQUEST_V0, LEADER_AND_ISR_REQUEST_V1};
+    }
+
+    public static short mapInterBrokerProtocolVersion(InterBrokerApiVersion kafkaVersion) {
+        if (kafkaVersion.compareTo(KAFKA_1_0_IV0) >= 0)
+            return 1;
+        else
+            return 0;
     }
 
     public static class Builder extends AbstractRequest.Builder<LeaderAndIsrRequest> {

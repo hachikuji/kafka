@@ -40,7 +40,6 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.HashMap
 import scala.collection.{Set, mutable}
 
-
 object ControllerChannelManager {
   val QueueSizeMetricName = "QueueSize"
   val RequestRateAndQueueTimeMetricName = "RequestRateAndQueueTimeMs"
@@ -396,9 +395,8 @@ class ControllerBrokerRequestBatch(controller: KafkaController, stateChangeLogge
     try {
       val stateChangeLog = stateChangeLogger.withControllerEpoch(controllerEpoch)
 
-      val leaderAndIsrRequestVersion: Short =
-        if (controller.config.interBrokerProtocolVersion >= KAFKA_1_0_IV0) 1
-        else 0
+      val leaderAndIsrRequestVersion = LeaderAndIsrRequest.mapInterBrokerProtocolVersion(
+        controller.config.interBrokerProtocolVersion)
 
       leaderAndIsrRequestMap.foreach { case (broker, leaderAndIsrPartitionStates) =>
         leaderAndIsrPartitionStates.foreach { case (topicPartition, state) =>
@@ -424,12 +422,8 @@ class ControllerBrokerRequestBatch(controller: KafkaController, stateChangeLogge
       }
 
       val partitionStates = Map.empty ++ updateMetadataRequestPartitionInfoMap
-      val updateMetadataRequestVersion: Short =
-        if (controller.config.interBrokerProtocolVersion >= KAFKA_1_0_IV0) 4
-        else if (controller.config.interBrokerProtocolVersion >= KAFKA_0_10_2_IV0) 3
-        else if (controller.config.interBrokerProtocolVersion >= KAFKA_0_10_0_IV1) 2
-        else if (controller.config.interBrokerProtocolVersion >= KAFKA_0_9_0) 1
-        else 0
+      val updateMetadataRequestVersion = UpdateMetadataRequest.mapInterBrokerProtocolVersion(
+        controller.config.interBrokerProtocolVersion)
 
       val updateMetadataRequest = {
         val liveBrokers = if (updateMetadataRequestVersion == 0) {
@@ -469,14 +463,15 @@ class ControllerBrokerRequestBatch(controller: KafkaController, stateChangeLogge
 
         // Send one StopReplicaRequest for all partitions that require neither delete nor callback. This potentially
         // changes the order in which the requests are sent for the same partitions, but that's OK.
-        val stopReplicaRequest = new StopReplicaRequest.Builder(controllerId, controllerEpoch, false,
-          replicasToGroup.map(_.replica.topicPartition).toSet.asJava)
+        val stopReplicaRequestVersion = StopReplicaRequest.mapInterBrokerProtocolVersion(
+          controller.config.interBrokerProtocolVersion)
+        val stopReplicaRequest = new StopReplicaRequest.Builder(stopReplicaRequestVersion, controllerId,
+          controllerEpoch, false, replicasToGroup.map(_.replica.topicPartition).toSet.asJava)
         controller.sendRequest(broker, ApiKeys.STOP_REPLICA, stopReplicaRequest)
 
         replicasToNotGroup.foreach { r =>
-          val stopReplicaRequest = new StopReplicaRequest.Builder(
-              controllerId, controllerEpoch, r.deletePartition,
-              Set(r.replica.topicPartition).asJava)
+          val stopReplicaRequest = new StopReplicaRequest.Builder(stopReplicaRequestVersion, controllerId,
+            controllerEpoch, r.deletePartition, Set(r.replica.topicPartition).asJava)
           controller.sendRequest(broker, ApiKeys.STOP_REPLICA, stopReplicaRequest, r.callback)
         }
       }

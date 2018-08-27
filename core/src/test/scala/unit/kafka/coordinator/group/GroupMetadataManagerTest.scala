@@ -17,34 +17,34 @@
 
 package kafka.coordinator.group
 
-import kafka.api.{ApiVersion, KAFKA_1_1_IV0, KAFKA_2_1_IV0}
+import java.nio.ByteBuffer
+import java.util.concurrent.locks.ReentrantLock
+
+import com.yammer.metrics.Metrics
+import com.yammer.metrics.core.Gauge
 import kafka.cluster.Partition
 import kafka.common.OffsetAndMetadata
 import kafka.log.{Log, LogAppendInfo}
 import kafka.server.{FetchDataInfo, KafkaConfig, LogOffsetMetadata, ReplicaManager}
 import kafka.utils.TestUtils.fail
 import kafka.utils.{KafkaScheduler, MockTime, TestUtils}
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.consumer.internals.ConsumerProtocol
 import org.apache.kafka.clients.consumer.internals.PartitionAssignor.Subscription
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.internals.Topic
+import org.apache.kafka.common.protocol.InterBrokerApiVersion._
+import org.apache.kafka.common.protocol.{Errors, InterBrokerApiVersion}
 import org.apache.kafka.common.record._
-import org.apache.kafka.common.requests.{IsolationLevel, OffsetFetchResponse}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
+import org.apache.kafka.common.requests.{IsolationLevel, OffsetFetchResponse}
 import org.easymock.{Capture, EasyMock, IAnswer}
 import org.junit.Assert.{assertEquals, assertFalse, assertNull, assertTrue}
 import org.junit.{Before, Test}
-import java.nio.ByteBuffer
-
-import com.yammer.metrics.Metrics
-import com.yammer.metrics.core.Gauge
-import org.apache.kafka.common.internals.Topic
 
 import scala.collection.JavaConverters._
 import scala.collection._
-import java.util.concurrent.locks.ReentrantLock
-
-import kafka.zk.KafkaZkClient
+import scala.math.Ordering.Implicits._
 
 class GroupMetadataManagerTest {
 
@@ -87,7 +87,7 @@ class GroupMetadataManagerTest {
 
     time = new MockTime
     replicaManager = EasyMock.createNiceMock(classOf[ReplicaManager])
-    groupMetadataManager = new GroupMetadataManager(0, ApiVersion.latestVersion, offsetConfig, replicaManager, zkClient, time)
+    groupMetadataManager = new GroupMetadataManager(0, InterBrokerApiVersion.latestVersion, offsetConfig, replicaManager, zkClient, time)
     partition = EasyMock.niceMock(classOf[Partition])
   }
 
@@ -1708,7 +1708,7 @@ class GroupMetadataManagerTest {
                                                protocolType: String,
                                                protocol: String,
                                                memberId: String,
-                                               apiVersion: ApiVersion = ApiVersion.latestVersion): SimpleRecord = {
+                                               apiVersion: InterBrokerApiVersion = InterBrokerApiVersion.latestVersion): SimpleRecord = {
     val memberProtocols = List((protocol, Array.emptyByteArray))
     val member = new MemberMetadata(memberId, groupId, "clientId", "clientHost", 30000, 10000, protocolType, memberProtocols)
     val group = GroupMetadata.loadGroup(groupId, Stable, generation, protocolType, protocol, memberId,
@@ -1721,7 +1721,7 @@ class GroupMetadataManagerTest {
   private def buildEmptyGroupRecord(generation: Int, protocolType: String): SimpleRecord = {
     val group = GroupMetadata.loadGroup(groupId, Empty, generation, protocolType, null, null, None, Seq.empty, time)
     val groupMetadataKey = GroupMetadataManager.groupMetadataKey(groupId)
-    val groupMetadataValue = GroupMetadataManager.groupMetadataValue(group, Map.empty, ApiVersion.latestVersion)
+    val groupMetadataValue = GroupMetadataManager.groupMetadataValue(group, Map.empty, InterBrokerApiVersion.latestVersion)
     new SimpleRecord(groupMetadataKey, groupMetadataValue)
   }
 
@@ -1768,7 +1768,7 @@ class GroupMetadataManagerTest {
 
   private def createCommittedOffsetRecords(committedOffsets: Map[TopicPartition, Long],
                                            groupId: String = groupId,
-                                           apiVersion: ApiVersion = ApiVersion.latestVersion,
+                                           apiVersion: InterBrokerApiVersion = InterBrokerApiVersion.latestVersion,
                                            retentionTime: Option[Long] = None): Seq[SimpleRecord] = {
     committedOffsets.map { case (topicPartition, offset) =>
       val offsetAndMetadata = retentionTime match {

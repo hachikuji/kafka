@@ -16,7 +16,6 @@
  */
 package kafka.coordinator.transaction
 
-
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{DelayedOperationPurgatory, KafkaConfig, MetadataCache}
@@ -216,7 +215,9 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
     }.filter { case (_, entries) => !entries.isEmpty }.map { case (node, entries) =>
       val markersToSend = entries.asScala.map(_.txnMarkerEntry).asJava
       val requestCompletionHandler = new TransactionMarkerRequestCompletionHandler(node.id, txnStateManager, this, entries)
-      RequestAndCompletionHandler(node, new WriteTxnMarkersRequest.Builder(markersToSend), requestCompletionHandler)
+      val writeTxnMarkerRequestVersion = WriteTxnMarkersRequest.mapInterBrokerProtocolVersion(config.interBrokerProtocolVersion)
+      val writeTxnMarkersRequest = new WriteTxnMarkersRequest.Builder(writeTxnMarkerRequestVersion, markersToSend)
+      RequestAndCompletionHandler(node, writeTxnMarkersRequest, requestCompletionHandler)
     }
   }
 

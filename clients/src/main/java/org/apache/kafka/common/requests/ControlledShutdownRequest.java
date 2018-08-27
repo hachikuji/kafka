@@ -19,6 +19,7 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.InterBrokerApiVersion;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
@@ -26,6 +27,7 @@ import org.apache.kafka.common.protocol.types.Struct;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_9_0;
 import static org.apache.kafka.common.protocol.types.Type.INT32;
 
 public class ControlledShutdownRequest extends AbstractRequest {
@@ -37,6 +39,13 @@ public class ControlledShutdownRequest extends AbstractRequest {
 
     public static Schema[] schemaVersions() {
         return new Schema[] {CONTROLLED_SHUTDOWN_REQUEST_V0, CONTROLLED_SHUTDOWN_REQUEST_V1};
+    }
+
+    public static short mapInterBrokerProtocolVersion(InterBrokerApiVersion kafkaVersion) {
+        if (kafkaVersion.compareTo(KAFKA_0_9_0) >= 0)
+            return 1;
+        else
+            return 0;
     }
 
     public static class Builder extends AbstractRequest.Builder<ControlledShutdownRequest> {

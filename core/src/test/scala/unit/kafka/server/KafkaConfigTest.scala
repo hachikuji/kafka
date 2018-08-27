@@ -19,18 +19,21 @@ package kafka.server
 
 import java.util.Properties
 
-import kafka.api.{ApiVersion, KAFKA_0_8_2}
 import kafka.cluster.EndPoint
 import kafka.message._
 import kafka.utils.{CoreUtils, TestUtils}
 import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.common.metrics.Sensor
 import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.protocol.InterBrokerApiVersion
+import InterBrokerApiVersion._
 import org.apache.kafka.common.record.Records
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.junit.Assert._
 import org.junit.Test
 import org.scalatest.Assertions.intercept
+
+import scala.math.Ordering.Implicits._
 
 class KafkaConfigTest {
 
@@ -378,7 +381,7 @@ class KafkaConfigTest {
     props.put(KafkaConfig.BrokerIdProp, "1")
     props.put(KafkaConfig.ZkConnectProp, "localhost:2181")
     val conf = KafkaConfig.fromProps(props)
-    assertEquals(ApiVersion.latestVersion, conf.interBrokerProtocolVersion)
+    assertEquals(InterBrokerApiVersion.latestVersion, conf.interBrokerProtocolVersion)
 
     props.put(KafkaConfig.InterBrokerProtocolVersionProp, "0.8.2.0")
     // We need to set the message format version to make the configuration valid.
@@ -394,7 +397,7 @@ class KafkaConfigTest {
     assertEquals(KAFKA_0_8_2, conf3.interBrokerProtocolVersion)
 
     //check that latest is newer than 0.8.2
-    assertTrue(ApiVersion.latestVersion >= conf3.interBrokerProtocolVersion)
+    assertTrue(InterBrokerApiVersion.latestVersion >= conf3.interBrokerProtocolVersion)
   }
 
   private def isValidKafkaConfig(props: Properties): Boolean = {
@@ -525,15 +528,15 @@ class KafkaConfigTest {
 
   @Test
   def testInterBrokerVersionMessageFormatCompatibility(): Unit = {
-    def buildConfig(interBrokerProtocol: ApiVersion, messageFormat: ApiVersion): KafkaConfig = {
+    def buildConfig(interBrokerProtocol: InterBrokerApiVersion, messageFormat: InterBrokerApiVersion): KafkaConfig = {
       val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 8181)
       props.put(KafkaConfig.InterBrokerProtocolVersionProp, interBrokerProtocol.version)
       props.put(KafkaConfig.LogMessageFormatVersionProp, messageFormat.version)
       KafkaConfig.fromProps(props)
     }
 
-    ApiVersion.allVersions.foreach { interBrokerVersion =>
-      ApiVersion.allVersions.foreach { messageFormatVersion =>
+    InterBrokerApiVersion.values.foreach { interBrokerVersion =>
+      InterBrokerApiVersion.values.foreach { messageFormatVersion =>
         if (interBrokerVersion.recordVersion.value >= messageFormatVersion.recordVersion.value) {
           val config = buildConfig(interBrokerVersion, messageFormatVersion)
           assertEquals(messageFormatVersion, config.logMessageFormatVersion)

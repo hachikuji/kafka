@@ -267,8 +267,8 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   private def createFetchFollowerRequest = {
     val partitionMap = new util.LinkedHashMap[TopicPartition, requests.FetchRequest.PartitionData]
     partitionMap.put(tp, new requests.FetchRequest.PartitionData(0, 0, 100))
-    val version = ApiKeys.FETCH.latestVersion
-    requests.FetchRequest.Builder.forReplica(version, 5000, 100, Int.MaxValue, partitionMap).build()
+    requests.FetchRequest.Builder.forReplica(ApiKeys.FETCH.latestVersion, 5000, 100, Int.MaxValue, partitionMap)
+      .build()
   }
 
   private def createListOffsetsRequest = {
@@ -339,7 +339,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
       Set(new Node(brokerId, "localhost", 0)).asJava).build()
   }
 
-  private def stopReplicaRequest = new StopReplicaRequest.Builder(brokerId, Int.MaxValue, true, Set(tp).asJava).build()
+  private def stopReplicaRequest = new StopReplicaRequest.Builder(ApiKeys.STOP_REPLICA.latestVersion, brokerId, Int.MaxValue, true, Set(tp).asJava).build()
 
   private def controlledShutdownRequest = new requests.ControlledShutdownRequest.Builder(brokerId,
     ApiKeys.CONTROLLED_SHUTDOWN.latestVersion).build()

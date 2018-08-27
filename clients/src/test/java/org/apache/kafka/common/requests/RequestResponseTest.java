@@ -156,9 +156,9 @@ public class RequestResponseTest {
         checkRequest(createProduceRequest(3));
         checkErrorResponse(createProduceRequest(3), new UnknownServerException());
         checkResponse(createProduceResponse(), 2);
-        checkRequest(createStopReplicaRequest(true));
-        checkRequest(createStopReplicaRequest(false));
-        checkErrorResponse(createStopReplicaRequest(true), new UnknownServerException());
+        checkRequest(createStopReplicaRequest(0, true));
+        checkRequest(createStopReplicaRequest(0, false));
+        checkErrorResponse(createStopReplicaRequest(0, true), new UnknownServerException());
         checkResponse(createStopReplicaResponse(), 0);
         checkRequest(createLeaderAndIsrRequest());
         checkErrorResponse(createLeaderAndIsrRequest(), new UnknownServerException());
@@ -192,9 +192,9 @@ public class RequestResponseTest {
         checkRequest(createEndTxnRequest());
         checkResponse(createEndTxnResponse(), 0);
         checkErrorResponse(createEndTxnRequest(), new UnknownServerException());
-        checkRequest(createWriteTxnMarkersRequest());
+        checkRequest(createWriteTxnMarkersRequest(0));
         checkResponse(createWriteTxnMarkersResponse(), 0);
-        checkErrorResponse(createWriteTxnMarkersRequest(), new UnknownServerException());
+        checkErrorResponse(createWriteTxnMarkersRequest(0), new UnknownServerException());
         checkRequest(createTxnOffsetCommitRequest());
         checkResponse(createTxnOffsetCommitResponse(), 0);
         checkErrorResponse(createTxnOffsetCommitRequest(), new UnknownServerException());
@@ -245,8 +245,8 @@ public class RequestResponseTest {
         checkRequest(createEndTxnRequest());
         checkErrorResponse(createEndTxnRequest(), new UnknownServerException());
         checkResponse(createEndTxnResponse(), 0);
-        checkRequest(createWriteTxnMarkersRequest());
-        checkErrorResponse(createWriteTxnMarkersRequest(), new UnknownServerException());
+        checkRequest(createWriteTxnMarkersRequest(0));
+        checkErrorResponse(createWriteTxnMarkersRequest(0), new UnknownServerException());
         checkResponse(createWriteTxnMarkersResponse(), 0);
         checkRequest(createTxnOffsetCommitRequest());
         checkErrorResponse(createTxnOffsetCommitRequest(), new UnknownServerException());
@@ -863,9 +863,9 @@ public class RequestResponseTest {
         return new ProduceResponse(responseData, 0);
     }
 
-    private StopReplicaRequest createStopReplicaRequest(boolean deletePartitions) {
+    private StopReplicaRequest createStopReplicaRequest(int version, boolean deletePartitions) {
         Set<TopicPartition> partitions = Utils.mkSet(new TopicPartition("test", 0));
-        return new StopReplicaRequest.Builder(0, 1, deletePartitions, partitions).build();
+        return new StopReplicaRequest.Builder((short) version, 0, 1, deletePartitions, partitions).build();
     }
 
     private StopReplicaResponse createStopReplicaResponse() {
@@ -1065,10 +1065,10 @@ public class RequestResponseTest {
         return new EndTxnResponse(0, Errors.NONE);
     }
 
-    private WriteTxnMarkersRequest createWriteTxnMarkersRequest() {
-        return new WriteTxnMarkersRequest.Builder(
+    private WriteTxnMarkersRequest createWriteTxnMarkersRequest(int version) {
+        return new WriteTxnMarkersRequest.Builder((short) version,
             Collections.singletonList(new WriteTxnMarkersRequest.TxnMarkerEntry(21L, (short) 42, 73, TransactionResult.ABORT,
-                                                                                Collections.singletonList(new TopicPartition("topic", 73))))).build();
+                    Collections.singletonList(new TopicPartition("topic", 73))))).build();
     }
 
     private WriteTxnMarkersResponse createWriteTxnMarkersResponse() {

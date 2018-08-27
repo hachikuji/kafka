@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 
 import com.yammer.metrics.core.Gauge
-import kafka.api.{ApiVersion, KAFKA_0_10_1_IV0, KAFKA_2_1_IV0}
 import kafka.common.{MessageFormatter, OffsetAndMetadata}
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.ReplicaManager
@@ -33,22 +32,24 @@ import kafka.utils.CoreUtils.inLock
 import kafka.utils._
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.consumer.ConsumerRecord
-import org.apache.kafka.common.{KafkaException, TopicPartition}
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.InterBrokerApiVersion._
 import org.apache.kafka.common.protocol.types.Type._
 import org.apache.kafka.common.protocol.types._
+import org.apache.kafka.common.protocol.{Errors, InterBrokerApiVersion}
 import org.apache.kafka.common.record._
-import org.apache.kafka.common.requests.{IsolationLevel, OffsetFetchResponse}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
+import org.apache.kafka.common.requests.{IsolationLevel, OffsetFetchResponse}
 import org.apache.kafka.common.utils.{Time, Utils}
+import org.apache.kafka.common.{KafkaException, TopicPartition}
 
 import scala.collection.JavaConverters._
 import scala.collection._
 import scala.collection.mutable.ListBuffer
+import scala.math.Ordering.Implicits._
 
 class GroupMetadataManager(brokerId: Int,
-                           interBrokerProtocolVersion: ApiVersion,
+                           interBrokerProtocolVersion: InterBrokerApiVersion,
                            config: OffsetConfig,
                            replicaManager: ReplicaManager,
                            zkClient: KafkaZkClient,
@@ -1087,7 +1088,7 @@ object GroupMetadataManager {
    * @return payload for offset commit message
    */
   private[group] def offsetCommitValue(offsetAndMetadata: OffsetAndMetadata,
-                                       apiVersion: ApiVersion): Array[Byte] = {
+                                       apiVersion: InterBrokerApiVersion): Array[Byte] = {
     // generate commit value according to schema version
     val (version, value) = {
       if (apiVersion < KAFKA_2_1_IV0 || offsetAndMetadata.expireTimestamp.nonEmpty)
@@ -1126,7 +1127,7 @@ object GroupMetadataManager {
    */
   private[group] def groupMetadataValue(groupMetadata: GroupMetadata,
                                         assignment: Map[String, Array[Byte]],
-                                        apiVersion: ApiVersion): Array[Byte] = {
+                                        apiVersion: InterBrokerApiVersion): Array[Byte] = {
 
     val (version, value) = {
       if (apiVersion < KAFKA_0_10_1_IV0)

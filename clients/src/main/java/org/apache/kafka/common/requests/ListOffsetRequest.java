@@ -19,6 +19,7 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.InterBrokerApiVersion;
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
@@ -36,6 +37,9 @@ import java.util.Set;
 
 import static org.apache.kafka.common.protocol.CommonFields.PARTITION_ID;
 import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_10_1_IV2;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_11_0_IV0;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_2_0_IV1;
 import static org.apache.kafka.common.protocol.types.Type.INT32;
 import static org.apache.kafka.common.protocol.types.Type.INT64;
 import static org.apache.kafka.common.protocol.types.Type.INT8;
@@ -98,6 +102,17 @@ public class ListOffsetRequest extends AbstractRequest {
     public static Schema[] schemaVersions() {
         return new Schema[] {LIST_OFFSET_REQUEST_V0, LIST_OFFSET_REQUEST_V1, LIST_OFFSET_REQUEST_V2,
             LIST_OFFSET_REQUEST_V3};
+    }
+
+    public static short mapInterBrokerProtocolVersion(InterBrokerApiVersion kafkaVersion) {
+        if (kafkaVersion.compareTo(KAFKA_2_0_IV1) >= 0)
+            return 3;
+        else if (kafkaVersion.compareTo(KAFKA_0_11_0_IV0) >= 0)
+            return 2;
+        else if (kafkaVersion.compareTo(KAFKA_0_10_1_IV2) >= 0)
+            return 1;
+        else
+            return 0;
     }
 
     private final int replicaId;

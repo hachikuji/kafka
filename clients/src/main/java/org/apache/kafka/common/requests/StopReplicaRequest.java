@@ -19,6 +19,7 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.InterBrokerApiVersion;
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
@@ -57,15 +58,19 @@ public class StopReplicaRequest extends AbstractRequest {
         return new Schema[] {STOP_REPLICA_REQUEST_V0};
     }
 
+    public static short mapInterBrokerProtocolVersion(InterBrokerApiVersion kafkaVersion) {
+        return 0;
+    }
+
     public static class Builder extends AbstractRequest.Builder<StopReplicaRequest> {
         private final int controllerId;
         private final int controllerEpoch;
         private final boolean deletePartitions;
         private final Set<TopicPartition> partitions;
 
-        public Builder(int controllerId, int controllerEpoch, boolean deletePartitions,
+        public Builder(short version, int controllerId, int controllerEpoch, boolean deletePartitions,
                        Set<TopicPartition> partitions) {
-            super(ApiKeys.STOP_REPLICA);
+            super(ApiKeys.STOP_REPLICA, version);
             this.controllerId = controllerId;
             this.controllerEpoch = controllerEpoch;
             this.deletePartitions = deletePartitions;

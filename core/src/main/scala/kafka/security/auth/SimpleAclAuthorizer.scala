@@ -20,19 +20,20 @@ import java.util
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
 import com.typesafe.scalalogging.Logger
-import kafka.api.KAFKA_2_0_IV1
 import kafka.network.RequestChannel.Session
-import kafka.security.auth.SimpleAclAuthorizer.{VersionedAcls, NoAcls}
+import kafka.security.auth.SimpleAclAuthorizer.{NoAcls, VersionedAcls}
 import kafka.server.KafkaConfig
 import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
 import kafka.utils._
-import kafka.zk.{AclChangeNotificationHandler, AclChangeSubscription, KafkaZkClient, ZkAclChangeStore, ZkAclStore, ZkVersion}
+import kafka.zk._
 import org.apache.kafka.common.errors.UnsupportedVersionException
+import org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_2_0_IV1
 import org.apache.kafka.common.resource.PatternType
 import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.utils.{SecurityUtils, Time}
 
 import scala.collection.JavaConverters._
+import scala.math.Ordering.Implicits._
 import scala.util.Random
 
 object SimpleAclAuthorizer {

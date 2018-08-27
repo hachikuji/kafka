@@ -21,7 +21,6 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.util.UUID
 import java.util.concurrent.{Executors, Semaphore, TimeUnit}
 
-import kafka.api.{ApiVersion, KAFKA_2_0_IV0, KAFKA_2_0_IV1}
 import kafka.network.RequestChannel.Session
 import kafka.security.auth.Acl.{WildCardHost, WildCardResource}
 import kafka.server.KafkaConfig
@@ -29,7 +28,9 @@ import kafka.utils.{CoreUtils, TestUtils}
 import kafka.zk.{ZkAclStore, ZooKeeperTestHarness}
 import kafka.zookeeper.{GetChildrenRequest, GetDataRequest, ZooKeeperClient}
 import org.apache.kafka.common.errors.UnsupportedVersionException
+import org.apache.kafka.common.protocol.InterBrokerApiVersion
 import org.apache.kafka.common.resource.PatternType
+import org.apache.kafka.common.protocol.InterBrokerApiVersion._
 import org.apache.kafka.common.resource.PatternType.{LITERAL, PREFIXED}
 import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.utils.Time
@@ -709,7 +710,7 @@ class SimpleAclAuthorizerTest extends ZooKeeperTestHarness {
     assertEquals(expected, actual)
   }
 
-  private def givenAuthorizerWithProtocolVersion(protocolVersion: Option[ApiVersion]) {
+  private def givenAuthorizerWithProtocolVersion(protocolVersion: Option[InterBrokerApiVersion]) {
     simpleAclAuthorizer.close()
 
     val props = TestUtils.createBrokerConfig(0, zkConnect)

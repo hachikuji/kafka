@@ -20,12 +20,11 @@ package kafka.log
 import java.io.File
 import java.util.Properties
 
-import kafka.api.KAFKA_0_11_0_IV0
-import kafka.api.{KAFKA_0_10_0_IV1, KAFKA_0_9_0}
 import kafka.server.KafkaConfig
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.utils._
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.protocol.InterBrokerApiVersion._
 import org.apache.kafka.common.record._
 import org.junit.Assert._
 import org.junit._

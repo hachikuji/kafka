@@ -19,6 +19,7 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.InterBrokerApiVersion;
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
@@ -39,6 +40,13 @@ import java.util.Objects;
 
 import static org.apache.kafka.common.protocol.CommonFields.PARTITION_ID;
 import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_10_0_IV0;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_10_1_IV1;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_11_0_IV0;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_11_0_IV1;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_9_0;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_1_1_IV0;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_2_0_IV1;
 import static org.apache.kafka.common.protocol.types.Type.INT32;
 import static org.apache.kafka.common.protocol.types.Type.INT64;
 import static org.apache.kafka.common.protocol.types.Type.INT8;
@@ -183,7 +191,26 @@ public class FetchRequest extends AbstractRequest {
     public static Schema[] schemaVersions() {
         return new Schema[]{FETCH_REQUEST_V0, FETCH_REQUEST_V1, FETCH_REQUEST_V2, FETCH_REQUEST_V3, FETCH_REQUEST_V4,
             FETCH_REQUEST_V5, FETCH_REQUEST_V6, FETCH_REQUEST_V7, FETCH_REQUEST_V8};
-    };
+    }
+
+    public static short mapInterBrokerProtocolVersion(InterBrokerApiVersion kafkaVersion) {
+        if (kafkaVersion.compareTo(KAFKA_2_0_IV1) >= 0)
+            return 8;
+        else if (kafkaVersion.compareTo(KAFKA_1_1_IV0) >= 0)
+            return 7;
+        else if (kafkaVersion.compareTo(KAFKA_0_11_0_IV1) >= 0)
+            return 5;
+        else if (kafkaVersion.compareTo(KAFKA_0_11_0_IV0) >= 0)
+            return 4;
+        else if (kafkaVersion.compareTo(KAFKA_0_10_1_IV1) >= 0)
+            return 3;
+        else if (kafkaVersion.compareTo(KAFKA_0_10_0_IV0) >= 0)
+            return 2;
+        else if (kafkaVersion.compareTo(KAFKA_0_9_0) >= 0)
+            return 1;
+        else
+            return 0;
+    }
 
     // default values for older versions where a request level limit did not exist
     public static final int DEFAULT_RESPONSE_MAX_BYTES = Integer.MAX_VALUE;
@@ -267,14 +294,17 @@ public class FetchRequest extends AbstractRequest {
         private IsolationLevel isolationLevel = IsolationLevel.READ_UNCOMMITTED;
         private int maxBytes = DEFAULT_RESPONSE_MAX_BYTES;
         private FetchMetadata metadata = FetchMetadata.LEGACY;
-        private List<TopicPartition> toForget = Collections.<TopicPartition>emptyList();
+        private List<TopicPartition> toForget = Collections.emptyList();
 
         public static Builder forConsumer(int maxWait, int minBytes, Map<TopicPartition, PartitionData> fetchData) {
             return new Builder(ApiKeys.FETCH.oldestVersion(), ApiKeys.FETCH.latestVersion(),
                 CONSUMER_REPLICA_ID, maxWait, minBytes, fetchData);
         }
 
-        public static Builder forReplica(short allowedVersion, int replicaId, int maxWait, int minBytes,
+        public static Builder forReplica(short allowedVersion,
+                                         int replicaId,
+                                         int maxWait,
+                                         int minBytes,
                                          Map<TopicPartition, PartitionData> fetchData) {
             return new Builder(allowedVersion, allowedVersion, replicaId, maxWait, minBytes, fetchData);
         }
@@ -516,4 +546,5 @@ public class FetchRequest extends AbstractRequest {
         }
         return struct;
     }
+
 }

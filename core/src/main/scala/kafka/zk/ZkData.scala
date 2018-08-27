@@ -21,7 +21,7 @@ import java.util.Properties
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.core.JsonProcessingException
-import kafka.api.{ApiVersion, KAFKA_0_10_0_IV1, LeaderAndIsr}
+import kafka.api.LeaderAndIsr
 import kafka.cluster.{Broker, EndPoint}
 import kafka.common.{NotificationHandler, ZkNodeChangeNotificationListener}
 import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpoch}
@@ -33,6 +33,7 @@ import kafka.utils.Json
 import org.apache.kafka.common.{KafkaException, TopicPartition}
 import org.apache.kafka.common.errors.UnsupportedVersionException
 import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.protocol.InterBrokerApiVersion
 import org.apache.kafka.common.resource.PatternType
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
@@ -45,6 +46,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Seq, breakOut}
 import scala.util.{Failure, Success, Try}
+import scala.math.Ordering.Implicits._
 
 // This file contains objects for encoding/decoding data stored in ZooKeeper nodes (znodes).
 
@@ -88,9 +90,9 @@ object BrokerInfo {
    * We include v2 to make it possible for the broker to migrate from 0.9.0.0 to 0.10.0.X or above without having to
    * upgrade to 0.9.0.1 first (clients have to be upgraded to 0.9.0.1 in any case).
    */
-  def apply(broker: Broker, apiVersion: ApiVersion, jmxPort: Int): BrokerInfo = {
+  def apply(broker: Broker, apiVersion: InterBrokerApiVersion, jmxPort: Int): BrokerInfo = {
     // see method documentation for the reason why we do this
-    val version = if (apiVersion >= KAFKA_0_10_0_IV1) 4 else 2
+    val version = if (apiVersion >= InterBrokerApiVersion.KAFKA_0_10_0_IV1) 4 else 2
     BrokerInfo(broker, version, jmxPort)
   }
 

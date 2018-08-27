@@ -19,6 +19,7 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.InterBrokerApiVersion;
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
@@ -33,6 +34,8 @@ import java.util.Map;
 
 import static org.apache.kafka.common.protocol.CommonFields.PARTITION_ID;
 import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_11_0_IV0;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_2_0_IV0;
 import static org.apache.kafka.common.protocol.types.Type.INT32;
 
 public class OffsetsForLeaderEpochRequest extends AbstractRequest {
@@ -55,6 +58,17 @@ public class OffsetsForLeaderEpochRequest extends AbstractRequest {
 
     public static Schema[] schemaVersions() {
         return new Schema[]{OFFSET_FOR_LEADER_EPOCH_REQUEST_V0, OFFSET_FOR_LEADER_EPOCH_REQUEST_V1};
+    }
+
+    public static short mapInterBrokerProtocolVersion(InterBrokerApiVersion kafkaVersion) {
+        if (kafkaVersion.compareTo(KAFKA_0_11_0_IV0) < 0)
+            throw new IllegalArgumentException("Unsupported inter-broker version '" + kafkaVersion +
+                    "' for OffsetsForLeaderEpoch API");
+
+        if (kafkaVersion.compareTo(KAFKA_2_0_IV0) >= 0)
+            return 1;
+        else
+            return 0;
     }
 
     private Map<TopicPartition, Integer> epochsByPartition;

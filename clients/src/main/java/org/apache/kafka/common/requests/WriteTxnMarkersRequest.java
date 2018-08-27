@@ -19,6 +19,7 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.protocol.InterBrokerApiVersion;
 import org.apache.kafka.common.protocol.types.ArrayOf;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
@@ -33,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import static org.apache.kafka.common.protocol.CommonFields.TOPIC_NAME;
+import static org.apache.kafka.common.protocol.InterBrokerApiVersion.KAFKA_0_11_0_IV0;
 import static org.apache.kafka.common.protocol.types.Type.BOOLEAN;
 import static org.apache.kafka.common.protocol.types.Type.INT16;
 import static org.apache.kafka.common.protocol.types.Type.INT32;
@@ -65,6 +67,13 @@ public class WriteTxnMarkersRequest extends AbstractRequest {
 
     public static Schema[] schemaVersions() {
         return new Schema[]{WRITE_TXN_MARKERS_REQUEST_V0};
+    }
+
+    public static short mapInterBrokerProtocolVersion(InterBrokerApiVersion kafkaVersion) {
+        if (kafkaVersion.compareTo(KAFKA_0_11_0_IV0) < 0)
+            throw new IllegalArgumentException("Unsupported inter-broker version '" + kafkaVersion + "' for WriteTxnMarkers API");
+
+        return 0;
     }
 
     public static class TxnMarkerEntry {
@@ -139,8 +148,8 @@ public class WriteTxnMarkersRequest extends AbstractRequest {
     public static class Builder extends AbstractRequest.Builder<WriteTxnMarkersRequest> {
         private final List<TxnMarkerEntry> markers;
 
-        public Builder(List<TxnMarkerEntry> markers) {
-            super(ApiKeys.WRITE_TXN_MARKERS);
+        public Builder(short version, List<TxnMarkerEntry> markers) {
+            super(ApiKeys.WRITE_TXN_MARKERS, version);
             this.markers = markers;
         }
 

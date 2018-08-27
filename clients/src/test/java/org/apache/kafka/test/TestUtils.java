@@ -356,4 +356,16 @@ public class TestUtils {
                 exceptionClass, cause.getClass());
         }
     }
+
+    public static void assertThrows(Class<? extends Throwable> exceptionClass, Runnable runnable) {
+        try {
+            runnable.run();
+            fail("Expected a " + exceptionClass.getSimpleName() + " exception, but got success.");
+        } catch (Throwable t) {
+            assertEquals("Expected a " + exceptionClass.getSimpleName() + " exception, but got " +
+                            t.getClass().getSimpleName(),
+                    exceptionClass, t.getClass());
+        }
+    }
+
 }

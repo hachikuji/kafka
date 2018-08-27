@@ -20,7 +20,6 @@ package kafka.server
 import java.util.Properties
 
 import DynamicConfig.Broker._
-import kafka.api.ApiVersion
 import kafka.controller.KafkaController
 import kafka.log.{LogConfig, LogManager}
 import kafka.security.CredentialProvider
@@ -31,10 +30,12 @@ import org.apache.kafka.common.config.ConfigDef.Validator
 import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.common.metrics.Quota
 import org.apache.kafka.common.metrics.Quota._
+import org.apache.kafka.common.protocol.InterBrokerApiVersion
 import org.apache.kafka.common.utils.Sanitizer
 
 import scala.collection.JavaConverters._
 import scala.util.Try
+import scala.math.Ordering.Implicits._
 
 /**
   * The ConfigHandler is used to process config change notifications received by the DynamicConfigManager
@@ -99,7 +100,7 @@ class TopicConfigHandler(private val logManager: LogManager, kafkaConfig: KafkaC
   def excludedConfigs(topic: String, topicConfig: Properties): Set[String] = {
     // Verify message format version
     Option(topicConfig.getProperty(LogConfig.MessageFormatVersionProp)).flatMap { versionString =>
-      if (kafkaConfig.interBrokerProtocolVersion < ApiVersion(versionString)) {
+      if (kafkaConfig.interBrokerProtocolVersion < InterBrokerApiVersion.fromString(versionString)) {
         warn(s"Log configuration ${LogConfig.MessageFormatVersionProp} is ignored for `$topic` because `$versionString` " +
           s"is not compatible with Kafka inter-broker protocol version `${kafkaConfig.interBrokerProtocolVersionString}`")
         Some(LogConfig.MessageFormatVersionProp)
