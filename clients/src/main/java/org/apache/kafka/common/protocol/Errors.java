@@ -89,6 +89,7 @@ import org.apache.kafka.common.errors.UnknownProducerIdException;
 import org.apache.kafka.common.errors.UnknownServerException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.errors.UnsupportedByAuthenticationException;
+import org.apache.kafka.common.errors.UnsupportedCompressionTypeException;
 import org.apache.kafka.common.errors.UnsupportedForMessageFormatException;
 import org.apache.kafka.common.errors.UnsupportedSaslMechanismException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
@@ -278,7 +279,9 @@ public enum Errors {
             "metadata request was processed.",
             ListenerNotFoundException::new),
     TOPIC_DELETION_DISABLED(73, "Topic deletion is disabled.",
-            TopicDeletionDisabledException::new);
+            TopicDeletionDisabledException::new),
+    UNSUPPORTED_COMPRESSION_TYPE(74, "The requesting client does not support the compression type of given partition.",
+            UnsupportedCompressionTypeException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 
