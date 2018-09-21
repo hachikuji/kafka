@@ -143,6 +143,9 @@ class LogCleanerIntegrationTest(compressionCodec: String) extends AbstractLogCle
 
   @Test
   def testCleanerWithMessageFormatV0(): Unit = {
+    if (codec == CompressionType.ZSTD)
+      return
+
     val largeMessageKey = 20
     val (largeMessageValue, largeMessageSet) = createLargeSingleMessageSet(largeMessageKey, RecordBatch.MAGIC_VALUE_V0)
     val maxMessageSize = codec match {
@@ -193,6 +196,9 @@ class LogCleanerIntegrationTest(compressionCodec: String) extends AbstractLogCle
 
   @Test
   def testCleaningNestedMessagesWithMultipleVersions(): Unit = {
+    if (codec == CompressionType.ZSTD)
+      return
+
     val maxMessageSize = 192
     cleaner = makeCleaner(partitions = topicPartitions, maxMessageSize = maxMessageSize)
 
