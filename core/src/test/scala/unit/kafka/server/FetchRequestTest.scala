@@ -440,7 +440,7 @@ class FetchRequestTest extends BaseRequestTest {
       valueSerializer = new StringSerializer)
     producer1.send(new ProducerRecord(topicPartition.topic, topicPartition.partition,
       "key1", "value1")).get
-    producer1.close
+    producer1.close()
     // Produce ZSTD compressed messages (v2)
     val producer2 = TestUtils.createProducer(TestUtils.getBrokerListStrFromServers(servers),
       compressionType = ZStdCompressionCodec.name,
@@ -450,7 +450,7 @@ class FetchRequestTest extends BaseRequestTest {
       "key2", "value2")).get
     producer2.send(new ProducerRecord(topicPartition.topic, topicPartition.partition,
       "key3", "value3")).get
-    producer2.close
+    producer2.close()
 
     // fetch request with fetch version v1:
     // gzip compressed record is returned with down-conversion.
@@ -464,14 +464,13 @@ class FetchRequestTest extends BaseRequestTest {
     assertEquals(Errors.NONE, data0.error)
     assertEquals(1, records(data0).size)
 
-    /* Not working... why?
     val req1 = new FetchRequest.Builder(0, 1, -1, Int.MaxValue, 0,
       createPartitionMap(300, Seq(topicPartition), Map(topicPartition -> 1L)))
       .setMaxBytes(800).build()
 
     val res1 = sendFetchRequest(leaderId, req1)
     val data1 = res1.responseData.get(topicPartition)
-    assertEquals(Errors.UNSUPPORTED_COMPRESSION_TYPE, data1.error)*/
+    assertEquals(Errors.UNSUPPORTED_COMPRESSION_TYPE, data1.error)
 
     // fetch request with fetch version v3: empty response (from magic 2 to 1 down-conversion is disallowed!)
     // zstd compressed record raises UNSUPPORTED_COMPRESSION_TYPE error.
@@ -488,10 +487,9 @@ class FetchRequestTest extends BaseRequestTest {
       createPartitionMap(300, Seq(topicPartition), Map(topicPartition -> 1L)))
       .setMaxBytes(800).build()
 
-    /* Not working... why?
     val res3 = sendFetchRequest(leaderId, req3)
     val data3 = res3.responseData.get(topicPartition)
-    assertEquals(Errors.UNSUPPORTED_COMPRESSION_TYPE, data3.error)*/
+    assertEquals(Errors.UNSUPPORTED_COMPRESSION_TYPE, data3.error)
 
     // fetch request with version 10: works fine!
     val req4= new FetchRequest.Builder(0, 10, -1, Int.MaxValue, 0,

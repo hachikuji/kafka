@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.record;
 
+import org.apache.kafka.common.errors.UnsupportedCompressionTypeException;
 import org.apache.kafka.common.utils.Time;
 
 import java.nio.ByteBuffer;
@@ -47,6 +48,10 @@ public class RecordsUtil {
         for (RecordBatch batch : batches) {
             if (toMagic < RecordBatch.MAGIC_VALUE_V2 && batch.isControlBatch())
                 continue;
+
+            if (toMagic < RecordBatch.MAGIC_VALUE_V2 && batch.compressionType() == CompressionType.ZSTD)
+                throw new UnsupportedCompressionTypeException("Down-conversion of zstandard-compressed batches " +
+                        "is not supported");
 
             if (batch.magic() <= toMagic) {
                 totalSizeEstimate += batch.sizeInBytes();
