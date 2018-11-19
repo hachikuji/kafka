@@ -29,7 +29,7 @@ import kafka.api.{ApiVersion, KAFKA_0_11_0_IV0}
 import kafka.cluster.Partition
 import kafka.common.OffsetAndMetadata
 import kafka.controller.KafkaController
-import kafka.coordinator.group.{GroupCoordinator, JoinGroupResult}
+import kafka.coordinator.group.{GroupCoordinator, JoinGroupResult, PendingJoin}
 import kafka.coordinator.transaction.{InitProducerIdResult, TransactionCoordinator}
 import kafka.message.ZStdCompressionCodec
 import kafka.network.RequestChannel
@@ -93,6 +93,10 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def close() {
     info("Shutdown complete.")
+  }
+
+  def handleDisconnect(disconnect: RequestChannel.Disconnect): Unit = {
+    groupCoordinator.handleDisconnect(disconnect)
   }
 
   /**
@@ -1225,7 +1229,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         joinGroupRequest.sessionTimeout,
         joinGroupRequest.protocolType,
         protocols,
-        sendResponseCallback)
+        PendingJoin(request.context.connectionId, sendResponseCallback))
     }
   }
 

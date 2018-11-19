@@ -28,6 +28,7 @@ import java.util.function.Supplier
 import com.yammer.metrics.core.Gauge
 import kafka.cluster.{BrokerEndPoint, EndPoint}
 import kafka.metrics.KafkaMetricsGroup
+import kafka.network
 import kafka.network.RequestChannel.{CloseConnectionResponse, EndThrottlingResponse, NoOpResponse, SendResponse, StartThrottlingResponse}
 import kafka.security.CredentialProvider
 import kafka.server.KafkaConfig
@@ -796,6 +797,9 @@ private[kafka] class Processor(val id: Int,
         inflightResponses.remove(connectionId).foreach(updateRequestMetrics)
         // the channel has been closed by the selector but the quotas still need to be updated
         connectionQuotas.dec(InetAddress.getByName(remoteHost))
+
+        val disconnect = RequestChannel.Disconnect(processor = id, connectionId, remoteHost)
+        requestChannel.sendDisconnect(disconnect)
       } catch {
         case e: Throwable => processException(s"Exception while processing disconnection of $connectionId", e)
       }

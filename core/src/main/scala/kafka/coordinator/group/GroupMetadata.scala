@@ -206,7 +206,7 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
   def protocolOrNull: String = protocol.orNull
   def currentStateTimestampOrDefault: Long = currentStateTimestamp.getOrElse(-1)
 
-  def add(member: MemberMetadata, callback: JoinCallback = null) {
+  def add(member: MemberMetadata, callback: PendingJoin = null) {
     if (members.isEmpty)
       this.protocolType = Some(member.protocolType)
 
@@ -220,7 +220,7 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
     member.supportedProtocols.foreach{ case (protocol, _) => supportedProtocols(protocol) += 1 }
     member.awaitingJoinCallback = callback
     if (member.awaitingJoinCallback != null)
-      numMembersAwaitingJoin += 1;
+      numMembersAwaitingJoin += 1
   }
 
   def remove(memberId: String) {
@@ -294,25 +294,28 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
 
   def updateMember(member: MemberMetadata,
                    protocols: List[(String, Array[Byte])],
-                   callback: JoinCallback) = {
+                   callback: PendingJoin) = {
     member.supportedProtocols.foreach{ case (protocol, _) => supportedProtocols(protocol) -= 1 }
     protocols.foreach{ case (protocol, _) => supportedProtocols(protocol) += 1 }
     member.supportedProtocols = protocols
 
     if (callback != null && member.awaitingJoinCallback == null) {
-      numMembersAwaitingJoin += 1;
+      numMembersAwaitingJoin += 1
     } else if (callback == null && member.awaitingJoinCallback != null) {
-      numMembersAwaitingJoin -= 1;
+      numMembersAwaitingJoin -= 1
     }
     member.awaitingJoinCallback = callback
   }
 
   def invokeJoinCallback(member: MemberMetadata,
-                         joinGroupResult: JoinGroupResult) : Unit = {
+                         joinGroupResult: JoinGroupResult): Option[String] = {
     if (member.awaitingJoinCallback != null) {
-      member.awaitingJoinCallback(joinGroupResult)
+      member.awaitingJoinCallback.callback(joinGroupResult)
       member.awaitingJoinCallback = null
-      numMembersAwaitingJoin -= 1;
+      numMembersAwaitingJoin -= 1
+      Some(member.awaitingJoinCallback.connectionId)
+    } else {
+      None
     }
   }
 

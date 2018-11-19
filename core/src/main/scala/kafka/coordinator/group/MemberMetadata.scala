@@ -60,8 +60,8 @@ private[group] class MemberMetadata(val memberId: String,
                                     var supportedProtocols: List[(String, Array[Byte])]) {
 
   var assignment: Array[Byte] = Array.empty[Byte]
-  var awaitingJoinCallback: JoinGroupResult => Unit = null
-  var awaitingSyncCallback: (Array[Byte], Errors) => Unit = null
+  var awaitingJoinCallback: PendingJoin = _
+  var awaitingSyncCallback: (Array[Byte], Errors) => Unit = _
   var latestHeartbeat: Long = -1
   var isLeaving: Boolean = false
 

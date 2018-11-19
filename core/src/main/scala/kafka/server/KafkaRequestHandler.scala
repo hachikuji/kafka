@@ -62,6 +62,16 @@ class KafkaRequestHandler(id: Int,
           shutdownComplete.countDown()
           return
 
+        case disconnect: RequestChannel.Disconnect =>
+          try {
+            apis.handleDisconnect(disconnect)
+          } catch {
+            case e: FatalExitError =>
+              shutdownComplete.countDown()
+              Exit.exit(e.statusCode)
+            case e: Throwable => error(s"Exception when handling disconnect $disconnect", e)
+          }
+
         case request: RequestChannel.Request =>
           try {
             request.requestDequeueTimeNanos = endTime

@@ -48,6 +48,10 @@ object RequestChannel extends Logging {
   sealed trait BaseRequest
   case object ShutdownRequest extends BaseRequest
 
+  case class Disconnect(processor: Int,
+                        connectionId: String,
+                        host: String) extends BaseRequest
+
   case class Session(principal: KafkaPrincipal, clientAddress: InetAddress) {
     val sanitizedUser = Sanitizer.sanitize(principal.getName)
   }
@@ -67,6 +71,7 @@ object RequestChannel extends Logging {
        metricsMap.values.foreach(_.removeMetrics())
     }
   }
+
 
   class Request(val processor: Int,
                 val context: RequestContext,
@@ -308,6 +313,10 @@ class RequestChannel(val queueSize: Int) extends KafkaMetricsGroup {
   /** Send a request to be handled, potentially blocking until there is room in the queue for the request */
   def sendRequest(request: RequestChannel.Request) {
     requestQueue.put(request)
+  }
+
+  def sendDisconnect(disconnect: RequestChannel.Disconnect): Unit = {
+    requestQueue.put(disconnect)
   }
 
   /** Send a response back to the socket server to be sent over the network */

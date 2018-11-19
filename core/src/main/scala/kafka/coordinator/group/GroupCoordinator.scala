@@ -17,11 +17,13 @@
 package kafka.coordinator.group
 
 import java.util.Properties
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 import kafka.common.OffsetAndMetadata
 import kafka.log.LogConfig
 import kafka.message.ProducerCompressionCodec
+import kafka.network.RequestChannel
 import kafka.server._
 import kafka.utils.Logging
 import kafka.zk.KafkaZkClient
@@ -34,6 +36,8 @@ import org.apache.kafka.common.utils.Time
 
 import scala.collection.{Map, Seq, immutable}
 import scala.math.max
+
+case class PendingJoin(connectionId: String, callback: JoinGroupResult => Unit)
 
 /**
  * GroupCoordinator handles general group membership and offset management.
@@ -62,6 +66,7 @@ class GroupCoordinator(val brokerId: Int,
   this.logIdent = "[GroupCoordinator " + brokerId + "]: "
 
   private val isActive = new AtomicBoolean(false)
+  private val newMembersByConnectionId = new ConcurrentHashMap[String, MemberMetadata]()
 
   def offsetsTopicConfigs: Properties = {
     val props = new Properties
@@ -99,6 +104,20 @@ class GroupCoordinator(val brokerId: Int,
     info("Shutdown complete.")
   }
 
+  def handleDisconnect(disconnect: RequestChannel.Disconnect): Unit = {
+    val memberMetadata = newMembersByConnectionId.remove(disconnect.connectionId)
+    if (memberMetadata != null) {
+      groupManager.getGroup(memberMetadata.groupId) match {
+        case None =>
+        case Some(group) =>
+          group.inLock {
+            removeMemberAndUpdateGroup(group, memberMetadata,
+              s"removed new member ${memberMetadata.memberId} after client disconnect")
+          }
+      }
+    }
+  }
+
   def handleJoinGroup(groupId: String,
                       memberId: String,
                       clientId: String,
@@ -107,7 +126,7 @@ class GroupCoordinator(val brokerId: Int,
                       sessionTimeoutMs: Int,
                       protocolType: String,
                       protocols: List[(String, Array[Byte])],
-                      responseCallback: JoinCallback): Unit = {
+                      responseCallback: PendingJoin): Unit = {
     validateGroupStatus(groupId, ApiKeys.JOIN_GROUP).foreach { error =>
       responseCallback(joinError(memberId, error))
       return
@@ -143,7 +162,7 @@ class GroupCoordinator(val brokerId: Int,
                           sessionTimeoutMs: Int,
                           protocolType: String,
                           protocols: List[(String, Array[Byte])],
-                          responseCallback: JoinCallback) {
+                          responseCallback: PendingJoin) {
     group.inLock {
       if (!group.is(Empty) && (!group.protocolType.contains(protocolType) || !group.supportsProtocols(protocols.map(_._1).toSet))) {
         // if the new member does not support the group protocol, reject it
@@ -600,7 +619,9 @@ class GroupCoordinator(val brokerId: Int,
         case Empty | Dead =>
         case PreparingRebalance =>
           for (member <- group.allMemberMetadata) {
-            group.invokeJoinCallback(member, joinError(member.memberId, Errors.NOT_COORDINATOR))
+            group.invokeJoinCallback(member, joinError(member.memberId, Errors.NOT_COORDINATOR)).foreach { connectionId =>
+              newMembersByConnectionId.remove(connectionId)
+            }
           }
 
           joinPurgatory.checkAndComplete(GroupKey(group.groupId))
@@ -698,7 +719,7 @@ class GroupCoordinator(val brokerId: Int,
                                     protocolType: String,
                                     protocols: List[(String, Array[Byte])],
                                     group: GroupMetadata,
-                                    callback: JoinCallback): MemberMetadata = {
+                                    callback: PendingJoin): MemberMetadata = {
     val memberId = clientId + "-" + group.generateMemberIdSuffix
     val member = new MemberMetadata(memberId, group.groupId, clientId, clientHost, rebalanceTimeoutMs,
       sessionTimeoutMs, protocolType, protocols)
@@ -706,6 +727,7 @@ class GroupCoordinator(val brokerId: Int,
     if (group.is(PreparingRebalance) && group.generationId == 0)
       group.newMemberAdded = true
 
+    newMembersByConnectionId.put(callback.connectionId, member)
     group.add(member, callback)
     maybePrepareRebalance(group, s"Adding new member $memberId")
     member
@@ -714,7 +736,7 @@ class GroupCoordinator(val brokerId: Int,
   private def updateMemberAndRebalance(group: GroupMetadata,
                                        member: MemberMetadata,
                                        protocols: List[(String, Array[Byte])],
-                                       callback: JoinCallback) {
+                                       callback: PendingJoin) {
     group.updateMember(member, protocols, callback)
     maybePrepareRebalance(group, s"Updating metadata for member ${member.memberId}")
   }
@@ -813,7 +835,9 @@ class GroupCoordinator(val brokerId: Int,
               leaderId = group.leaderOrNull,
               error = Errors.NONE)
 
-            group.invokeJoinCallback(member, joinResult)
+            group.invokeJoinCallback(member, joinResult).foreach { connectionId =>
+              newMembersByConnectionId.remove(connectionId)
+            }
             completeAndScheduleNextHeartbeatExpiration(group, member)
           }
         }
