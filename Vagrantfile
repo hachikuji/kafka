@@ -72,19 +72,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     # Brokers started with the standard script currently set Xms and Xmx to 1G,
     # plus we need some extra head room.
     vb.customize ["modifyvm", :id, "--memory", ram_megabytes.to_s]
-
-    if Vagrant.has_plugin?("vagrant-cachier")
-      override.cache.scope = :box
-      # Besides the defaults, we use a custom cache to handle the Oracle JDK
-      # download, which downloads via wget during an apt install. Because of the
-      # way the installer ends up using its cache directory, we need to jump
-      # through some hoops instead of just specifying a cache directly -- we
-      # share to a temporary location and the provisioning scripts symlink data
-      # to the right location.
-      override.cache.enable :generic, {
-        "oracle-jdk8" => { cache_dir: "/tmp/oracle-jdk8-installer-cache" },
-      }
-    end
   end
 
   config.vm.provider :aws do |aws,override|

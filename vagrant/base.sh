@@ -26,16 +26,6 @@ if [ -z `which javac` ]; then
     add-apt-repository -y ppa:webupd8team/java
     apt-get -y update
 
-    # Try to share cache. See Vagrantfile for details
-    mkdir -p /var/cache/oracle-jdk8-installer
-    if [ -e "/tmp/oracle-jdk8-installer-cache/" ]; then
-        find /tmp/oracle-jdk8-installer-cache/ -not -empty -exec cp '{}' /var/cache/oracle-jdk8-installer/ \;
-    fi
-    if [ ! -e "/var/cache/oracle-jdk8-installer/jdk-8u171-linux-x64.tar.gz" ]; then
-      # Grab a copy of the JDK since it has moved and original downloader won't work
-      curl -s -L "https://s3-us-west-2.amazonaws.com/kafka-packages/jdk-8u171-linux-x64.tar.gz" -o /var/cache/oracle-jdk8-installer/jdk-8u171-linux-x64.tar.gz
-    fi
-
     /bin/echo debconf shared/accepted-oracle-license-v1-1 select true | /usr/bin/debconf-set-selections
 
     # oracle-javaX-installer runs wget with a dot progress indicator which ends up
@@ -47,11 +37,7 @@ if [ -z `which javac` ]; then
         echo "ERROR: JDK install failed"
         exit 1
     fi
-    echo "JDK installed: $(javac -version 2>&1)"
-
-    if [ -e "/tmp/oracle-jdk8-installer-cache/" ]; then
-        cp -R /var/cache/oracle-jdk8-installer/* /tmp/oracle-jdk8-installer-cache
-    fi
+    echo "JDK installed: $(java -version 2>&1)"
 fi
 
 chmod a+rw /opt

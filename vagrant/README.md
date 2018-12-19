@@ -7,8 +7,6 @@ Using Vagrant to get up and running.
 3) Install Vagrant Plugins:
 
     $ vagrant plugin install vagrant-hostmanager
-    # Optional
-    $ vagrant plugin install vagrant-cachier # Caches & shares package downloads across VMs
 
 In the main Kafka folder, do a normal Kafka build:
 
