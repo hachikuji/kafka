@@ -47,7 +47,7 @@ if [ -z `which javac` ]; then
         echo "ERROR: JDK install failed"
         exit 1
     fi
-    echo "JDK installed: $(javac -version 2>&1)"
+    echo "JDK installed: $(java -version 2>&1)"
 
     if [ -e "/tmp/oracle-jdk8-installer-cache/" ]; then
         cp -R /var/cache/oracle-jdk8-installer/* /tmp/oracle-jdk8-installer-cache
