@@ -610,6 +610,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         transactionManager.initializeTransactions();
         sender.wakeup();
         transactionManager.awaitResultOrThrowTimeoutException(maxBlockTimeMs,
+            TransactionManager.State.INITIALIZING,
+            true,
             () -> "Timeout expired while initializing transactional state in " + maxBlockTimeMs + "ms.",
             () -> "Initialize transactions interrupted.");
     }
@@ -692,6 +694,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         transactionManager.beginCommit();
         sender.wakeup();
         transactionManager.awaitResultOrThrowTimeoutException(maxBlockTimeMs,
+            TransactionManager.State.COMMITTING_TRANSACTION,
+            true,
             () -> "Timeout expired while committing transaction in " + maxBlockTimeMs + "ms.",
             () -> "Commit transactions interrupted.");
     }
@@ -721,6 +725,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         transactionManager.beginAbort();
         sender.wakeup();
         transactionManager.awaitResultOrThrowTimeoutException(maxBlockTimeMs,
+            TransactionManager.State.ABORTING_TRANSACTION,
+            false,
             () -> "Timeout expired while aborting transaction in " + maxBlockTimeMs + "ms.",
             () -> "Abort transactions interrupted.");
     }
