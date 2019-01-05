@@ -17,21 +17,24 @@
 package org.apache.kafka.clients.producer.internals;
 
 
+import org.apache.kafka.common.errors.InterruptException;
+import org.apache.kafka.common.errors.TimeoutException;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public final class TransactionalRequestResult {
-    static final TransactionalRequestResult COMPLETE = new TransactionalRequestResult(new CountDownLatch(0));
-
     private final CountDownLatch latch;
+    private final String operation;
     private volatile RuntimeException error = null;
 
-    public TransactionalRequestResult() {
-        this(new CountDownLatch(1));
+    public TransactionalRequestResult(String operation) {
+        this(new CountDownLatch(1), operation);
     }
 
-    private TransactionalRequestResult(CountDownLatch latch) {
+    private TransactionalRequestResult(CountDownLatch latch, String operation) {
         this.latch = latch;
+        this.operation = operation;
     }
 
     public void setError(RuntimeException error) {
@@ -58,11 +61,19 @@ public final class TransactionalRequestResult {
             throw error();
     }
 
-    public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
-        boolean success = latch.await(timeout, unit);
-        if (!isSuccessful())
-            throw error();
-        return success;
+    public boolean await(long timeout, TimeUnit unit) {
+        try {
+            boolean completed = latch.await(timeout, unit);
+            if (!completed)
+                throw new TimeoutException("Timeout expired after" + timeout + "ms while awaiting " + operation);
+
+            if (!isSuccessful())
+                throw error();
+
+            return true;
+        } catch (InterruptedException e) {
+            throw new InterruptException("Received interrupt while awaiting " + operation, e);
+        }
     }
 
     public RuntimeException error() {

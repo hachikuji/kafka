@@ -103,7 +103,7 @@ public class TransactionManager {
     private final Set<TopicPartition> pendingPartitionsInTransaction;
     private final Set<TopicPartition> partitionsInTransaction;
     private final Map<TopicPartition, CommittedOffset> pendingTxnOffsetCommits;
-    private final Map<State, TransactionalRequestResult> stateToTransactionRequestResult;
+    private TransactionalRequestResult pendingOperation;
 
     // This is used by the TxnRequestHandlers to control how long to back off before a given request is retried.
     // For instance, this value is lowered by the AddPartitionsToTxnHandler when it receives a CONCURRENT_TRANSACTIONS
@@ -198,7 +198,6 @@ public class TransactionManager {
         this.lastAckedOffset = new HashMap<>();
 
         this.retryBackoffMs = retryBackoffMs;
-        this.stateToTransactionRequestResult = new HashMap<>();
     }
 
     TransactionManager() {
@@ -208,19 +207,17 @@ public class TransactionManager {
     public synchronized TransactionalRequestResult initializeTransactions() {
         ensureTransactional();
 
-        TransactionalRequestResult initTransactionResult = this.stateToTransactionRequestResult.get(State.INITIALIZING);
+        if (currentState == State.INITIALIZING && pendingOperation != null)
+            return pendingOperation;
 
-        if (initTransactionResult == null) {
-            transitionTo(State.INITIALIZING);
-            setProducerIdAndEpoch(ProducerIdAndEpoch.NONE);
-            this.nextSequence.clear();
-            InitProducerIdRequest.Builder builder = new InitProducerIdRequest.Builder(transactionalId, transactionTimeoutMs);
-            InitProducerIdHandler handler = new InitProducerIdHandler(builder);
-            enqueueRequest(handler);
-            initTransactionResult = handler.result;
-            this.stateToTransactionRequestResult.put(State.INITIALIZING, initTransactionResult);
-        }
-        return initTransactionResult;
+        transitionTo(State.INITIALIZING);
+        setProducerIdAndEpoch(ProducerIdAndEpoch.NONE);
+        this.nextSequence.clear();
+        InitProducerIdRequest.Builder builder = new InitProducerIdRequest.Builder(transactionalId, transactionTimeoutMs);
+        InitProducerIdHandler handler = new InitProducerIdHandler(builder);
+        enqueueRequest(handler);
+        this.pendingOperation = handler.result;
+        return pendingOperation;
     }
 
     public synchronized void beginTransaction() {
@@ -232,31 +229,29 @@ public class TransactionManager {
     public synchronized TransactionalRequestResult beginCommit() {
         ensureTransactional();
 
-        TransactionalRequestResult commitTransactionResult = this.stateToTransactionRequestResult.get(State.COMMITTING_TRANSACTION);
-        if (commitTransactionResult == null) {
-            maybeFailWithError();
-            transitionTo(State.COMMITTING_TRANSACTION);
-            commitTransactionResult = beginCompletingTransaction(TransactionResult.COMMIT);
-            stateToTransactionRequestResult.put(State.COMMITTING_TRANSACTION, commitTransactionResult);
-        }
-        return commitTransactionResult;
+        if (currentState == State.COMMITTING_TRANSACTION && pendingOperation != null)
+            return pendingOperation;
+
+        maybeFailWithError();
+        transitionTo(State.COMMITTING_TRANSACTION);
+        this.pendingOperation = beginCompletingTransaction(TransactionResult.COMMIT);
+        return pendingOperation;
     }
 
     public synchronized TransactionalRequestResult beginAbort() {
         ensureTransactional();
 
-        TransactionalRequestResult abortTransactionResult = this.stateToTransactionRequestResult.get(State.ABORTING_TRANSACTION);
-        if (abortTransactionResult == null) {
-            if (currentState != State.ABORTABLE_ERROR)
-                maybeFailWithError();
-            transitionTo(State.ABORTING_TRANSACTION);
+        if (currentState == State.ABORTING_TRANSACTION && pendingOperation != null)
+            return pendingOperation;
 
-            // We're aborting the transaction, so there should be no need to add new partitions
-            newPartitionsInTransaction.clear();
-            abortTransactionResult = beginCompletingTransaction(TransactionResult.ABORT);
-            stateToTransactionRequestResult.put(State.ABORTING_TRANSACTION, abortTransactionResult);
-        }
-        return abortTransactionResult;
+        if (currentState != State.ABORTABLE_ERROR)
+            maybeFailWithError();
+        transitionTo(State.ABORTING_TRANSACTION);
+
+        // We're aborting the transaction, so there should be no need to add new partitions
+        newPartitionsInTransaction.clear();
+        this.pendingOperation = beginCompletingTransaction(TransactionResult.ABORT);
+        return pendingOperation;
     }
 
     private TransactionalRequestResult beginCompletingTransaction(TransactionResult transactionResult) {
@@ -311,32 +306,6 @@ public class TransactionManager {
 
             if (currentState != State.IN_TRANSACTION)
                 throw new IllegalStateException("Cannot call send in state " + currentState);
-        }
-    }
-
-    public void awaitResultOrThrowTimeoutException(long maxBlockTimeMs,
-                                                   State state,
-                                                   boolean retryEnabled,
-                                                   Supplier<String> timeoutExceptionDes,
-                                                   Supplier<String> interruptExceptionDes) {
-        TransactionalRequestResult result;
-
-        synchronized (this) {
-            result = retryEnabled ? this.stateToTransactionRequestResult.get(state) :
-                    this.stateToTransactionRequestResult.remove(state);
-        }
-
-        if (result == null) {
-            throw new IllegalStateException("There is no ongoing transaction request awaiting completion for the state: " + state);
-        }
-        try {
-            if (!result.await(maxBlockTimeMs, TimeUnit.MILLISECONDS)) {
-                throw new TimeoutException(timeoutExceptionDes.get());
-            } else {
-                clearTransactionRequestResultCache();
-            }
-        } catch (InterruptedException e) {
-            throw new InterruptException(interruptExceptionDes.get(), e);
         }
     }
 
@@ -825,10 +794,6 @@ public class TransactionManager {
         currentState = target;
     }
 
-    private synchronized void clearTransactionRequestResultCache() {
-        stateToTransactionRequestResult.clear();
-    }
-
     private void ensureTransactional() {
         if (!isTransactional())
             throw new IllegalStateException("Transactional method invoked on a non-transactional producer.");
@@ -836,7 +801,6 @@ public class TransactionManager {
 
     private void maybeFailWithError() {
         if (hasError()) {
-            clearTransactionRequestResultCache();
             throw new KafkaException("Cannot execute transactional method because we are in an error state", lastError);
         }
     }
@@ -913,8 +877,8 @@ public class TransactionManager {
             this.result = result;
         }
 
-        TxnRequestHandler() {
-            this(new TransactionalRequestResult());
+        TxnRequestHandler(String operation) {
+            this(new TransactionalRequestResult(operation));
         }
 
         void fatalError(RuntimeException e) {
@@ -1005,6 +969,7 @@ public class TransactionManager {
         private final InitProducerIdRequest.Builder builder;
 
         private InitProducerIdHandler(InitProducerIdRequest.Builder builder) {
+            super("InitProducerId");
             this.builder = builder;
         }
 
@@ -1047,6 +1012,7 @@ public class TransactionManager {
         private long retryBackoffMs;
 
         private AddPartitionsToTxnHandler(AddPartitionsToTxnRequest.Builder builder) {
+            super("AddPartitionsToTxn");
             this.builder = builder;
             this.retryBackoffMs = TransactionManager.this.retryBackoffMs;
         }
@@ -1150,6 +1116,7 @@ public class TransactionManager {
         private final FindCoordinatorRequest.Builder builder;
 
         private FindCoordinatorHandler(FindCoordinatorRequest.Builder builder) {
+            super("FindCoordinator");
             this.builder = builder;
         }
 
@@ -1206,6 +1173,7 @@ public class TransactionManager {
         private final EndTxnRequest.Builder builder;
 
         private EndTxnHandler(EndTxnRequest.Builder builder) {
+            super(builder.result().toString());
             this.builder = builder;
         }
 
@@ -1256,6 +1224,7 @@ public class TransactionManager {
 
         private AddOffsetsToTxnHandler(AddOffsetsToTxnRequest.Builder builder,
                                        Map<TopicPartition, OffsetAndMetadata> offsets) {
+            super("AddOffsetsToTxn");
             this.builder = builder;
             this.offsets = offsets;
         }
