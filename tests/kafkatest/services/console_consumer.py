@@ -222,7 +222,6 @@ class ConsoleConsumer(KafkaPathResolverMixin, JmxMixin, BackgroundThreadService)
 
         self.security_config = self.kafka.security_config.client_config(node=node,
                                                                         jaas_override_variables=self.jaas_override_variables)
-        self.security_config.setup_node(node)
 
         if self.client_prop_file_override:
             prop_file = self.client_prop_file_override
