@@ -747,11 +747,11 @@ class Partition(val topicPartition: TopicPartition,
    */
   private def tryCompleteDelayedRequests(): Unit = delayedOperations.checkAndCompleteAll()
 
-  def maybeShrinkIsr(replicaMaxLagTimeMs: Long) {
+  def maybeShrinkIsr(): Unit = {
     val leaderHWIncremented = inWriteLock(leaderIsrUpdateLock) {
       leaderReplicaIfLocal match {
         case Some(leaderReplica) =>
-          val outOfSyncReplicas = getOutOfSyncReplicas(leaderReplica, replicaMaxLagTimeMs)
+          val outOfSyncReplicas = getOutOfSyncReplicas(leaderReplica, replicaLagTimeMaxMs)
           if (outOfSyncReplicas.nonEmpty) {
             val newInSyncReplicas = inSyncReplicas -- outOfSyncReplicas
             assert(newInSyncReplicas.nonEmpty)

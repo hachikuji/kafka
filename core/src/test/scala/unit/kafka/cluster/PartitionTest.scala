@@ -899,7 +899,7 @@ class PartitionTest {
       val tp = replica.topicPartition
       val delayedOperations: DelayedOperations = mock(classOf[DelayedOperations])
       val partition = new Partition(tp,
-        replicaLagTimeMaxMs = Defaults.ReplicaLagTimeMaxMs,
+        replicaLagTimeMaxMs = 10000,
         interBrokerProtocolVersion = ApiVersion.latestVersion,
         localBrokerId = brokerId,
         time,
@@ -943,7 +943,7 @@ class PartitionTest {
       // Invoke some operation that acquires leaderIsrUpdate write lock on one thread
       executor.submit(CoreUtils.runnable {
         while (!done.get) {
-          partitions.foreach(_.maybeShrinkIsr(10000))
+          partitions.foreach(_.maybeShrinkIsr())
         }
       })
       // Append records to partitions, one partition-per-thread
