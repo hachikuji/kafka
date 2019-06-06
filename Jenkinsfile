@@ -32,12 +32,12 @@ def job = {
       }
     }
 
-    stage("Unit Test") {
-      sh "./gradlew --no-daemon unitTest --continue --stacktrace || true"
-    }
+    // stage("Unit Test") {
+    //   sh "./gradlew --no-daemon unitTest --continue --stacktrace || true"
+    // }
 
     stage("Integration test") {
-        sh "./gradlew integrationTest " +
+        sh "./gradlew core:test --tests UncleanLeaderElectionTest " +
                 "--no-daemon --stacktrace --continue -PtestLoggingEvents=started,passed,skipped,failed -PmaxParallelForks=6 || true"
     }
 }
