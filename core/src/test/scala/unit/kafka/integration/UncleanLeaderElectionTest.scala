@@ -56,6 +56,7 @@ class UncleanLeaderElectionTest extends ZooKeeperTestHarness {
   val random = new Random()
   val topic = "topic" + random.nextLong
   val partitionId = 0
+  val tp = new TopicPartition(topic, partitionId)
 
   val kafkaApisLogger = Logger.getLogger(classOf[kafka.server.KafkaApis])
   val networkProcessorLogger = Logger.getLogger(classOf[kafka.network.Processor])
@@ -219,16 +220,16 @@ class UncleanLeaderElectionTest extends ZooKeeperTestHarness {
     assertEquals(List("first"), consumeAllMessages(topic, 1))
 
     // shutdown follower server
-    servers.filter(server => server.config.brokerId == followerId).map(server => shutdownServer(server))
+    servers.filter(server => server.config.brokerId == followerId).foreach(shutdownServer)
 
     produceMessage(servers, topic, "second")
     assertEquals(List("first", "second"), consumeAllMessages(topic, 2))
 
     //remove any previous unclean election metric
-    servers.map(server => server.kafkaController.controllerContext.stats.removeMetric("UncleanLeaderElectionsPerSec"))
+    servers.foreach(_.kafkaController.controllerContext.stats.removeMetric("UncleanLeaderElectionsPerSec"))
 
     // shutdown leader and then restart follower
-    servers.filter(server => server.config.brokerId == leaderId).map(server => shutdownServer(server))
+    servers.filter(server => server.config.brokerId == leaderId).foreach(shutdownServer)
     val followerServer = servers.find(_.config.brokerId == followerId).get
     followerServer.startup()
 
@@ -247,12 +248,14 @@ class UncleanLeaderElectionTest extends ZooKeeperTestHarness {
     assertEquals(List.empty[String], consumeAllMessages(topic, 0))
 
     // restart leader temporarily to send a successfully replicated message
-    servers.filter(server => server.config.brokerId == leaderId).map(server => server.startup())
+    servers.filter(server => server.config.brokerId == leaderId).foreach(_.startup())
     waitUntilLeaderIsElectedOrChanged(zkClient, topic, partitionId, newLeaderOpt = Some(leaderId))
 
+    // Produce some data and ensure that the follower is added back to the ISR
     produceMessage(servers, topic, "third")
-    waitUntilMetadataIsPropagated(servers, topic, partitionId)
-    servers.filter(server => server.config.brokerId == leaderId).map(server => shutdownServer(server))
+    waitUntilReplicaInIsr(servers, tp, followerId)
+
+    servers.filter(server => server.config.brokerId == leaderId).foreach(shutdownServer)
 
     // verify clean leader transition to ISR follower
     waitUntilLeaderIsElectedOrChanged(zkClient, topic, partitionId, newLeaderOpt = Some(followerId))

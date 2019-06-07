@@ -896,6 +896,22 @@ object TestUtils extends Logging {
     leader
   }
 
+  def waitUntilReplicaInIsr(servers: Seq[KafkaServer],
+                            topicPartition: TopicPartition,
+                            replicaId: Int,
+                            timeout: Long = JTestUtils.DEFAULT_MAX_WAIT_MS): Unit = {
+    waitUntilTrue(() => {
+      servers.exists { server =>
+        val partitionInfoOpt = server.dataPlaneRequestProcessor.metadataCache
+          .getPartitionInfo(topicPartition.topic, topicPartition.partition)
+        partitionInfoOpt match {
+          case Some(partitionInfo) => partitionInfo.basePartitionState.isr.contains(replicaId)
+          case None => false
+        }
+      }
+    }, s"Timed out before replica $replicaId was added to the ISR of $topicPartition")
+  }
+
   def waitUntilControllerElected(zkClient: KafkaZkClient, timeout: Long = JTestUtils.DEFAULT_MAX_WAIT_MS): Int = {
     val (controllerId, _) = TestUtils.computeUntilTrue(zkClient.getControllerId, waitTime = timeout)(_.isDefined)
     controllerId.getOrElse(fail(s"Controller not elected after $timeout ms"))
