@@ -22,6 +22,7 @@ import org.apache.kafka.connect.util.clusters.EmbeddedConnectCluster;
 import org.apache.kafka.test.IntegrationTest;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
@@ -153,6 +154,7 @@ public class ExampleConnectIntegrationTest {
      * records, and start up a sink connector which will consume these records.
      */
     @Test
+    @Ignore
     public void testSourceConnector() throws Exception {
         // create test topic
         connect.kafka().createTopic("test-topic", NUM_TOPIC_PARTITIONS);
