@@ -63,9 +63,9 @@ class TransactionalMessageCopier(KafkaPathResolverMixin, BackgroundThreadService
         self.stop_timeout_sec = 60
         self.enable_random_aborts = enable_random_aborts
         self.loggers = {
+            "org.apache.kafka.clients": "DEBUG",
             "org.apache.kafka.clients.producer": "TRACE",
             "org.apache.kafka.clients.consumer": "TRACE"
-
         }
 
     def _worker(self, idx, node):
