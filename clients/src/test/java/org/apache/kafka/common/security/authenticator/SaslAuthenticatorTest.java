@@ -1774,7 +1774,7 @@ public class SaslAuthenticatorTest {
                     }
 
                     @Override
-                    protected void enableKafkaSaslAuthenticateHeaders(boolean flag) {
+                    protected void enableKafkaSaslAuthenticateHeaders() {
                         // Don't enable Kafka SASL_AUTHENTICATE headers
                     }
                 };

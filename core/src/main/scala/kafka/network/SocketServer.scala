@@ -907,7 +907,7 @@ private[kafka] class Processor(val id: Int,
             else {
               val nowNanos = time.nanoseconds()
               if (channel.serverAuthenticationSessionExpired(nowNanos)) {
-                channel.disconnect()
+                selector.close(channel.id)
                 debug(s"Disconnected expired channel: $channel : $header")
                 expiredConnectionsKilledCount.record(null, 1, 0)
               } else {
