@@ -2495,6 +2495,35 @@ public class TransactionManagerTest {
     }
 
     @Test
+    public void testOutOfSequenceErrorLowerThanLastAckedSequence() {
+        TransactionManager manager = new TransactionManager(logContext,
+                null,
+                transactionTimeoutMs,
+                DEFAULT_RETRY_BACKOFF_MS);
+        long producerId = 15L;
+        short epoch = 5;
+        ProducerIdAndEpoch producerIdAndEpoch = new ProducerIdAndEpoch(producerId, epoch);
+        manager.setProducerIdAndEpoch(producerIdAndEpoch);
+
+        TopicPartition tp0 = new TopicPartition("foo", 0);
+        assertEquals(Integer.valueOf(0), manager.sequenceNumber(tp0));
+        assertEquals(OptionalInt.empty(), manager.lastAckedSequence(tp0));
+
+        ProducerBatch b1 = writeIdempotentBatchWithValue(manager, tp0, "1");
+        assertEquals(Integer.valueOf(1), manager.sequenceNumber(tp0));
+        ProducerBatch b2 = writeIdempotentBatchWithValue(manager, tp0, "2");
+        assertEquals(Integer.valueOf(2), manager.sequenceNumber(tp0));
+
+        manager.handleCompletedBatch(b2, new ProduceResponse.PartitionResponse(
+                Errors.NONE, 500L, time.milliseconds(), 0L));
+        assertEquals(OptionalInt.of(1), manager.lastAckedSequence(tp0));
+
+        ProduceResponse.PartitionResponse b1Response = new ProduceResponse.PartitionResponse(
+                Errors.OUT_OF_ORDER_SEQUENCE_NUMBER, -1, -1, 0L);
+        assertFalse(manager.canRetry(b1Response, b1));
+    }
+
+    @Test
     public void testResetProducerIdAfterWithoutPendingInflightRequests() {
         TransactionManager manager = new TransactionManager(logContext, null, transactionTimeoutMs,
             DEFAULT_RETRY_BACKOFF_MS);
