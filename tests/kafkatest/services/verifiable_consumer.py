@@ -296,7 +296,7 @@ class VerifiableConsumer(KafkaPathResolverMixin, VerifiableClientMixin, Backgrou
         if self.on_record_consumed:
             cmd += " --verbose"
 
-        if node.version >= V_2_3_0 && node.group_instance_id:
+        if node.version >= V_2_3_0 and node.group_instance_id:
             cmd += "--group-instance-id %s" % node.group_instance_id
 
         cmd += " --reset-policy %s --group-id %s --topic %s --broker-list %s --session-timeout %s --assignment-strategy %s %s" % \
