@@ -40,8 +40,8 @@ class TestDowngrade(EndToEndTest):
         for node in self.kafka.nodes:
             self.kafka.stop_node(node)
             node.version = DEV_BRANCH
-            node.config[config_property.INTER_BROKER_PROTOCOL_VERSION] = kafka_version.version_string
-            node.config[config_property.MESSAGE_FORMAT_VERSION] = kafka_version.version_string
+            node.config[config_property.INTER_BROKER_PROTOCOL_VERSION] = str(kafka_version)
+            node.config[config_property.MESSAGE_FORMAT_VERSION] = str(kafka_version)
             self.kafka.start_node(node)
 
     def downgrade_to(self, kafka_version):
@@ -80,7 +80,7 @@ class TestDowngrade(EndToEndTest):
     # @parametrize(kafka_version=str(LATEST_2_1), compression_types=["lz4"])
     # @parametrize(kafka_version=str(LATEST_2_0), compression_types=["none"])
     # @parametrize(kafka_version=str(LATEST_2_0), compression_types=["snappy"])
-    @parametrize(kafka_version=LATEST_1_1, compression_types=["none"])
+    @parametrize(version=str(LATEST_1_1), compression_types=["none"])
     # @parametrize(kafka_version=str(LATEST_1_1), compression_types=["lz4"])
     # @parametrize(kafka_version=str(LATEST_1_0), compression_types=["none"])
     # @parametrize(kafka_version=str(LATEST_1_0), compression_types=["snappy"])
@@ -95,7 +95,7 @@ class TestDowngrade(EndToEndTest):
     # @parametrize(kafka_version=str(LATEST_0_9), compression_types=["none"], security_protocol="SASL_SSL")
     # @parametrize(kafka_version=str(LATEST_0_9), compression_types=["snappy"])
     # @parametrize(kafka_version=str(LATEST_0_9), compression_types=["lz4"])
-    def test_upgrade_and_downgrade(self, kafka_version, compression_types, security_protocol="PLAINTEXT"):
+    def test_upgrade_and_downgrade(self, version, compression_types, security_protocol="PLAINTEXT"):
         """Test upgrade and downgrade of Kafka cluster from old versions to the current version
 
         kafka_version is a Kafka version to downgrade to
@@ -114,6 +114,8 @@ class TestDowngrade(EndToEndTest):
         - Roll the cluster to downgrade back to 'kafka_version'
         - Finally, validate that every message acked by the producer was consumed by the consumer
         """
+        kafka_version = KafkaVersion(version)
+
         self.setup_services(kafka_version, compression_types, security_protocol)
         self.await_startup()
 
