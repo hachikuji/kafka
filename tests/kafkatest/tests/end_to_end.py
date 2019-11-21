@@ -91,7 +91,7 @@ class EndToEndTest(Test):
                 if not partition in self.last_consumed_offsets:
                     return False
                 last_commit = self.consumer.last_commit(partition)
-                if last_commit and last_commit < offset:
+                if not last_commit or last_commit < offset:
                     return False
             return True
 
