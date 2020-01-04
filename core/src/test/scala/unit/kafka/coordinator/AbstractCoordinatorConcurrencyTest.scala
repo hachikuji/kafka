@@ -20,7 +20,6 @@ package kafka.coordinator
 import java.util.{Collections, Random}
 import java.util.concurrent.{ConcurrentHashMap, Executors}
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.locks.Lock
 
 import kafka.coordinator.AbstractCoordinatorConcurrencyTest._
 import kafka.log.Log
@@ -176,7 +175,6 @@ object AbstractCoordinatorConcurrencyTest {
                                isFromClient: Boolean,
                                entriesPerPartition: Map[TopicPartition, MemoryRecords],
                                responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
-                               delayedProduceLock: Option[Lock] = None,
                                processingStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => ()): Unit = {
 
       if (entriesPerPartition.isEmpty)
@@ -185,14 +183,11 @@ object AbstractCoordinatorConcurrencyTest {
         case (tp, _) =>
           (tp, ProducePartitionStatus(0L, new PartitionResponse(Errors.NONE, 0L, RecordBatch.NO_TIMESTAMP, 0L)))
       })
-      val delayedProduce = new DelayedProduce(5, produceMetadata, this, responseCallback, delayedProduceLock) {
+      val delayedProduce = new DelayedProduce(5, produceMetadata, this, responseCallback) {
         // Complete produce requests after a few attempts to trigger delayed produce from different threads
         val completeAttempts = new AtomicInteger
-        override def tryComplete(): Boolean = {
-          if (completeAttempts.incrementAndGet() >= 3)
-            forceComplete()
-          else
-            false
+        override def canComplete(): Boolean = {
+          completeAttempts.incrementAndGet() >= 3
         }
         override def onComplete(): Unit = {
           responseCallback(entriesPerPartition.map {

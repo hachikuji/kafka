@@ -21,6 +21,7 @@ package kafka.server
 import java.util.concurrent.TimeUnit
 
 import kafka.metrics.KafkaMetricsGroup
+import kafka.utils.Logging
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.DeleteRecordsResponse
@@ -40,11 +41,11 @@ case class DeleteRecordsPartitionStatus(requiredOffset: Long,
  * A delayed delete records operation that can be created by the replica manager and watched
  * in the delete records operation purgatory
  */
-class DelayedDeleteRecords(delayMs: Long,
+class DelayedDeleteRecords(timeoutMs: Long,
                            deleteRecordsStatus:  Map[TopicPartition, DeleteRecordsPartitionStatus],
                            replicaManager: ReplicaManager,
                            responseCallback: Map[TopicPartition, DeleteRecordsResponse.PartitionResponse] => Unit)
-  extends DelayedOperation(delayMs) {
+  extends DelayedOperation(timeoutMs) with Logging {
 
   // first update the acks pending variable according to the error code
   deleteRecordsStatus.foreach { case (topicPartition, status) =>
@@ -66,7 +67,7 @@ class DelayedDeleteRecords(delayMs: Long,
    * 2) The low watermark of the partition has caught up to the deleteRecordsOffset. set the low watermark in response
    *
    */
-  override def tryComplete(): Boolean = {
+  override def canComplete(): Boolean = {
     // check for each partition if it still has pending acks
     deleteRecordsStatus.foreach { case (topicPartition, status) =>
       trace(s"Checking delete records satisfaction for $topicPartition, current status $status")
@@ -97,10 +98,7 @@ class DelayedDeleteRecords(delayMs: Long,
     }
 
     // check if every partition has satisfied at least one of case A or B
-    if (!deleteRecordsStatus.values.exists(_.acksPending))
-      forceComplete()
-    else
-      false
+    !deleteRecordsStatus.values.exists(_.acksPending)
   }
 
   override def onExpiration(): Unit = {

@@ -272,7 +272,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
       }
     }
 
-    val delayedTxnMarker = new DelayedTxnMarker(txnMetadata, appendToLogCallback, txnStateManager.stateReadLock)
+    val delayedTxnMarker = new DelayedTxnMarker(txnMetadata, appendToLogCallback)
     txnMarkerPurgatory.tryCompleteElseWatch(delayedTxnMarker, Seq(transactionalId))
 
     addTxnMarkersToBrokerQueue(transactionalId, txnMetadata.producerId, txnMetadata.producerEpoch, txnResult, coordinatorEpoch, txnMetadata.topicPartitions.toSet)

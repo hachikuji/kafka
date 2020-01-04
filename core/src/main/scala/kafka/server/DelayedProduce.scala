@@ -18,11 +18,10 @@
 package kafka.server
 
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.locks.Lock
 
 import com.yammer.metrics.core.Meter
 import kafka.metrics.KafkaMetricsGroup
-import kafka.utils.Pool
+import kafka.utils.{Logging, Pool}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
@@ -49,12 +48,11 @@ case class ProduceMetadata(produceRequiredAcks: Short,
  * A delayed produce operation that can be created by the replica manager and watched
  * in the produce operation purgatory
  */
-class DelayedProduce(delayMs: Long,
+class DelayedProduce(timeoutMs: Long,
                      produceMetadata: ProduceMetadata,
                      replicaManager: ReplicaManager,
-                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
-                     lockOpt: Option[Lock] = None)
-  extends DelayedOperation(delayMs, lockOpt) {
+                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit)
+  extends DelayedOperation(timeoutMs) with Logging {
 
   // first update the acks pending variable according to the error code
   produceMetadata.produceStatus.foreach { case (topicPartition, status) =>
@@ -79,7 +77,7 @@ class DelayedProduce(delayMs: Long,
    *         replicas have caught up to this operation: set an error in response
    *   B.2 - Otherwise, set the response with no error.
    */
-  override def tryComplete(): Boolean = {
+  override def canComplete(): Boolean = {
     // check for each partition if it still has pending acks
     produceMetadata.produceStatus.foreach { case (topicPartition, status) =>
       trace(s"Checking produce satisfaction for $topicPartition, current status $status")
@@ -103,10 +101,7 @@ class DelayedProduce(delayMs: Long,
     }
 
     // check if every partition has satisfied at least one of case A or B
-    if (!produceMetadata.produceStatus.values.exists(_.acksPending))
-      forceComplete()
-    else
-      false
+    !produceMetadata.produceStatus.values.exists(_.acksPending)
   }
 
   override def onExpiration(): Unit = {

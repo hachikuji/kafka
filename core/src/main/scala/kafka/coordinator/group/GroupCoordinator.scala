@@ -1027,11 +1027,9 @@ class GroupCoordinator(val brokerId: Int,
     }
   }
 
-  def tryCompleteJoin(group: GroupMetadata, forceComplete: () => Boolean) = {
+  def canCompleteJoin(group: GroupMetadata): Boolean = {
     group.inLock {
-      if (group.hasAllMembersJoined)
-        forceComplete()
-      else false
+      group.hasAllMembersJoined
     }
   }
 
@@ -1100,20 +1098,16 @@ class GroupCoordinator(val brokerId: Int,
     }
   }
 
-  def tryCompleteHeartbeat(group: GroupMetadata, memberId: String, isPending: Boolean, heartbeatDeadline: Long, forceComplete: () => Boolean) = {
+  def shouldCompleteHeartbeat(group: GroupMetadata, memberId: String, isPending: Boolean, heartbeatDeadline: Long): Boolean = {
     group.inLock {
       // The group has been unloaded and invalid, we should complete the heartbeat.
       if (group.is(Dead)) {
-        forceComplete()
+        true
       } else if (isPending) {
         // complete the heartbeat if the member has joined the group
-        if (group.has(memberId)) {
-          forceComplete()
-        } else false
+        group.has(memberId)
       } else {
-        if (shouldCompleteNonPendingHeartbeat(group, memberId, heartbeatDeadline)) {
-          forceComplete()
-        } else false
+        shouldCompleteNonPendingHeartbeat(group, memberId, heartbeatDeadline)
       }
     }
   }

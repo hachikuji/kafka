@@ -29,18 +29,18 @@ import kafka.server.{Defaults, FetchLogEnd, ReplicaManager}
 import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
 import kafka.utils.{Logging, Pool, Scheduler}
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.common.{KafkaException, TopicPartition}
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.metrics.stats.{Avg, Max}
 import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.metrics.stats.{Avg, Max}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.record.{FileRecords, MemoryRecords, SimpleRecord}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests.TransactionResult
 import org.apache.kafka.common.utils.{Time, Utils}
+import org.apache.kafka.common.{KafkaException, TopicPartition}
 
-import scala.collection.mutable
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 
 
 object TransactionStateManager {
@@ -209,18 +209,22 @@ class TransactionStateManager(brokerId: Int,
           }
         }
 
-        replicaManager.appendRecords(
-          config.requestTimeoutMs,
-          TransactionLog.EnforcedRequiredAcks,
-          internalTopicsAllowed = true,
-          isFromClient = false,
-          recordsPerPartition,
-          removeFromCacheCallback,
-          Some(stateLock.readLock)
-        )
+        appendToTransactionLog(config.requestTimeoutMs, recordsPerPartition, removeFromCacheCallback)
       }
 
     }, delay = config.removeExpiredTransactionalIdsIntervalMs, period = config.removeExpiredTransactionalIdsIntervalMs)
+  }
+
+  def appendToTransactionLog(timeoutMs: Long,
+                             recordsPerPartition: Map[TopicPartition, MemoryRecords],
+                             callback: collection.Map[TopicPartition, PartitionResponse] => Unit): Unit = {
+    replicaManager.appendRecords(
+      timeoutMs,
+      TransactionLog.EnforcedRequiredAcks,
+      internalTopicsAllowed = true,
+      isFromClient = false,
+      entriesPerPartition = recordsPerPartition,
+      responseCallback = callback)
   }
 
   def getTransactionState(transactionalId: String): Either[Errors, Option[CoordinatorEpochAndTxnMetadata]] = {
@@ -620,7 +624,7 @@ class TransactionStateManager(brokerId: Int,
         case Right(Some(epochAndMetadata)) =>
           val metadata = epochAndMetadata.transactionMetadata
 
-          val append: Boolean = metadata.inLock {
+          val shouldAppend = metadata.inLock {
             if (epochAndMetadata.coordinatorEpoch != coordinatorEpoch) {
               // the coordinator epoch has changed, reply to client immediately with NOT_COORDINATOR
               responseCallback(Errors.NOT_COORDINATOR)
@@ -631,17 +635,11 @@ class TransactionStateManager(brokerId: Int,
               true
             }
           }
-          if (append) {
-            replicaManager.appendRecords(
-                newMetadata.txnTimeoutMs.toLong,
-                TransactionLog.EnforcedRequiredAcks,
-                internalTopicsAllowed = true,
-                isFromClient = false,
-                recordsPerPartition,
-                updateCacheCallback,
-                delayedProduceLock = Some(stateLock.readLock))
 
-              trace(s"Appending new metadata $newMetadata for transaction id $transactionalId with coordinator epoch $coordinatorEpoch to the local transaction log")
+          if (shouldAppend) {
+            appendToTransactionLog(newMetadata.txnTimeoutMs.toLong, recordsPerPartition, updateCacheCallback)
+            trace(s"Appending new metadata $newMetadata for transactional id $transactionalId with " +
+              s"coordinator epoch $coordinatorEpoch to the local transaction log")
           }
       }
     }

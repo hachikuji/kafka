@@ -237,7 +237,9 @@ object TestPurgatoryPerformance {
     }
   }
 
-  private class FakeOperation(delayMs: Long, size: Int, val latencyMs: Long, latch: CountDownLatch) extends DelayedOperation(delayMs) {
+  private class FakeOperation(timeoutMs: Long, size: Int, val latencyMs: Long, latch: CountDownLatch)
+    extends DelayedOperation(timeoutMs) {
+
     val completesAt = System.currentTimeMillis + latencyMs
 
     def onExpiration(): Unit = {}
@@ -246,11 +248,8 @@ object TestPurgatoryPerformance {
       latch.countDown()
     }
 
-    def tryComplete(): Boolean = {
-      if (System.currentTimeMillis >= completesAt)
-        forceComplete()
-      else
-        false
+    def canComplete(): Boolean = {
+      System.currentTimeMillis >= completesAt
     }
   }
 
@@ -260,7 +259,7 @@ object TestPurgatoryPerformance {
       override def doWork(): Unit = {
         val scheduled = delayQueue.poll(100, TimeUnit.MILLISECONDS)
         if (scheduled != null) {
-          scheduled.operation.forceComplete()
+          scheduled.operation.forceComplete(None)
         }
       }
     }

@@ -186,14 +186,14 @@ class ReplicaManagerQuotasTest {
         replicaId = 1,
         fetchPartitionStatus = List((tp, fetchPartitionStatus))
       )
-      new DelayedFetch(delayMs = 600, fetchMetadata = fetchMetadata, replicaManager = replicaManager,
+      new DelayedFetch(timeoutMs = 600, fetchMetadata = fetchMetadata, replicaManager = replicaManager,
         quota = null, clientMetadata = None, responseCallback = null) {
-        override def forceComplete(): Boolean = true
+        override def canComplete(): Boolean = true
       }
     }
 
-    assertTrue("In sync replica should complete", setupDelayedFetch(isReplicaInSync = true).tryComplete())
-    assertFalse("Out of sync replica should not complete", setupDelayedFetch(isReplicaInSync = false).tryComplete())
+    assertTrue("In sync replica should complete", setupDelayedFetch(isReplicaInSync = true).canComplete())
+    assertFalse("Out of sync replica should not complete", setupDelayedFetch(isReplicaInSync = false).canComplete())
   }
 
   def setUpMocks(fetchInfo: Seq[(TopicPartition, PartitionData)], record: SimpleRecord = this.record,

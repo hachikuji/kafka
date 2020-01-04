@@ -33,9 +33,10 @@ import scala.math.{max, min}
  */
 private[group] class DelayedJoin(coordinator: GroupCoordinator,
                                  group: GroupMetadata,
-                                 rebalanceTimeout: Long) extends DelayedOperation(rebalanceTimeout, Some(group.lock)) {
+                                 rebalanceTimeoutMs: Long)
+  extends DelayedOperation(rebalanceTimeoutMs) {
 
-  override def tryComplete(): Boolean = coordinator.tryCompleteJoin(group, forceComplete _)
+  override def canComplete(): Boolean = coordinator.canCompleteJoin(group)
   override def onExpiration() = coordinator.onExpireJoin()
   override def onComplete() = coordinator.onCompleteJoin(group)
 }
@@ -53,9 +54,10 @@ private[group] class InitialDelayedJoin(coordinator: GroupCoordinator,
                                         group: GroupMetadata,
                                         configuredRebalanceDelay: Int,
                                         delayMs: Int,
-                                        remainingMs: Int) extends DelayedJoin(coordinator, group, delayMs) {
+                                        remainingMs: Int)
+  extends DelayedJoin(coordinator, group, delayMs) {
 
-  override def tryComplete(): Boolean = false
+  override def canComplete(): Boolean = false
 
   override def onComplete(): Unit = {
     group.inLock {

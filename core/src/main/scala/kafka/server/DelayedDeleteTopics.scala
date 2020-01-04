@@ -17,6 +17,7 @@
 
 package kafka.server
 
+import kafka.utils.Logging
 import org.apache.kafka.common.protocol.Errors
 
 import scala.collection._
@@ -30,16 +31,16 @@ case class DeleteTopicMetadata(topic: String, error: Errors)
   * A delayed delete topics operation that can be created by the admin manager and watched
   * in the topic purgatory
   */
-class DelayedDeleteTopics(delayMs: Long,
+class DelayedDeleteTopics(timeoutMs: Long,
                           deleteMetadata: Seq[DeleteTopicMetadata],
                           adminManager: AdminManager,
                           responseCallback: Map[String, Errors] => Unit)
-  extends DelayedOperation(delayMs) {
+  extends DelayedOperation(timeoutMs) with Logging {
 
   /**
     * The operation can be completed if all of the topics not in error have been removed
     */
-  override def tryComplete() : Boolean = {
+  override def canComplete() : Boolean = {
     trace(s"Trying to complete operation for $deleteMetadata")
 
     // Ignore topics that already have errors
@@ -47,7 +48,7 @@ class DelayedDeleteTopics(delayMs: Long,
 
     if (existingTopics == 0) {
       trace("All topics have been deleted or have errors, completing the delayed operation")
-      forceComplete()
+      true
     } else {
       trace(s"$existingTopics topics still exist, not completing the delayed operation")
       false

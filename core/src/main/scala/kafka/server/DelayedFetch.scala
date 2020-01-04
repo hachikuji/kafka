@@ -20,6 +20,7 @@ package kafka.server
 import java.util.concurrent.TimeUnit
 
 import kafka.metrics.KafkaMetricsGroup
+import kafka.utils.Logging
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.replica.ClientMetadata
@@ -59,13 +60,13 @@ case class FetchMetadata(fetchMinBytes: Int,
  * A delayed fetch operation that can be created by the replica manager and watched
  * in the fetch operation purgatory
  */
-class DelayedFetch(delayMs: Long,
+class DelayedFetch(timeoutMs: Long,
                    fetchMetadata: FetchMetadata,
                    replicaManager: ReplicaManager,
                    quota: ReplicaQuota,
                    clientMetadata: Option[ClientMetadata],
                    responseCallback: Seq[(TopicPartition, FetchPartitionData)] => Unit)
-  extends DelayedOperation(delayMs) {
+  extends DelayedOperation(timeoutMs) with Logging {
 
   /**
    * The operation can be completed if:
@@ -80,7 +81,7 @@ class DelayedFetch(delayMs: Long,
    * Case H: The high watermark on this broker has changed within a FetchSession, need to propagate to follower (KIP-392)
    * Upon completion, should return whatever data is available for each valid partition
    */
-  override def tryComplete(): Boolean = {
+  override def canComplete(): Boolean = {
     var accumulatedSize = 0
     fetchMetadata.fetchPartitionStatus.foreach {
       case (topicPartition, fetchStatus) =>
@@ -105,14 +106,14 @@ class DelayedFetch(delayMs: Long,
               if (endOffset.onOlderSegment(fetchOffset)) {
                 // Case F, this can happen when the new fetch operation is on a truncated leader
                 debug(s"Satisfying fetch $fetchMetadata since it is fetching later segments of partition $topicPartition.")
-                return forceComplete()
+                return true
               } else if (fetchOffset.onOlderSegment(endOffset)) {
                 // Case F, this can happen when the fetch operation is falling behind the current segment
                 // or the partition has just rolled a new segment
                 debug(s"Satisfying fetch $fetchMetadata immediately since it is fetching older segments.")
                 // We will not force complete the fetch request if a replica should be throttled.
                 if (!replicaManager.shouldLeaderThrottle(quota, topicPartition, fetchMetadata.replicaId))
-                  return forceComplete()
+                  return true
               } else if (fetchOffset.messageOffset < endOffset.messageOffset) {
                 // we take the partition fetch size as upper bound when accumulating the bytes (skip if a throttled partition)
                 val bytesAvailable = math.min(endOffset.positionDiff(fetchOffset), fetchStatus.fetchInfo.maxBytes)
@@ -125,35 +126,32 @@ class DelayedFetch(delayMs: Long,
               // Case H check if the follower has the latest HW from the leader
               if (partition.getReplica(fetchMetadata.replicaId)
                 .exists(r => offsetSnapshot.highWatermark.messageOffset > r.lastSentHighWatermark)) {
-                return forceComplete()
+                return true
               }
             }
           }
         } catch {
           case _: NotLeaderForPartitionException =>  // Case A
             debug(s"Broker is no longer the leader of $topicPartition, satisfy $fetchMetadata immediately")
-            return forceComplete()
+            return true
           case _: ReplicaNotAvailableException =>  // Case B
             debug(s"Broker no longer has a replica of $topicPartition, satisfy $fetchMetadata immediately")
-            return forceComplete()
+            return true
           case _: UnknownTopicOrPartitionException => // Case C
             debug(s"Broker no longer knows of partition $topicPartition, satisfy $fetchMetadata immediately")
-            return forceComplete()
+            return true
           case _: KafkaStorageException => // Case D
             debug(s"Partition $topicPartition is in an offline log directory, satisfy $fetchMetadata immediately")
-            return forceComplete()
+            return true
           case _: FencedLeaderEpochException => // Case E
             debug(s"Broker is the leader of partition $topicPartition, but the requested epoch " +
               s"$fetchLeaderEpoch is fenced by the latest leader epoch, satisfy $fetchMetadata immediately")
-            return forceComplete()
+            return true
         }
     }
 
     // Case G
-    if (accumulatedSize >= fetchMetadata.fetchMinBytes)
-       forceComplete()
-    else
-      false
+    accumulatedSize >= fetchMetadata.fetchMinBytes
   }
 
   override def onExpiration(): Unit = {

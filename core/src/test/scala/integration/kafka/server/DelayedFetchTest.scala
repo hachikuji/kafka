@@ -54,7 +54,7 @@ class DelayedFetchTest extends EasyMockSupport {
     }
 
     val delayedFetch = new DelayedFetch(
-      delayMs = 500,
+      timeoutMs = 500,
       fetchMetadata = fetchMetadata,
       replicaManager = replicaManager,
       quota = replicaQuota,
@@ -73,7 +73,8 @@ class DelayedFetchTest extends EasyMockSupport {
 
     replayAll()
 
-    assertTrue(delayedFetch.tryComplete())
+    assertTrue(delayedFetch.canComplete())
+    assertTrue(delayedFetch.forceComplete(None))
     assertTrue(delayedFetch.isCompleted)
     assertTrue(fetchResultOpt.isDefined)
 
@@ -100,14 +101,12 @@ class DelayedFetchTest extends EasyMockSupport {
     }
 
     val delayedFetch = new DelayedFetch(
-      delayMs = 500,
+      timeoutMs = 500,
       fetchMetadata = fetchMetadata,
       replicaManager = replicaManager,
       quota = replicaQuota,
       clientMetadata = None,
       responseCallback = callback)
-
-    val partition: Partition = mock(classOf[Partition])
 
     EasyMock.expect(replicaManager.getPartitionOrException(topicPartition, expectLeader = true))
       .andThrow(new ReplicaNotAvailableException(s"Replica for $topicPartition not available"))
@@ -116,7 +115,8 @@ class DelayedFetchTest extends EasyMockSupport {
 
     replayAll()
 
-    assertTrue(delayedFetch.tryComplete())
+    assertTrue(delayedFetch.canComplete())
+    assertTrue(delayedFetch.forceComplete(None))
     assertTrue(delayedFetch.isCompleted)
     assertTrue(fetchResultOpt.isDefined)
   }
@@ -139,7 +139,7 @@ class DelayedFetchTest extends EasyMockSupport {
     }
 
     val delayedFetch = new DelayedFetch(
-      delayMs = 500,
+      timeoutMs = 500,
       fetchMetadata = fetchMetadata,
       replicaManager = replicaManager,
       quota = replicaQuota,
@@ -176,30 +176,34 @@ class DelayedFetchTest extends EasyMockSupport {
   @Test
   def testCompleteWhenFollowerLaggingHW(): Unit = {
     // No HW from the follower, should complete
-    resetAll
+    resetAll()
     checkCompleteWhenFollowerLaggingHW(None, delayedFetch => {
-      assertTrue(delayedFetch.tryComplete())
+      assertTrue(delayedFetch.canComplete())
+      assertTrue(delayedFetch.forceComplete(None))
       assertTrue(delayedFetch.isCompleted)
     })
 
     // A higher HW from the follower (shouldn't actually be possible)
-    resetAll
+    resetAll()
     checkCompleteWhenFollowerLaggingHW(Some(500), delayedFetch => {
-      assertFalse(delayedFetch.tryComplete())
-      assertFalse(delayedFetch.isCompleted)
+      assertFalse(delayedFetch.canComplete())
+      assertTrue(delayedFetch.forceComplete(None))
+      assertTrue(delayedFetch.isCompleted)
     })
 
     // An equal HW from follower
-    resetAll
+    resetAll()
     checkCompleteWhenFollowerLaggingHW(Some(480), delayedFetch => {
-      assertFalse(delayedFetch.tryComplete())
-      assertFalse(delayedFetch.isCompleted)
+      assertFalse(delayedFetch.canComplete())
+      assertTrue(delayedFetch.forceComplete(None))
+      assertTrue(delayedFetch.isCompleted)
     })
 
     // A lower HW from follower, should complete the fetch
-    resetAll
+    resetAll()
     checkCompleteWhenFollowerLaggingHW(Some(470), delayedFetch => {
-      assertTrue(delayedFetch.tryComplete())
+      assertTrue(delayedFetch.canComplete())
+      assertTrue(delayedFetch.forceComplete(None))
       assertTrue(delayedFetch.isCompleted)
     })
   }

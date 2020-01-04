@@ -18,6 +18,7 @@
 package kafka.server
 
 import kafka.api.LeaderAndIsr
+import kafka.utils.Logging
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ApiError
 
@@ -31,18 +32,18 @@ case class CreatePartitionsMetadata(topic: String, replicaAssignments: Map[Int, 
 /**
   * A delayed create topic or create partitions operation that is stored in the topic purgatory.
   */
-class DelayedCreatePartitions(delayMs: Long,
+class DelayedCreatePartitions(timeoutMs: Long,
                               createMetadata: Seq[CreatePartitionsMetadata],
                               adminManager: AdminManager,
                               responseCallback: Map[String, ApiError] => Unit)
-  extends DelayedOperation(delayMs) {
+  extends DelayedOperation(timeoutMs) with Logging {
 
   /**
     * The operation can be completed if all of the topics that do not have an error exist and every partition has a
     * leader in the controller.
     * See KafkaController.onNewTopicCreation
     */
-  override def tryComplete() : Boolean = {
+  override def canComplete() : Boolean = {
     trace(s"Trying to complete operation for $createMetadata")
 
     val leaderlessPartitionCount = createMetadata.filter(_.error.isSuccess).foldLeft(0) { case (topicCounter, metadata) =>
@@ -51,7 +52,7 @@ class DelayedCreatePartitions(delayMs: Long,
 
     if (leaderlessPartitionCount == 0) {
       trace("All partitions have a leader, completing the delayed operation")
-      forceComplete()
+      true
     } else {
       trace(s"$leaderlessPartitionCount partitions do not have a leader, not completing the delayed operation")
       false

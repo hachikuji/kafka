@@ -29,9 +29,9 @@ private[group] class DelayedHeartbeat(coordinator: GroupCoordinator,
                                       isPending: Boolean,
                                       deadline: Long,
                                       timeoutMs: Long)
-  extends DelayedOperation(timeoutMs, Some(group.lock)) {
+  extends DelayedOperation(timeoutMs) {
 
-  override def tryComplete(): Boolean = coordinator.tryCompleteHeartbeat(group, memberId, isPending, deadline, forceComplete _)
-  override def onExpiration() = coordinator.onExpireHeartbeat(group, memberId, isPending, deadline)
-  override def onComplete() = coordinator.onCompleteHeartbeat()
+  override def canComplete(): Boolean = coordinator.shouldCompleteHeartbeat(group, memberId, isPending, deadline)
+  override def onExpiration(): Unit = coordinator.onExpireHeartbeat(group, memberId, isPending, deadline)
+  override def onComplete(): Unit = coordinator.onCompleteHeartbeat()
 }

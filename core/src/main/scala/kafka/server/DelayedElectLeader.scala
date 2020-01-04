@@ -17,6 +17,7 @@
 
 package kafka.server
 
+import kafka.utils.Logging
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ApiError
@@ -26,17 +27,15 @@ import scala.collection.{Map, mutable}
 /** A delayed elect leader operation that can be created by the replica manager and watched
   * in the elect leader purgatory
   */
-class DelayedElectLeader(
-  delayMs: Long,
-  expectedLeaders: Map[TopicPartition, Int],
-  results: Map[TopicPartition, ApiError],
-  replicaManager: ReplicaManager,
-  responseCallback: Map[TopicPartition, ApiError] => Unit
-) extends DelayedOperation(delayMs) {
+class DelayedElectLeader(timeoutMs: Long,
+                         expectedLeaders: Map[TopicPartition, Int],
+                         results: Map[TopicPartition, ApiError],
+                         replicaManager: ReplicaManager,
+                         responseCallback: Map[TopicPartition, ApiError] => Unit
+) extends DelayedOperation(timeoutMs) with Logging {
 
   private var waitingPartitions = expectedLeaders
   private val fullResults = mutable.Map() ++= results
-
 
   /**
     * Call-back to execute when a delayed operation gets expired and hence forced to complete.
@@ -63,10 +62,10 @@ class DelayedElectLeader(
     *
     * This function needs to be defined in subclasses
     */
-  override def tryComplete(): Boolean = {
+  override def canComplete(): Boolean = {
     updateWaiting()
     debug(s"tryComplete() waitingPartitions: $waitingPartitions")
-    waitingPartitions.isEmpty && forceComplete()
+    waitingPartitions.isEmpty
   }
 
   private def updateWaiting(): Unit = {
