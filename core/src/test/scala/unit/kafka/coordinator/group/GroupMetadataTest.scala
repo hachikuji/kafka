@@ -356,7 +356,7 @@ class GroupMetadataTest {
     assertTrue(group.hasOffsets)
     assertEquals(None, group.offset(partition))
 
-    group.onOffsetCommitAppend(partition, CommitRecordMetadataAndOffset(Some(commitRecordOffset), offset))
+    group.onOffsetCommitAppend(partition, CommittedOffset(Some(commitRecordOffset), offset))
     assertTrue(group.hasOffsets)
     assertEquals(Some(offset), group.offset(partition))
   }
@@ -392,7 +392,7 @@ class GroupMetadataTest {
     assertTrue(group.hasOffsets)
     assertEquals(None, group.offset(partition))
 
-    group.onOffsetCommitAppend(partition, CommitRecordMetadataAndOffset(Some(3L), secondOffset))
+    group.onOffsetCommitAppend(partition, CommittedOffset(Some(3L), secondOffset))
     assertTrue(group.hasOffsets)
     assertEquals(Some(secondOffset), group.offset(partition))
   }
@@ -410,11 +410,11 @@ class GroupMetadataTest {
     group.prepareOffsetCommit(Map(partition -> secondOffset))
     assertTrue(group.hasOffsets)
 
-    group.onOffsetCommitAppend(partition, CommitRecordMetadataAndOffset(Some(4L), firstOffset))
+    group.onOffsetCommitAppend(partition, CommittedOffset(Some(4L), firstOffset))
     assertTrue(group.hasOffsets)
     assertEquals(Some(firstOffset), group.offset(partition))
 
-    group.onOffsetCommitAppend(partition, CommitRecordMetadataAndOffset(Some(5L), secondOffset))
+    group.onOffsetCommitAppend(partition, CommittedOffset(Some(5L), secondOffset))
     assertTrue(group.hasOffsets)
     assertEquals(Some(secondOffset), group.offset(partition))
   }
@@ -433,8 +433,8 @@ class GroupMetadataTest {
     group.prepareOffsetCommit(Map(partition -> consumerOffsetCommit))
     assertTrue(group.hasOffsets)
 
-    group.onTxnOffsetCommitAppend(producerId, partition, CommitRecordMetadataAndOffset(Some(3L), txnOffsetCommit))
-    group.onOffsetCommitAppend(partition, CommitRecordMetadataAndOffset(Some(4L), consumerOffsetCommit))
+    group.onTxnOffsetCommitAppend(producerId, partition, CommittedOffset(Some(3L), txnOffsetCommit))
+    group.onOffsetCommitAppend(partition, CommittedOffset(Some(4L), consumerOffsetCommit))
     assertTrue(group.hasOffsets)
     assertEquals(Some(consumerOffsetCommit), group.offset(partition))
 
@@ -458,8 +458,8 @@ class GroupMetadataTest {
     group.prepareOffsetCommit(Map(partition -> consumerOffsetCommit))
     assertTrue(group.hasOffsets)
 
-    group.onOffsetCommitAppend(partition, CommitRecordMetadataAndOffset(Some(3L), consumerOffsetCommit))
-    group.onTxnOffsetCommitAppend(producerId, partition, CommitRecordMetadataAndOffset(Some(4L), txnOffsetCommit))
+    group.onOffsetCommitAppend(partition, CommittedOffset(Some(3L), consumerOffsetCommit))
+    group.onTxnOffsetCommitAppend(producerId, partition, CommittedOffset(Some(4L), txnOffsetCommit))
     assertTrue(group.hasOffsets)
     // The transactional offset commit hasn't been committed yet, so we should materialize the consumer offset commit.
     assertEquals(Some(consumerOffsetCommit), group.offset(partition))
@@ -485,8 +485,8 @@ class GroupMetadataTest {
     group.prepareOffsetCommit(Map(partition -> consumerOffsetCommit))
     assertTrue(group.hasOffsets)
 
-    group.onOffsetCommitAppend(partition, CommitRecordMetadataAndOffset(Some(3L), consumerOffsetCommit))
-    group.onTxnOffsetCommitAppend(producerId, partition, CommitRecordMetadataAndOffset(Some(4L), txnOffsetCommit))
+    group.onOffsetCommitAppend(partition, CommittedOffset(Some(3L), consumerOffsetCommit))
+    group.onTxnOffsetCommitAppend(producerId, partition, CommittedOffset(Some(4L), txnOffsetCommit))
     assertTrue(group.hasOffsets)
     // The transactional offset commit hasn't been committed yet, so we should materialize the consumer offset commit.
     assertEquals(Some(consumerOffsetCommit), group.offset(partition))
@@ -509,7 +509,7 @@ class GroupMetadataTest {
     assertTrue(group.hasPendingOffsetCommitsFromProducer(producerId))
     assertTrue(group.hasOffsets)
     assertEquals(None, group.offset(partition))
-    group.failPendingTxnOffsetCommit(producerId, partition)
+    group.failPendingTxnOffsetCommit(producerId, partition, txnOffsetCommit)
     assertFalse(group.hasOffsets)
     assertFalse(group.hasPendingOffsetCommitsFromProducer(producerId))
 
