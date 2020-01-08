@@ -129,7 +129,9 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
                                       networkClient: NetworkClient,
                                       txnStateManager: TransactionStateManager,
                                       txnMarkerPurgatory: DelayedOperationPurgatory[DelayedTxnMarker],
-                                      time: Time) extends InterBrokerSendThread("TxnMarkerSenderThread-" + config.brokerId, networkClient, time) with Logging with KafkaMetricsGroup {
+                                      time: Time)
+  extends InterBrokerSendThread("TxnMarkerSenderThread-" + config.brokerId, networkClient, time)
+    with Logging with KafkaMetricsGroup {
 
   this.logIdent = "[Transaction Marker Channel Manager " + config.brokerId + "]: "
 
@@ -298,7 +300,9 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
       _ == Errors.COORDINATOR_NOT_AVAILABLE)
   }
 
-  def addTxnMarkersToBrokerQueue(transactionalId: String, producerId: Long, producerEpoch: Short,
+  def addTxnMarkersToBrokerQueue(transactionalId: String,
+                                 producerId: Long,
+                                 producerEpoch: Short,
                                  result: TransactionResult, coordinatorEpoch: Int,
                                  topicPartitions: immutable.Set[TopicPartition]): Unit = {
     val txnTopicPartition = txnStateManager.partitionFor(transactionalId)

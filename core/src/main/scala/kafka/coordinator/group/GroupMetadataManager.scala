@@ -333,14 +333,12 @@ class GroupMetadataManager(brokerId: Int,
       validateOffsetMetadataLength(offsetAndMetadata.metadata)
     }
 
-    group.inLock {
-      if (!group.hasReceivedConsistentOffsetCommits)
-        warn(s"group: ${group.groupId} with leader: ${group.leaderOrNull} has received offset commits from consumers as well " +
-          s"as transactional producers. Mixing both types of offset commits will generally result in surprises and " +
-          s"should be avoided.")
-    }
+    val producerIdOpt = if (producerId != RecordBatch.NO_PRODUCER_ID)
+      Some(producerId)
+    else
+      None
+    val isTxnOffsetCommit = producerIdOpt.isDefined
 
-    val isTxnOffsetCommit = producerId != RecordBatch.NO_PRODUCER_ID
     // construct the message set to append
     if (filteredOffsetMetadata.isEmpty) {
       // compute the final error codes for the commit response
@@ -371,6 +369,10 @@ class GroupMetadataManager(brokerId: Int,
           records.foreach(builder.append)
           val entries = Map(offsetTopicPartition -> builder.build())
 
+          val committedOffsets = offsetMetadata.map { case (topicPartition, offsetAndMetadata) =>
+            topicPartition -> group.offsets.addPendingAppend(topicPartition, offsetAndMetadata, producerIdOpt)
+          }
+
           // set the callback function to insert offsets into cache after log append completed
           def putCacheCallback(responseStatus: Map[TopicPartition, PartitionResponse]): Unit = {
             // the append response should only contain the topics partition
@@ -387,25 +389,13 @@ class GroupMetadataManager(brokerId: Int,
 
             val responseError = group.inLock {
               if (status.error == Errors.NONE) {
-                if (!group.is(Dead)) {
-                  filteredOffsetMetadata.foreach { case (topicPartition, offsetAndMetadata) =>
-                    if (isTxnOffsetCommit)
-                      group.onTxnOffsetCommitAppend(producerId, topicPartition, CommitRecordMetadataAndOffset(Some(status.baseOffset), offsetAndMetadata))
-                    else
-                      group.onOffsetCommitAppend(topicPartition, CommitRecordMetadataAndOffset(Some(status.baseOffset), offsetAndMetadata))
-                  }
+                committedOffsets.foreach { case (topicPartition, committedOffset) =>
+                  group.offsets.onAppendSuccess(topicPartition, committedOffset, producerIdOpt)
                 }
                 Errors.NONE
               } else {
-                if (!group.is(Dead)) {
-                  if (!group.hasPendingOffsetCommitsFromProducer(producerId))
-                    removeProducerGroup(producerId, group.groupId)
-                  filteredOffsetMetadata.foreach { case (topicPartition, offsetAndMetadata) =>
-                    if (isTxnOffsetCommit)
-                      group.failPendingTxnOffsetCommit(producerId, topicPartition)
-                    else
-                      group.failPendingOffsetWrite(topicPartition, offsetAndMetadata)
-                  }
+                committedOffsets.foreach { case (topicPartition, committedOffset) =>
+                  group.offsets.onAppendFailure(topicPartition, committedOffset, producerIdOpt)
                 }
 
                 debug(s"Offset commit $filteredOffsetMetadata from group ${group.groupId}, consumer $consumerId " +
@@ -442,17 +432,6 @@ class GroupMetadataManager(brokerId: Int,
 
             // finally trigger the callback logic passed from the API layer
             responseCallback(commitStatus)
-          }
-
-          if (isTxnOffsetCommit) {
-            group.inLock {
-              addProducerGroup(producerId, group.groupId)
-              group.prepareTxnOffsetCommit(producerId, offsetMetadata)
-            }
-          } else {
-            group.inLock {
-              group.prepareOffsetCommit(offsetMetadata)
-            }
           }
 
           appendForGroup(group, entries, putCacheCallback)
@@ -714,7 +693,8 @@ class GroupMetadataManager(brokerId: Int,
     }
   }
 
-  private def loadGroup(group: GroupMetadata, offsets: Map[TopicPartition, CommitRecordMetadataAndOffset],
+  private def loadGroup(group: GroupMetadata,
+                        offsets: Map[TopicPartition, CommitRecordMetadataAndOffset],
                         pendingTransactionalOffsets: Map[Long, mutable.Map[TopicPartition, CommitRecordMetadataAndOffset]]): Unit = {
     // offsets are initialized prior to loading the group into the cache to ensure that clients see a consistent
     // view of the group's offsets
@@ -788,7 +768,7 @@ class GroupMetadataManager(brokerId: Int,
       val groupId = group.groupId
       val (removedOffsets, groupIsDead, generation) = group.inLock {
         val removedOffsets = selector(group)
-        if (group.is(Empty) && !group.hasOffsets) {
+        if (group.is(Empty) && group.offsets.isEmpty) {
           info(s"Group $groupId transitioned to Dead in generation ${group.generationId}")
           group.transitionTo(Dead)
         }
@@ -869,8 +849,10 @@ class GroupMetadataManager(brokerId: Int,
       getGroup(groupId) match {
         case Some(group) => group.inLock {
           if (!group.is(Dead)) {
-            group.completePendingTxnOffsetCommit(producerId, isCommit)
-            removeProducerGroup(producerId, groupId)
+            if (isCommit)
+              group.offsets.commitTxn(producerId)
+            else
+              group.offsets.abortTxn(producerId)
           }
         }
         case _ =>
@@ -881,6 +863,7 @@ class GroupMetadataManager(brokerId: Int,
   }
 
   private def addProducerGroup(producerId: Long, groupId: String) = openGroupsForProducer synchronized {
+    // FIXME: This needs to be a concurrent map
     openGroupsForProducer.getOrElseUpdate(producerId, mutable.Set.empty[String]).add(groupId)
   }
 

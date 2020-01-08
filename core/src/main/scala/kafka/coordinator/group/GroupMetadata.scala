@@ -18,6 +18,8 @@ package kafka.coordinator.group
 
 import java.nio.ByteBuffer
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
 
 import kafka.common.OffsetAndMetadata
@@ -177,6 +179,125 @@ case class CommitRecordMetadataAndOffset(appendedBatchOffset: Option[Long], offs
   def olderThan(that: CommitRecordMetadataAndOffset): Boolean = appendedBatchOffset.get < that.appendedBatchOffset.get
 }
 
+
+case class CommittedOffset(offsetAndMetadata: OffsetAndMetadata, seq: Int)
+case class TxnTopicPartition(topicPartition: TopicPartition, producerId: Long)
+
+private[group] class OffsetCache {
+  private val offsets = new ConcurrentHashMap[TopicPartition, CommittedOffset]
+  private val pendingTxnOffsets = new ConcurrentHashMap[TxnTopicPartition, CommittedOffset]
+  private val nextSeq = new AtomicInteger(0)
+  private val ackedSeq = new AtomicInteger(0)
+
+  def hasPending: Boolean = {
+    nextSeq.get() > ackedSeq.get()
+  }
+
+  def isEmpty: Boolean = {
+    offsets.isEmpty && !hasPending && pendingTxnOffsets.isEmpty
+  }
+
+  def size: Int = {
+    offsets.size
+  }
+
+  def initialize(loadedOffsets: Map[TopicPartition, OffsetAndMetadata],
+                 loadedPendingTxnOffsets: Map[TxnTopicPartition, OffsetAndMetadata]): Unit = {
+    loadedOffsets.foreach { case (topicPartition, offsetAndMetadata) =>
+      val committedOffset = CommittedOffset(offsetAndMetadata, 0)
+      offsets.put(topicPartition, committedOffset)
+    }
+
+    loadedPendingTxnOffsets.foreach { case (txnTopicPartition, offsetAndMetadata) =>
+      val committedOffset = CommittedOffset(offsetAndMetadata, 0)
+      pendingTxnOffsets.put(txnTopicPartition, committedOffset)
+    }
+  }
+
+  def addPendingAppend(topicPartition: TopicPartition,
+                       offsetAndMetadata: OffsetAndMetadata,
+                       producerIdOpt: Option[Long]): CommittedOffset = {
+    val seq = nextSeq.incrementAndGet()
+    val committedOffset = CommittedOffset(offsetAndMetadata, seq)
+    producerIdOpt.foreach { producerId =>
+      val txnTopicPartition = TxnTopicPartition(topicPartition, producerId)
+      pendingTxnOffsets.put(txnTopicPartition, committedOffset)
+    }
+    committedOffset
+  }
+
+  def onAppendSuccess(topicPartition: TopicPartition,
+                      committedOffset: CommittedOffset,
+                      producerIdOpt: Option[Long]): Unit = {
+    if (producerIdOpt.isEmpty)
+      maybeMaterializeCommittedOffset(topicPartition, committedOffset)
+    maybeUpdateLastAckedSequence(committedOffset.seq)
+  }
+
+  def onAppendFailure(topicPartition: TopicPartition,
+                      committedOffset: CommittedOffset,
+                      producerIdOpt: Option[Long]): Unit = {
+    producerIdOpt.foreach { producerId =>
+      val txnTopicPartition = TxnTopicPartition(topicPartition, producerId)
+      pendingTxnOffsets.remove(txnTopicPartition, committedOffset)
+    }
+    maybeUpdateLastAckedSequence(committedOffset.seq)
+  }
+
+  def commitTxn(producerId: Long): Unit = {
+    val iter = pendingTxnOffsets.entrySet().iterator()
+    while (iter.hasNext) {
+      val entry = iter.next()
+      val txnTopicPartition = entry.getKey
+      if (txnTopicPartition.producerId == producerId) {
+        maybeMaterializeCommittedOffset(txnTopicPartition.topicPartition, entry.getValue)
+        iter.remove()
+      }
+    }
+  }
+
+  def abortTxn(producerId: Long): Unit = {
+    pendingTxnOffsets.keySet().removeIf { txnTopicPartition =>
+      txnTopicPartition.producerId == producerId
+    }
+  }
+
+  def removeIf(filter: (TopicPartition, OffsetAndMetadata) => Boolean): Map[TopicPartition, OffsetAndMetadata] = {
+    val removedOffsets = Map.newBuilder[TopicPartition, OffsetAndMetadata]
+    val iter = offsets.entrySet().iterator()
+    while (iter.hasNext) {
+      val entry = iter.next()
+      val topicPartition = entry.getKey
+      val committedOffset = entry.getValue
+
+      if (filter(topicPartition, committedOffset.offsetAndMetadata)) {
+        iter.remove()
+        removedOffsets += topicPartition -> committedOffset.offsetAndMetadata
+      }
+    }
+    removedOffsets.result()
+  }
+
+  private def maybeMaterializeCommittedOffset(topicPartition: TopicPartition, committedOffset: CommittedOffset): Unit = {
+    offsets.compute(topicPartition, (_, current) => {
+      if (current == null || committedOffset.seq > current.seq)
+        committedOffset
+      else
+        current
+    })
+  }
+
+  private def maybeUpdateLastAckedSequence(updatedSeq: Int): Unit = {
+    ackedSeq.getAndUpdate { currentSeq =>
+      if (updatedSeq > currentSeq)
+        updatedSeq
+      else
+        currentSeq
+    }
+  }
+
+}
+
 /**
  * Group contains the following metadata:
  *
@@ -209,11 +330,7 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
   private val pendingMembers = new mutable.HashSet[String]
   private var numMembersAwaitingJoin = 0
   private val supportedProtocols = new mutable.HashMap[String, Integer]().withDefaultValue(0)
-  private val offsets = new mutable.HashMap[TopicPartition, CommitRecordMetadataAndOffset]
-  private val pendingOffsetCommits = new mutable.HashMap[TopicPartition, OffsetAndMetadata]
-  private val pendingTransactionalOffsetCommits = new mutable.HashMap[Long, mutable.Map[TopicPartition, CommitRecordMetadataAndOffset]]()
-  private var receivedTransactionalOffsetCommits = false
-  private var receivedConsumerOffsetCommits = false
+  val offsets = new OffsetCache
 
   // When protocolType == `consumer`, a set of subscribed topics is maintained. The set is
   // computed when a new generation is created or when the group is restored from the log.
@@ -538,8 +655,6 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
       subscribedTopics = computeSubscribedTopics()
       transitionTo(Empty)
     }
-    receivedConsumerOffsetCommits = false
-    receivedTransactionalOffsetCommits = false
   }
 
   def currentMemberMetadata: List[JoinGroupResponseMember] = {
@@ -576,109 +691,6 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
     this.pendingTransactionalOffsetCommits ++= pendingTxnOffsets
   }
 
-  def onOffsetCommitAppend(topicPartition: TopicPartition, offsetWithCommitRecordMetadata: CommitRecordMetadataAndOffset): Unit = {
-    if (pendingOffsetCommits.contains(topicPartition)) {
-      if (offsetWithCommitRecordMetadata.appendedBatchOffset.isEmpty)
-        throw new IllegalStateException("Cannot complete offset commit write without providing the metadata of the record " +
-          "in the log.")
-      if (!offsets.contains(topicPartition) || offsets(topicPartition).olderThan(offsetWithCommitRecordMetadata))
-        offsets.put(topicPartition, offsetWithCommitRecordMetadata)
-    }
-
-    pendingOffsetCommits.get(topicPartition) match {
-      case Some(stagedOffset) if offsetWithCommitRecordMetadata.offsetAndMetadata == stagedOffset =>
-        pendingOffsetCommits.remove(topicPartition)
-      case _ =>
-        // The pendingOffsetCommits for this partition could be empty if the topic was deleted, in which case
-        // its entries would be removed from the cache by the `removeOffsets` method.
-    }
-  }
-
-  def failPendingOffsetWrite(topicPartition: TopicPartition, offset: OffsetAndMetadata): Unit = {
-    pendingOffsetCommits.get(topicPartition) match {
-      case Some(pendingOffset) if offset == pendingOffset => pendingOffsetCommits.remove(topicPartition)
-      case _ =>
-    }
-  }
-
-  def prepareOffsetCommit(offsets: Map[TopicPartition, OffsetAndMetadata]): Unit = {
-    receivedConsumerOffsetCommits = true
-    pendingOffsetCommits ++= offsets
-  }
-
-  def prepareTxnOffsetCommit(producerId: Long, offsets: Map[TopicPartition, OffsetAndMetadata]): Unit = {
-    trace(s"TxnOffsetCommit for producer $producerId and group $groupId with offsets $offsets is pending")
-    receivedTransactionalOffsetCommits = true
-    val producerOffsets = pendingTransactionalOffsetCommits.getOrElseUpdate(producerId,
-      mutable.Map.empty[TopicPartition, CommitRecordMetadataAndOffset])
-
-    offsets.foreach { case (topicPartition, offsetAndMetadata) =>
-      producerOffsets.put(topicPartition, CommitRecordMetadataAndOffset(None, offsetAndMetadata))
-    }
-  }
-
-  def hasReceivedConsistentOffsetCommits : Boolean = {
-    !receivedConsumerOffsetCommits || !receivedTransactionalOffsetCommits
-  }
-
-  /* Remove a pending transactional offset commit if the actual offset commit record was not written to the log.
-   * We will return an error and the client will retry the request, potentially to a different coordinator.
-   */
-  def failPendingTxnOffsetCommit(producerId: Long, topicPartition: TopicPartition): Unit = {
-    pendingTransactionalOffsetCommits.get(producerId) match {
-      case Some(pendingOffsets) =>
-        val pendingOffsetCommit = pendingOffsets.remove(topicPartition)
-        trace(s"TxnOffsetCommit for producer $producerId and group $groupId with offsets $pendingOffsetCommit failed " +
-          s"to be appended to the log")
-        if (pendingOffsets.isEmpty)
-          pendingTransactionalOffsetCommits.remove(producerId)
-      case _ =>
-        // We may hit this case if the partition in question has emigrated already.
-    }
-  }
-
-  def onTxnOffsetCommitAppend(producerId: Long, topicPartition: TopicPartition,
-                              commitRecordMetadataAndOffset: CommitRecordMetadataAndOffset): Unit = {
-    pendingTransactionalOffsetCommits.get(producerId) match {
-      case Some(pendingOffset) =>
-        if (pendingOffset.contains(topicPartition)
-          && pendingOffset(topicPartition).offsetAndMetadata == commitRecordMetadataAndOffset.offsetAndMetadata)
-          pendingOffset.update(topicPartition, commitRecordMetadataAndOffset)
-      case _ =>
-        // We may hit this case if the partition in question has emigrated.
-    }
-  }
-
-  /* Complete a pending transactional offset commit. This is called after a commit or abort marker is fully written
-   * to the log.
-   */
-  def completePendingTxnOffsetCommit(producerId: Long, isCommit: Boolean): Unit = {
-    val pendingOffsetsOpt = pendingTransactionalOffsetCommits.remove(producerId)
-    if (isCommit) {
-      pendingOffsetsOpt.foreach { pendingOffsets =>
-        pendingOffsets.foreach { case (topicPartition, commitRecordMetadataAndOffset) =>
-          if (commitRecordMetadataAndOffset.appendedBatchOffset.isEmpty)
-            throw new IllegalStateException(s"Trying to complete a transactional offset commit for producerId $producerId " +
-              s"and groupId $groupId even though the offset commit record itself hasn't been appended to the log.")
-
-          val currentOffsetOpt = offsets.get(topicPartition)
-          if (currentOffsetOpt.forall(_.olderThan(commitRecordMetadataAndOffset))) {
-            trace(s"TxnOffsetCommit for producer $producerId and group $groupId with offset $commitRecordMetadataAndOffset " +
-              "committed and loaded into the cache.")
-            offsets.put(topicPartition, commitRecordMetadataAndOffset)
-          } else {
-            trace(s"TxnOffsetCommit for producer $producerId and group $groupId with offset $commitRecordMetadataAndOffset " +
-              s"committed, but not loaded since its offset is older than current offset $currentOffsetOpt.")
-          }
-        }
-      }
-    } else {
-      trace(s"TxnOffsetCommit for producer $producerId and group $groupId with offsets $pendingOffsetsOpt aborted")
-    }
-  }
-
-  def activeProducers = pendingTransactionalOffsetCommits.keySet
-
   def hasPendingOffsetCommitsFromProducer(producerId: Long) =
     pendingTransactionalOffsetCommits.contains(producerId)
 
@@ -697,25 +709,20 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
 
   def removeExpiredOffsets(currentTimestamp: Long, offsetRetentionMs: Long): Map[TopicPartition, OffsetAndMetadata] = {
 
-    def getExpiredOffsets(baseTimestamp: CommitRecordMetadataAndOffset => Long,
-                          subscribedTopics: Set[String] = Set.empty): Map[TopicPartition, OffsetAndMetadata] = {
-      offsets.filter {
-        case (topicPartition, commitRecordMetadataAndOffset) =>
-          !subscribedTopics.contains(topicPartition.topic()) &&
-          !pendingOffsetCommits.contains(topicPartition) && {
-            commitRecordMetadataAndOffset.offsetAndMetadata.expireTimestamp match {
-              case None =>
-                // current version with no per partition retention
-                currentTimestamp - baseTimestamp(commitRecordMetadataAndOffset) >= offsetRetentionMs
-              case Some(expireTimestamp) =>
-                // older versions with explicit expire_timestamp field => old expiration semantics is used
-                currentTimestamp >= expireTimestamp
-            }
+    def removeExpiredOffsets(baseTimestamp: OffsetAndMetadata => Long,
+                             subscribedTopics: Set[String] = Set.empty): Map[TopicPartition, OffsetAndMetadata] = {
+      offsets.removeIf { (topicPartition, offsetAndMetadata) =>
+        !subscribedTopics.contains(topicPartition.topic) && {
+          offsetAndMetadata.expireTimestamp match {
+            case None =>
+              // current version with no per partition retention
+              currentTimestamp - baseTimestamp(offsetAndMetadata) >= offsetRetentionMs
+            case Some(expireTimestamp) =>
+              // older versions with explicit expire_timestamp field => old expiration semantics is used
+              currentTimestamp >= expireTimestamp
           }
-      }.map {
-        case (topicPartition, commitRecordOffsetAndMetadata) =>
-          (topicPartition, commitRecordOffsetAndMetadata.offsetAndMetadata)
-      }.toMap
+        }
+      }
     }
 
     val expiredOffsets: Map[TopicPartition, OffsetAndMetadata] = protocolType match {
@@ -725,9 +732,8 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
         //   expire all offsets with no pending offset commit;
         // - if there is no current state timestamp (old group metadata schema) and retention period has passed
         //   since the last commit timestamp, expire the offset
-        getExpiredOffsets(
-          commitRecordMetadataAndOffset => currentStateTimestamp
-            .getOrElse(commitRecordMetadataAndOffset.offsetAndMetadata.commitTimestamp)
+        removeExpiredOffsets(
+          offsetAndMetadata => currentStateTimestamp.getOrElse(offsetAndMetadata.commitTimestamp)
         )
 
       case Some(ConsumerProtocol.PROTOCOL_TYPE) if subscribedTopics.isDefined =>
@@ -735,15 +741,12 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
         // - if the group is aware of the subscribed topics and retention period had passed since the
         //   the last commit timestamp, expire the offset. offset with pending offset commit are not
         //   expired
-        getExpiredOffsets(
-          _.offsetAndMetadata.commitTimestamp,
-          subscribedTopics.get
-        )
+        removeExpiredOffsets(_.commitTimestamp, subscribedTopics.get)
 
       case None =>
         // protocolType is None => standalone (simple) consumer, that uses Kafka for offset storage only
         // expire offsets with no pending offset commit that retention period has passed since their last commit
-        getExpiredOffsets(_.offsetAndMetadata.commitTimestamp)
+        removeExpiredOffsets(_.commitTimestamp)
 
       case _ =>
         Map()
@@ -752,7 +755,6 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
     if (expiredOffsets.nonEmpty)
       debug(s"Expired offsets from group '$groupId': ${expiredOffsets.keySet}")
 
-    offsets --= expiredOffsets.keySet
     expiredOffsets
   }
 
@@ -765,9 +767,9 @@ private[group] class GroupMetadata(val groupId: String, initialState: GroupState
   // visible for testing
   private[group] def offsetWithRecordMetadata(topicPartition: TopicPartition): Option[CommitRecordMetadataAndOffset] = offsets.get(topicPartition)
 
-  def numOffsets = offsets.size
+  def numOffsets: Int = offsets.size
 
-  def hasOffsets = offsets.nonEmpty || pendingOffsetCommits.nonEmpty || pendingTransactionalOffsetCommits.nonEmpty
+  def hasOffsets: Boolean = !offsets.isEmpty
 
   private def assertValidTransition(targetState: GroupState): Unit = {
     if (!targetState.validPreviousStates.contains(state))
