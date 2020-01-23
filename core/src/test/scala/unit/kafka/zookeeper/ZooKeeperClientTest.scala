@@ -368,8 +368,19 @@ class ZooKeeperClientTest extends ZooKeeperTestHarness {
     Thread.sleep(100)
     requestThread.start()
 
-    reinitializeThread.join()
-    requestThread.join()
+    try {
+      reinitializeThread.join(15000)
+    } catch {
+      case e: Throwable =>
+        fail("Failed to join reinitialization thread", e)
+    }
+
+    try {
+      requestThread.join(15000)
+    } catch {
+      case e: Throwable =>
+        fail("Failed to join request thread", e)
+    }
   }
 
   @Test
