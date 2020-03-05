@@ -239,7 +239,7 @@ class Partition(val topicPartition: TopicPartition,
   newGauge("UnderMinIsr", () => if (isUnderMinIsr) 1 else 0, tags)
   newGauge("AtMinIsr", () => if (isAtMinIsr) 1 else 0, tags)
   newGauge("ReplicasCount", () => if (isLeader) assignmentState.replicationFactor else 0, tags)
-  newGauge("LastStableOffsetLag", () => log.map(_.lastStableOffsetLag).getOrElse(0), tags)
+  newGauge("LastStableOffsetLag", () => lastStableOffsetLag, tags)
 
   def isUnderReplicated: Boolean = isLeader && (assignmentState.replicationFactor - inSyncReplicaIds.size) > 0
 
@@ -252,6 +252,10 @@ class Partition(val topicPartition: TopicPartition,
   def isAddingLocalReplica: Boolean = assignmentState.isAddingReplica(localBrokerId)
 
   def isAddingReplica(replicaId: Int): Boolean = assignmentState.isAddingReplica(replicaId)
+
+  def lastStableOffsetLag: Long = {
+    log.map(_.lastStableOffsetLag).getOrElse(0)
+  }
 
   /**
     * Create the future replica if 1) the current replica is not in the given log directory and 2) the future replica

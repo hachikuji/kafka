@@ -242,6 +242,17 @@ class ReplicaManager(val config: KafkaConfig,
   newGauge("UnderMinIsrPartitionCount", () => leaderPartitionsIterator.count(_.isUnderMinIsr))
   newGauge("AtMinIsrPartitionCount", () => leaderPartitionsIterator.count(_.isAtMinIsr))
   newGauge("ReassigningPartitions", () => reassigningPartitionsCount)
+  newGauge("MaxLastStableOffsetLag", () => maxLastStableOffsetLag)
+
+  def maxLastStableOffsetLag: Long = {
+    var maxLsoLag = 0L
+    leaderPartitionsIterator.foreach { partition =>
+      val lsoLag = partition.lastStableOffsetLag
+      if (lsoLag > maxLsoLag)
+        maxLsoLag = lsoLag
+    }
+    maxLsoLag
+  }
 
   def reassigningPartitionsCount: Int = leaderPartitionsIterator.count(_.isReassigning)
 
@@ -1650,6 +1661,7 @@ class ReplicaManager(val config: KafkaConfig,
     removeMetric("UnderReplicatedPartitions")
     removeMetric("UnderMinIsrPartitionCount")
     removeMetric("AtMinIsrPartitionCount")
+    removeMetric("MaxLastStableOffsetLag")
   }
 
   // High watermark do not need to be checkpointed only when under unit tests
