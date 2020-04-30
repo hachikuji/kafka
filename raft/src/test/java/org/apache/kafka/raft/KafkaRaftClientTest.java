@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.raft;
 
+import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.message.BeginQuorumEpochRequestData;
 import org.apache.kafka.common.message.EndQuorumEpochRequestData;
 import org.apache.kafka.common.message.FetchQuorumRecordsRequestData;
@@ -53,6 +54,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
@@ -552,6 +554,29 @@ public class KafkaRaftClientTest {
 
         client.poll();
         assertEquals(2L, log.endOffset());
+    }
+
+    @Test
+    public void testAppendToNonLeaderFails() throws IOException {
+        int otherNodeId = 1;
+        int epoch = 5;
+        electionStore.write(ElectionState.withElectedLeader(epoch, otherNodeId));
+        Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
+        KafkaRaftClient client = buildClient(voters);
+        assertEquals(ElectionState.withElectedLeader(epoch, otherNodeId), electionStore.read());
+
+        SimpleRecord[] appendRecords = new SimpleRecord[] {
+            new SimpleRecord("a".getBytes()),
+            new SimpleRecord("b".getBytes()),
+            new SimpleRecord("c".getBytes())
+        };
+        Records records = MemoryRecords.withRecords(0L, CompressionType.NONE, 1, appendRecords);
+
+        CompletableFuture<OffsetAndEpoch> future = client.append(records);
+        client.poll();
+
+        assertTrue(future.isCompletedExceptionally());
+        TestUtils.assertFutureThrows(future, NotLeaderForPartitionException.class);
     }
 
     @Test
