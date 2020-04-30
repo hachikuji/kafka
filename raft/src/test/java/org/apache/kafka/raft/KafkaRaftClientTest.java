@@ -29,10 +29,11 @@ import org.apache.kafka.common.message.VoteResponseData;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.ControlRecordType;
+import org.apache.kafka.common.record.ControlRecordUtils;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.MutableRecordBatch;
-import org.apache.kafka.common.record.ControlRecordUtils;
 import org.apache.kafka.common.record.Record;
+import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.SimpleRecord;
 import org.apache.kafka.common.utils.LogContext;
@@ -126,9 +127,11 @@ public class KafkaRaftClientTest {
         client.poll();
         assertBeginQuorumEpochRequest(1);
 
-        List<MockLog.LogEntry> entries = log.readEntries(0, 1);
+        Records records = log.read(0, OptionalLong.of(1));
+        RecordBatch batch = records.batches().iterator().next();
+        assertTrue(batch.isControlBatch());
 
-        SimpleRecord record = entries.get(0).record;
+        Record record = batch.iterator().next();
         assertEquals(now, record.timestamp());
         verifyLeaderChangeMessage(localId, Collections.singletonList(otherNodeId),
             record.key(), record.value());

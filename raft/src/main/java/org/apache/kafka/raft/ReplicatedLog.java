@@ -77,9 +77,12 @@ public interface ReplicatedLog {
     void assignEpochStartOffset(int epoch, long startOffset);
 
     /**
-     * Truncate the log to the given offset. Returns true iff targetOffset < logEndOffset.
+     * Truncate the log to the given offset. All records with offsets greater than or equal to
+     * the given offset will be removed.
+     *
+     * @param offset The offset to truncate to
      */
-    boolean truncateTo(long offset);
+    void truncateTo(long offset);
 
     void updateHighWatermark(long offset);
 

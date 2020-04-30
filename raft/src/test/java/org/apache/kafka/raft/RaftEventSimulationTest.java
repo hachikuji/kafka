@@ -18,6 +18,8 @@ package org.apache.kafka.raft;
 
 import org.apache.kafka.common.message.FindQuorumResponseData;
 import org.apache.kafka.common.protocol.types.Type;
+import org.apache.kafka.common.record.Record;
+import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -227,7 +229,7 @@ public class RaftEventSimulationTest {
         // We need at least three voters to run this tests
         assumeTrue(config.numVoters > 2);
 
-        for (int seed = 0; seed < 100; seed++) {
+        for (int seed = 91; seed <= 91; seed++) {
             Cluster cluster = new Cluster(config, seed);
             MessageRouter router = new MessageRouter(cluster);
             EventScheduler scheduler = schedulerWithDefaultInvariants(cluster);
@@ -798,7 +800,7 @@ public class RaftEventSimulationTest {
 
     private static class ConsistentCommittedData implements Invariant {
         final Cluster cluster;
-        final List<Integer> committedLog = new ArrayList<>();
+        final Map<Long, ByteBuffer> committedValues = new HashMap<>();
 
         private ConsistentCommittedData(Cluster cluster) {
             this.cluster = cluster;
@@ -810,21 +812,14 @@ public class RaftEventSimulationTest {
         }
 
         private void assertCommittedData(KafkaRaftClient manager, MockLog log) {
-            manager.highWatermark().ifPresent(highWatermark -> {
-                List<MockLog.LogEntry> entries = log.readEntries(0L, highWatermark);
-                if (committedLog.size() < entries.size()) {
-                    for (int i = committedLog.size(); i < entries.size(); i++) {
-                        committedLog.add(parseSequenceNumber(entries.get(i)));
-                    }
-                }
-
-                for (int i = 0; i < entries.size(); i++) {
-                    Integer previousCommittedSequence = committedLog.get(i);
-                    Integer newCommitteSequence = parseSequenceNumber(entries.get(i));
-                    assertEquals("Committed sequence for a given offset should never change",
-                            previousCommittedSequence, newCommitteSequence);
-                }
-            });
+            Records records = log.read(0L, manager.highWatermark());
+            for (Record record : records.records()) {
+                long offset = record.offset();
+                ByteBuffer value = record.value();
+                committedValues.putIfAbsent(offset, value);
+                assertEquals("Committed value at offset " + offset + " changed",
+                    committedValues.get(offset), value);
+            }
         }
 
         @Override

@@ -23,6 +23,7 @@ import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.SimpleRecord;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.raft.MockLog.LogEntry;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,6 +35,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import static org.apache.kafka.common.record.ControlRecordUtils.deserialize;
 import static org.junit.Assert.assertEquals;
@@ -55,29 +58,40 @@ public class MockLogTest {
         SimpleRecord record = new SimpleRecord("foo".getBytes());
         log.appendAsLeader(Collections.singleton(record), epoch);
         assertEquals(epoch, log.lastFetchedEpoch());
-        List<LogEntry> entries = log.readEntries(0, 1);
-        assertEquals(Collections.singletonList(LogEntry.with(0, epoch, record)), entries);
         assertEquals(0L, log.startOffset());
         assertEquals(1L, log.endOffset());
+
+        Records records = log.read(0, OptionalLong.of(1));
+
+        RecordBatch batch = records.batches().iterator().next();
+        assertEquals(0, batch.baseOffset());
+        assertEquals(0, batch.lastOffset());
+
+        List<Record> batchRecords = Utils.toList(batch.iterator());
+        assertEquals(1, batchRecords.size());
+        assertEquals(record, new SimpleRecord(batchRecords.get(0)));
     }
 
     @Test
-    public void testTruncate() {
+    public void testTruncateTo() {
         int epoch = 2;
         SimpleRecord recordOne = new SimpleRecord("one".getBytes());
         SimpleRecord recordTwo = new SimpleRecord("two".getBytes());
         log.appendAsLeader(Arrays.asList(recordOne, recordTwo), epoch);
 
-        List<LogEntry> entries = log.readEntries(0, 2);
-        assertEquals(Arrays.asList(LogEntry.with(0, epoch, recordOne), LogEntry.with(1, epoch, recordTwo)), entries);
+        SimpleRecord recordThree = new SimpleRecord("three".getBytes());
+        log.appendAsLeader(Collections.singleton(recordThree), epoch);
+
+        assertEquals(0L, log.startOffset());
+        assertEquals(3L, log.endOffset());
+
+        log.truncateTo(2);
         assertEquals(0L, log.startOffset());
         assertEquals(2L, log.endOffset());
 
         log.truncateTo(1);
-        entries = log.readEntries(0, 2);
-        assertEquals(Collections.singletonList(LogEntry.with(0, epoch, recordOne)), entries);
         assertEquals(0L, log.startOffset());
-        assertEquals(1L, log.endOffset());
+        assertEquals(0L, log.endOffset());
     }
 
     @Test
@@ -156,14 +170,14 @@ public class MockLogTest {
 
     @Test
     public void testAppendAsFollower() {
-        // The record passed-in offsets are not going to affect the eventual offsets.
         final long initialOffset = 5L;
+        final int epoch = 3;
         SimpleRecord recordFoo = new SimpleRecord("foo".getBytes());
-        log.appendAsFollower(MemoryRecords.withRecords(initialOffset, CompressionType.NONE, recordFoo));
+        log.appendAsFollower(MemoryRecords.withRecords(initialOffset, CompressionType.NONE, epoch, recordFoo));
 
-        assertEquals(0, log.startOffset());
-        assertEquals(1, log.endOffset());
-        assertEquals(0, log.lastFetchedEpoch());
+        assertEquals(5L, log.startOffset());
+        assertEquals(6L, log.endOffset());
+        assertEquals(3, log.lastFetchedEpoch());
 
         Records records = log.read(0, OptionalLong.empty());
         List<ByteBuffer> extractRecords = new ArrayList<>();
@@ -173,8 +187,8 @@ public class MockLogTest {
 
         assertEquals(1, extractRecords.size());
         assertEquals(recordFoo.value(), extractRecords.get(0));
-        // The data epoch is not larger than default, so no advance for epoch offsets.
-        assertEquals(Optional.empty(), log.endOffsetForEpoch(0));
+        assertEquals(Optional.of(new OffsetAndEpoch(5, 0)), log.endOffsetForEpoch(0));
+        assertEquals(Optional.of(new OffsetAndEpoch(log.endOffset(), epoch)), log.endOffsetForEpoch(epoch));
     }
 
     @Test
