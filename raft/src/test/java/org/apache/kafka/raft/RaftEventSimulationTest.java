@@ -461,7 +461,7 @@ public class RaftEventSimulationTest {
 
     private static class Cluster {
         final Random random;
-        final AtomicInteger requestIdCounter = new AtomicInteger();
+        final AtomicInteger correlationIdCounter = new AtomicInteger();
         final Time time = new MockTime();
         final Set<Integer> voters = new HashSet<>();
         final Map<Integer, PersistentState> nodes = new HashMap<>();
@@ -616,7 +616,7 @@ public class RaftEventSimulationTest {
         void start(int nodeId) {
             LogContext logContext = new LogContext("[Node " + nodeId + "] ");
             PersistentState persistentState = nodes.get(nodeId);
-            MockNetworkChannel channel = new MockNetworkChannel(requestIdCounter);
+            MockNetworkChannel channel = new MockNetworkChannel(correlationIdCounter);
             QuorumState quorum = new QuorumState(nodeId, voters(), persistentState.store, logContext);
 
             // For the bootstrap server, we use a pretend VIP which internally routes
@@ -679,12 +679,12 @@ public class RaftEventSimulationTest {
     }
 
     private static class InflightRequest {
-        final int requestId;
+        final int correlationId;
         final int sourceId;
         final int destinationId;
 
-        private InflightRequest(int requestId, int sourceId, int destinationId) {
-            this.requestId = requestId;
+        private InflightRequest(int correlationId, int sourceId, int destinationId) {
+            this.correlationId = correlationId;
             this.sourceId = sourceId;
             this.destinationId = destinationId;
         }
@@ -840,9 +840,9 @@ public class RaftEventSimulationTest {
         }
 
         void deliver(int senderId, RaftRequest.Outbound outbound) {
-            int requestId = outbound.requestId();
+            int correlationId = outbound.correlationId();
             int destinationId = outbound.destinationId();
-            RaftRequest.Inbound inbound = new RaftRequest.Inbound(requestId, outbound.data(),
+            RaftRequest.Inbound inbound = new RaftRequest.Inbound(correlationId, outbound.data(),
                 cluster.time.milliseconds());
 
             final int targetNodeId;
@@ -858,19 +858,18 @@ public class RaftEventSimulationTest {
 
             cluster.nodeIfRunning(targetNodeId).ifPresent(node -> {
                 MockNetworkChannel destChannel = node.channel;
-                inflight.put(requestId, new InflightRequest(requestId, senderId, targetNodeId));
+                inflight.put(correlationId, new InflightRequest(correlationId, senderId, targetNodeId));
                 destChannel.mockReceive(inbound);
             });
         }
 
         void deliver(int senderId, RaftResponse.Outbound outbound) {
-            int requestId = outbound.requestId();
+            int correlationId = outbound.correlationId();
             if (outbound.data instanceof FindQuorumResponseData)
                 senderId = -1;
 
-            RaftResponse.Inbound inbound = new RaftResponse.Inbound(requestId, outbound.data(), senderId);
-            InflightRequest inflightRequest = inflight.remove(requestId);
-
+            RaftResponse.Inbound inbound = new RaftResponse.Inbound(correlationId, outbound.data(), senderId);
+            InflightRequest inflightRequest = inflight.remove(correlationId);
             if (!filters.get(inflightRequest.sourceId).acceptInbound(inbound))
                 return;
 

@@ -616,7 +616,7 @@ public class KafkaRaftClient implements RaftClient {
             responseError = Errors.forCode(fetchRecordsResponse.errorCode());
 
             if (responseError == Errors.OFFSET_OUT_OF_RANGE) {
-                connection.onResponseReceived(response.requestId);
+                connection.onResponseReceived(response.correlationId);
                 return false;
             }
 
@@ -650,7 +650,7 @@ public class KafkaRaftClient implements RaftClient {
             throw new IllegalStateException("Received unexpected response " + response);
         }
 
-        connection.onResponse(response.requestId, responseError, currentTimeMs);
+        connection.onResponse(response.correlationId, responseError, currentTimeMs);
         if (handleNonMatchingResponseLeaderAndEpoch(responseEpoch, responseLeaderId)) {
             return true;
         } else if (responseError != Errors.NONE) {
@@ -755,7 +755,7 @@ public class KafkaRaftClient implements RaftClient {
             throw new IllegalStateException("Unexpected request type " + requestData);
         }
 
-        channel.send(new RaftResponse.Outbound(request.requestId(), responseData));
+        channel.send(new RaftResponse.Outbound(request.correlationId(), responseData));
     }
 
     private void handleInboundMessage(RaftMessage message, long currentTimeMs) throws IOException {
@@ -780,13 +780,12 @@ public class KafkaRaftClient implements RaftClient {
             // Observers need to proactively find the leader if there is a request timeout
             becomeUnattachedFollower(quorum.epoch());
         } else if (connection.isReady(currentTimeMs)) {
-            int requestId = channel.newRequestId();
+            int correlationId = channel.newCorrelationId();
             ApiMessage request = requestData.get();
-            logger.debug("Sending request with id {} to {}: {}", requestId, destinationId, request);
-
-            channel.send(new RaftRequest.Outbound(requestId, request, destinationId, currentTimeMs));
-            connection.onRequestSent(requestId, time.milliseconds());
-            return OptionalInt.of(requestId);
+            logger.debug("Sending request with id {} to {}: {}", correlationId, destinationId, request);
+            channel.send(new RaftRequest.Outbound(correlationId, request, destinationId, currentTimeMs));
+            connection.onRequestSent(correlationId, time.milliseconds());
+            return OptionalInt.of(correlationId);
         }
         return OptionalInt.empty();
     }
