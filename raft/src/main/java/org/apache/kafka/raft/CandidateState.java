@@ -117,6 +117,18 @@ public class CandidateState implements EpochState {
             .collect(Collectors.toSet());
     }
 
+    /**
+     * Get the set of voters that have rejected our candidacy.
+     *
+     * @return The set of rejecting voters
+     */
+    public Set<Integer> rejectingVoters() {
+        return voteStates.entrySet().stream()
+            .filter(entry -> entry.getValue() == VoteState.REJECTED)
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toSet());
+    }
+
     @Override
     public ElectionState election() {
         return ElectionState.withVotedCandidate(epoch, localId);

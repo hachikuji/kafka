@@ -117,7 +117,7 @@ public class KafkaRaftClient implements RaftClient {
     private final NetworkChannel channel;
     private final ReplicatedLog log;
     private final QuorumState quorum;
-    private final Random random = new Random();
+    private final Random random;
     private final ConnectionCache connections;
 
     private BlockingQueue<PendingAppendRequest> unsentAppends;
@@ -133,7 +133,8 @@ public class KafkaRaftClient implements RaftClient {
                            int electionJitterMs,
                            int retryBackoffMs,
                            int requestTimeoutMs,
-                           LogContext logContext) {
+                           LogContext logContext,
+                           Random random) {
         this.channel = channel;
         this.log = log;
         this.quorum = quorum;
@@ -146,6 +147,7 @@ public class KafkaRaftClient implements RaftClient {
         this.bootTimestamp = time.milliseconds();
         this.advertisedListener = advertisedListener;
         this.logger = logContext.logger(KafkaRaftClient.class);
+        this.random = random;
         this.connections = new ConnectionCache(channel, bootstrapServers,
             retryBackoffMs, requestTimeoutMs, logContext);
         this.unsentAppends = new ArrayBlockingQueue<>(10);
@@ -258,7 +260,7 @@ public class KafkaRaftClient implements RaftClient {
     }
 
     private void becomeCandidate() throws IOException {
-        electionTimer.reset(electionTimeoutMs);
+        electionTimer.reset(electionTimeoutMs + randomElectionJitterMs());
         CandidateState state = quorum.becomeCandidate();
         maybeBecomeLeader(state);
         resetConnections();
@@ -350,11 +352,9 @@ public class KafkaRaftClient implements RaftClient {
             } else {
                 state.recordRejectedVote(remoteNodeId);
                 if (state.isVoteRejected()) {
-                    logger.info("A majority of voters rejected our candidacy, so we will become a follower");
-                    becomeUnattachedFollower(quorum.epoch());
-
-                    // We will retry our candidacy after a short backoff if no leader is elected
-                    electionTimer.reset(retryBackoffMs + randomElectionJitterMs());
+                    logger.info("Insufficient remaining votes to become leader (rejected by {}). " +
+                            "We will backoff before retrying", state.rejectingVoters());
+                    electionTimer.reset(randomElectionJitterMs());
                 }
             }
         }
@@ -914,7 +914,6 @@ public class KafkaRaftClient implements RaftClient {
         if (gracefulShutdown != null) {
             pollShutdown(gracefulShutdown);
         } else {
-            // This call is a bit annoying, but perhaps justifiable if we need to acquire a lock
             electionTimer.update();
 
             if (quorum.isVoter() && electionTimer.isExpired()) {
