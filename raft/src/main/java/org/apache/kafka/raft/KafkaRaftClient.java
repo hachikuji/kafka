@@ -353,8 +353,8 @@ public class KafkaRaftClient implements RaftClient {
                 state.recordRejectedVote(remoteNodeId);
                 if (state.isVoteRejected()) {
                     logger.info("Insufficient remaining votes to become leader (rejected by {}). " +
-                            "We will backoff before retrying", state.rejectingVoters());
-                    electionTimer.reset(randomElectionJitterMs());
+                            "We will await expiration of election timeout before retrying",
+                        state.rejectingVoters());
                 }
             }
         }

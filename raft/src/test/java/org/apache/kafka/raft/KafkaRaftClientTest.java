@@ -190,6 +190,10 @@ public class KafkaRaftClientTest {
     public void testRetryElection() throws Exception {
         int otherNodeId = 1;
         int epoch = 1;
+
+        int jitterMs = 85;
+        Mockito.doReturn(jitterMs).when(random).nextInt(Mockito.anyInt());
+
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
         KafkaRaftClient client = buildClient(voters);
         assertEquals(ElectionState.withVotedCandidate(epoch, localId), quorumStateStore.readElectionState());
@@ -207,10 +211,6 @@ public class KafkaRaftClientTest {
         VoteResponseData voteResponse = voteResponse(false, Optional.empty(), 1);
         channel.mockReceive(new RaftResponse.Inbound(correlationId, voteResponse, otherNodeId));
 
-        // Add some jitter on the next random call. This is how long we should wait before
-        // we start a new election
-        int jitterMs = 85;
-        Mockito.doReturn(jitterMs).when(random).nextInt(Mockito.anyInt());
         client.poll();
         assertEquals(ElectionState.withUnknownLeader(1), quorumStateStore.readElectionState());
 
@@ -220,8 +220,9 @@ public class KafkaRaftClientTest {
         assertTrue(latest.hasVoted());
         assertEquals(localId, latest.votedId());
 
-        // Until the jitter expires, we remain in the failed candidate state
-        time.sleep(jitterMs - 1);
+        // Even though our candidacy was rejected, we need to await the expiration of the election
+        // timeout (plus jitter) before we bump the epoch and start a new election.
+        time.sleep(electionTimeoutMs + jitterMs - 1);
         client.poll();
         assertEquals(epoch, quorumStateStore.readElectionState().epoch);
 
