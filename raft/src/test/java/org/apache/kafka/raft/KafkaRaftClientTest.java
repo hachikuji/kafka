@@ -207,7 +207,8 @@ public class KafkaRaftClientTest {
         VoteResponseData voteResponse = voteResponse(false, Optional.empty(), 1);
         channel.mockReceive(new RaftResponse.Inbound(correlationId, voteResponse, otherNodeId));
 
-        // Add 50ms jitter on the next random call
+        // Add some jitter on the next random call. This is how long we should wait before
+        // we start a new election
         int jitterMs = 85;
         Mockito.doReturn(jitterMs).when(random).nextInt(Mockito.anyInt());
         client.poll();
