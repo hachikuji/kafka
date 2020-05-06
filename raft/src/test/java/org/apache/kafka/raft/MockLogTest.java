@@ -24,7 +24,6 @@ import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.record.SimpleRecord;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.raft.MockLog.LogEntry;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -35,8 +34,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import static org.apache.kafka.common.record.ControlRecordUtils.deserialize;
 import static org.junit.Assert.assertEquals;
@@ -55,21 +52,44 @@ public class MockLogTest {
     @Test
     public void testAppendAsLeaderHelper() {
         int epoch = 2;
-        SimpleRecord record = new SimpleRecord("foo".getBytes());
-        log.appendAsLeader(Collections.singleton(record), epoch);
+        SimpleRecord recordOne = new SimpleRecord("one".getBytes());
+        log.appendAsLeader(Collections.singleton(recordOne), epoch);
         assertEquals(epoch, log.lastFetchedEpoch());
         assertEquals(0L, log.startOffset());
         assertEquals(1L, log.endOffset());
 
         Records records = log.read(0, OptionalLong.of(1));
+        List<? extends RecordBatch> batches = Utils.toList(records.batches().iterator());
 
-        RecordBatch batch = records.batches().iterator().next();
+        RecordBatch batch = batches.get(0);
         assertEquals(0, batch.baseOffset());
         assertEquals(0, batch.lastOffset());
 
-        List<Record> batchRecords = Utils.toList(batch.iterator());
-        assertEquals(1, batchRecords.size());
-        assertEquals(record, new SimpleRecord(batchRecords.get(0)));
+        List<Record> fetchedRecords = Utils.toList(batch.iterator());
+        assertEquals(1, fetchedRecords.size());
+        assertEquals(recordOne, new SimpleRecord(fetchedRecords.get(0)));
+        assertEquals(0, fetchedRecords.get(0).offset());
+
+        SimpleRecord recordTwo = new SimpleRecord("two".getBytes());
+        SimpleRecord recordThree = new SimpleRecord("three".getBytes());
+        log.appendAsLeader(Arrays.asList(recordTwo, recordThree), epoch);
+        assertEquals(0L, log.startOffset());
+        assertEquals(3L, log.endOffset());
+
+        records = log.read(0, OptionalLong.empty());
+        batches = Utils.toList(records.batches().iterator());
+        assertEquals(2, batches.size());
+
+        fetchedRecords = Utils.toList(records.records().iterator());
+        assertEquals(3, fetchedRecords.size());
+        assertEquals(recordOne, new SimpleRecord(fetchedRecords.get(0)));
+        assertEquals(0, fetchedRecords.get(0).offset());
+
+        assertEquals(recordTwo, new SimpleRecord(fetchedRecords.get(1)));
+        assertEquals(1, fetchedRecords.get(1).offset());
+
+        assertEquals(recordThree, new SimpleRecord(fetchedRecords.get(2)));
+        assertEquals(2, fetchedRecords.get(2).offset());
     }
 
     @Test

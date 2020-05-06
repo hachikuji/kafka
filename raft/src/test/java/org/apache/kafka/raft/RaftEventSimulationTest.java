@@ -18,12 +18,12 @@ package org.apache.kafka.raft;
 
 import org.apache.kafka.common.message.FindQuorumResponseData;
 import org.apache.kafka.common.protocol.types.Type;
-import org.apache.kafka.common.record.Record;
-import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.raft.MockLog.LogBatch;
+import org.apache.kafka.raft.MockLog.LogEntry;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -229,7 +229,7 @@ public class RaftEventSimulationTest {
         // We need at least three voters to run this tests
         assumeTrue(config.numVoters > 2);
 
-        for (int seed = 91; seed <= 91; seed++) {
+        for (int seed = 0; seed < 100; seed++) {
             Cluster cluster = new Cluster(config, seed);
             MessageRouter router = new MessageRouter(cluster);
             EventScheduler scheduler = schedulerWithDefaultInvariants(cluster);
@@ -800,31 +800,51 @@ public class RaftEventSimulationTest {
 
     private static class ConsistentCommittedData implements Invariant {
         final Cluster cluster;
-        final Map<Long, ByteBuffer> committedValues = new HashMap<>();
+        final Map<Long, Integer> committedSequenceNumbers = new HashMap<>();
 
         private ConsistentCommittedData(Cluster cluster) {
             this.cluster = cluster;
         }
 
-        private Integer parseSequenceNumber(MockLog.LogEntry entry) {
-            ByteBuffer value = entry.record.value().duplicate();
-            return (Integer) Type.INT32.read(value);
+        private int parseSequenceNumber(ByteBuffer value) {
+            return (int) Type.INT32.read(value);
         }
 
-        private void assertCommittedData(KafkaRaftClient manager, MockLog log) {
-            Records records = log.read(0L, manager.highWatermark());
-            for (Record record : records.records()) {
-                long offset = record.offset();
-                ByteBuffer value = record.value();
-                committedValues.putIfAbsent(offset, value);
-                assertEquals("Committed value at offset " + offset + " changed",
-                    committedValues.get(offset), value);
+        private void assertCommittedData(int nodeId, KafkaRaftClient manager, MockLog log) {
+            OptionalLong highWatermark = manager.highWatermark();
+            if (!highWatermark.isPresent()) {
+                // We cannot do validation if the current high watermark is unknown
+                return;
+            }
+
+            int nextExpectedSequence = 1;
+            for (LogBatch batch : log.readBatches(0L, highWatermark)) {
+                if (batch.isControlBatch) {
+                    continue;
+                }
+
+                for (LogEntry entry : batch.entries) {
+                    long offset = entry.offset;
+                    assertTrue(offset < highWatermark.getAsLong());
+
+                    int sequence = parseSequenceNumber(entry.record.value().duplicate());
+                    assertEquals("Unexpected sequence found at offset " + offset + " on node " + nodeId,
+                        nextExpectedSequence, sequence);
+
+                    committedSequenceNumbers.putIfAbsent(offset, sequence);
+
+                    int committedSequence = committedSequenceNumbers.get(offset);
+                    assertEquals("Committed sequence at offset " + offset + " changed on node " + nodeId,
+                        committedSequence, sequence);
+
+                    nextExpectedSequence++;
+                }
             }
         }
 
         @Override
         public void verify() {
-            cluster.forAllRunning(node -> assertCommittedData(node.manager, node.log));
+            cluster.forAllRunning(node -> assertCommittedData(node.nodeId, node.manager, node.log));
         }
     }
 

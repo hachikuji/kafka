@@ -611,10 +611,12 @@ public class KafkaRaftClientTest {
         log.appendAsLeader(Arrays.asList(
                 new SimpleRecord("foo".getBytes()),
                 new SimpleRecord("bar".getBytes())), lastEpoch);
+        log.appendAsLeader(Arrays.asList(
+            new SimpleRecord("baz".getBytes())), lastEpoch);
 
         KafkaRaftClient client = buildClient(voters);
         assertEquals(ElectionState.withElectedLeader(epoch, otherNodeId), electionStore.read());
-        assertEquals(2L, log.endOffset());
+        assertEquals(3L, log.endOffset());
 
         pollUntilSend(client);
 
@@ -624,19 +626,19 @@ public class KafkaRaftClientTest {
 
         pollUntilSend(client);
 
-        int correlationId = assertSentFetchQuorumRecordsRequest(epoch, 2L, lastEpoch);
+        int correlationId = assertSentFetchQuorumRecordsRequest(epoch, 3L, lastEpoch);
 
-        FetchQuorumRecordsResponseData response = outOfRangeFetchRecordsResponse(epoch, otherNodeId, 1L,
+        FetchQuorumRecordsResponseData response = outOfRangeFetchRecordsResponse(epoch, otherNodeId, 2L,
             lastEpoch, 1L);
         channel.mockReceive(new RaftResponse.Inbound(correlationId, response, otherNodeId));
 
         // Poll again to complete truncation
         client.poll();
-        assertEquals(1L, log.endOffset());
+        assertEquals(2L, log.endOffset());
 
         // Now we should be fetching
         client.poll();
-        assertSentFetchQuorumRecordsRequest(epoch, 1L, lastEpoch);
+        assertSentFetchQuorumRecordsRequest(epoch, 2L, lastEpoch);
     }
 
     private void verifyLeaderChangeMessage(int leaderId,

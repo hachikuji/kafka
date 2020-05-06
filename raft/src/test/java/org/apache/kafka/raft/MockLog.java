@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.raft;
 
+import org.apache.kafka.common.errors.OffsetOutOfRangeException;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.MemoryRecordsBuilder;
@@ -28,6 +29,7 @@ import org.apache.kafka.common.record.TimestampType;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -157,23 +159,34 @@ public class MockLog implements ReplicatedLog {
         }
     }
 
-    @Override
-    public Records read(long startOffset, OptionalLong endOffset) {
-        long maxOffset = endOffset.orElse(Long.MAX_VALUE);
-        List<LogBatch> batches = log.stream()
+    public List<LogBatch> readBatches(long startOffset, OptionalLong maxOffsetOpt) {
+        long maxOffset = maxOffsetOpt.orElse(endOffset());
+        if (startOffset > maxOffset) {
+            throw new OffsetOutOfRangeException("Requested offset " + startOffset + " is larger than " +
+                "the provided end offset " + maxOffsetOpt);
+        }
+
+        if (startOffset == maxOffset) {
+            return Collections.emptyList();
+        }
+
+        return log.stream()
             .filter(batch -> batch.firstOffset() >= startOffset && batch.lastOffset() < maxOffset)
             .collect(Collectors.toList());
+    }
 
-        if (batches.isEmpty()) {
+    @Override
+    public Records read(long startOffset, OptionalLong maxOffsetOpt) {
+        List<LogBatch> batches = readBatches(startOffset, maxOffsetOpt);
+        if (batches.isEmpty())
             return MemoryRecords.EMPTY;
-        } else {
-            ByteBuffer buffer = ByteBuffer.allocate(1024);
-            for (LogBatch batch : batches) {
-                buffer = batch.writeTo(buffer);
-            }
-            buffer.flip();
-            return MemoryRecords.readableRecords(buffer);
+
+        ByteBuffer buffer = ByteBuffer.allocate(512);
+        for (LogBatch batch : batches) {
+            buffer = batch.writeTo(buffer);
         }
+        buffer.flip();
+        return MemoryRecords.readableRecords(buffer);
     }
 
     @Override

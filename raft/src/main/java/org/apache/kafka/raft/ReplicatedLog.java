@@ -89,35 +89,31 @@ public interface ReplicatedLog {
     /**
      * Truncate to an offset and epoch.
      *
-     * TODO: Do we need the return value here?
-     *
      * @param endOffset offset and epoch to truncate to
-     * @return true if we truncated to a known point in the requested epoch
+     * @return the truncation offset or empty if no truncation occurred
      */
-    default boolean truncateToEndOffset(OffsetAndEpoch endOffset) {
+    default OptionalLong truncateToEndOffset(OffsetAndEpoch endOffset) {
+        final long truncationOffset;
         int leaderEpoch = endOffset.epoch;
         if (leaderEpoch == 0) {
-            truncateTo(endOffset.offset);
-            return true;
+            truncationOffset = endOffset.offset;
         } else {
             Optional<OffsetAndEpoch> localEndOffsetOpt = endOffsetForEpoch(leaderEpoch);
             if (localEndOffsetOpt.isPresent()) {
                 OffsetAndEpoch localEndOffset = localEndOffsetOpt.get();
                 if (localEndOffset.epoch == leaderEpoch) {
-                    long truncationOffset = Math.min(localEndOffset.offset, endOffset.offset);
-                    truncateTo(truncationOffset);
-                    return true;
+                    truncationOffset = Math.min(localEndOffset.offset, endOffset.offset);
                 } else {
-                    long truncationOffset = Math.min(localEndOffset.offset, endOffset());
-                    truncateTo(truncationOffset);
-                    return false;
+                    truncationOffset = Math.min(localEndOffset.offset, endOffset());
                 }
             } else {
                 // The leader has no epoch which is less than or equal to our own epoch. We simply truncate
                 // to the leader offset and begin replication from there.
-                truncateTo(endOffset.offset);
-                return true;
+                truncationOffset = endOffset.offset;
             }
         }
+
+        truncateTo(truncationOffset);
+        return OptionalLong.of(truncationOffset);
     }
 }

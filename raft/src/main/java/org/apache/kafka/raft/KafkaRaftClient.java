@@ -167,14 +167,14 @@ public class KafkaRaftClient implements RaftClient {
             long newHighWatermark = Math.min(endOffset().offset, highWatermark);
             state.updateHighWatermark(OptionalLong.of(newHighWatermark));
             highWatermarkOpt.ifPresent(log::updateHighWatermark);
-            logger.trace("Follower high watermark updated to {}", newHighWatermark);
+            logger.info("Follower high watermark updated to {}", newHighWatermark);
             applyCommittedRecordsToStateMachine();
         });
     }
 
     private void updateLeaderEndOffset(LeaderState state) {
         if (state.updateLocalEndOffset(log.endOffset())) {
-            logger.trace("Leader high watermark updated to {} after end offset updated to {}",
+            logger.info("Leader high watermark updated to {} after end offset updated to {}",
                     state.highWatermark(), log.endOffset());
             applyCommittedRecordsToStateMachine();
         }
@@ -290,10 +290,6 @@ public class KafkaRaftClient implements RaftClient {
         if (quorum.becomeFollower(epoch, leaderId)) {
             onBecomeFollowerOfElectedLeader(quorum.followerStateOrThrow());
         }
-    }
-
-    private void maybeBeginFetching(OffsetAndEpoch prevEpochEndOffset) {
-        log.truncateToEndOffset(prevEpochEndOffset);
     }
 
     private VoteResponseData buildVoteResponse(Errors error, boolean voteGranted) {
@@ -503,9 +499,12 @@ public class KafkaRaftClient implements RaftClient {
             if (response.nextFetchOffset() < 0 || response.nextFetchOffsetEpoch() < 0) {
                 logger.warn("Leader returned an unknown truncation offset to our FetchQuorumRecords request");
             } else {
-                OffsetAndEpoch endOffset = new OffsetAndEpoch(
+                OffsetAndEpoch nextFetchOffset = new OffsetAndEpoch(
                     response.nextFetchOffset(), response.nextFetchOffsetEpoch());
-                maybeBeginFetching(endOffset);
+                log.truncateToEndOffset(nextFetchOffset).ifPresent(truncationOffset -> {
+                    logger.info("Truncated to offset {} after out of range error from leader {}",
+                        truncationOffset, quorum.leaderIdOrNil());
+                });
             }
         } else {
             ByteBuffer recordsBuffer = response.records();
