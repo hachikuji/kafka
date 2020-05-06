@@ -197,6 +197,7 @@ public class ConnectionCacheTest {
 
         long correlationId = 1;
         connectionState.onRequestSent(correlationId, time.milliseconds());
+        assertFalse(connectionState.isReady(time.milliseconds()));
         connectionState.onResponseReceived(correlationId);
         assertTrue(connectionState.isReady(time.milliseconds()));
     }
@@ -223,6 +224,7 @@ public class ConnectionCacheTest {
 
         long correlationId = 1;
         connectionState.onRequestSent(correlationId, time.milliseconds());
+        assertFalse(connectionState.isReady(time.milliseconds()));
         connectionState.onResponseReceived(correlationId + 1);
         assertFalse(connectionState.isReady(time.milliseconds()));
     }
