@@ -53,7 +53,7 @@ public interface NetworkChannel {
     void wakeup();
 
     /**
-     * Update connection information for the  given id.
+     * Update connection information for the given id.
      */
     void updateEndpoint(int id, InetSocketAddress address);
 
