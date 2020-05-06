@@ -167,14 +167,14 @@ public class KafkaRaftClient implements RaftClient {
             long newHighWatermark = Math.min(endOffset().offset, highWatermark);
             state.updateHighWatermark(OptionalLong.of(newHighWatermark));
             highWatermarkOpt.ifPresent(log::updateHighWatermark);
-            logger.info("Follower high watermark updated to {}", newHighWatermark);
+            logger.trace("Follower high watermark updated to {}", newHighWatermark);
             applyCommittedRecordsToStateMachine();
         });
     }
 
     private void updateLeaderEndOffset(LeaderState state) {
         if (state.updateLocalEndOffset(log.endOffset())) {
-            logger.info("Leader high watermark updated to {} after end offset updated to {}",
+            logger.trace("Leader high watermark updated to {} after end offset updated to {}",
                     state.highWatermark(), log.endOffset());
             applyCommittedRecordsToStateMachine();
         }
