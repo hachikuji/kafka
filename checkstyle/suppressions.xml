@@ -169,7 +169,7 @@
 
     <!-- generated code -->
     <suppress checks="(NPathComplexity|ClassFanOutComplexity|CyclomaticComplexity|ClassDataAbstractionCoupling|FinalLocalVariable|LocalVariableName|MemberName|ParameterName|MethodLength|JavaNCSS)"
-              files="streams[\\/]src[\\/](generated|generated-test)[\\/].+.java$"/>
+              files="raft[\\/]src[\\/](generated|generated-test)[\\/].+.java$"/>
 
     <suppress checks="ImportControl" files="FetchResponseData.java"/>
 
