@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.raft;
 
-import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.utils.LogContext;
 import org.slf4j.Logger;
 
@@ -206,14 +205,6 @@ public class ConnectionCache {
                     inFlightCorrelationId = Optional.empty();
                 }
             });
-        }
-
-        void onResponse(long correlationId, Errors error, long timeMs) {
-            if (error != Errors.NONE) {
-                onResponseError(correlationId, timeMs);
-            } else {
-                onResponseReceived(correlationId);
-            }
         }
 
         void onRequestSent(long correlationId, long timeMs) {
