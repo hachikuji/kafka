@@ -366,7 +366,7 @@ public class KafkaRaftClientTest {
     }
 
     @Test
-    public void testFetchResponseReceivedAfterBecomingCandidate() throws Exception {
+    public void testFetchResponseIgnoredAfterBecomingCandidate() throws Exception {
         int otherNodeId = 1;
         int epoch = 5;
 
@@ -402,7 +402,7 @@ public class KafkaRaftClientTest {
     }
 
     @Test
-    public void testFetchResponseReceivedAfterBecomingFollowerOfDifferentLeader() throws Exception {
+    public void testFetchResponseIgnoredAfterBecomingFollowerOfDifferentLeader() throws Exception {
         int voter1 = localId;
         int voter2 = localId + 1;
         int voter3 = localId + 2;

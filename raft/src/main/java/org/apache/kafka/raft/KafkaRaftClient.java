@@ -983,6 +983,7 @@ public class KafkaRaftClient implements RaftClient {
     /**
      * Read from the local log. This will only return records which have been committed to the quorum.
      * @param offsetAndEpoch The first offset to read from and the previous consumed epoch
+     * @param highWatermark The current high watermark
      * @return A set of records beginning at the request offset
      */
     private Records readCommitted(OffsetAndEpoch offsetAndEpoch, long highWatermark) {
