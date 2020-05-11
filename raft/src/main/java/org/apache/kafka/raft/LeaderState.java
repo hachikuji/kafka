@@ -73,10 +73,10 @@ public class LeaderState implements EpochState {
 
     private boolean updateHighWatermark() {
         // Find the largest offset which is replicated to a majority of replicas (the leader counts)
-        ArrayList<ReplicaState> followersByFetchOffset = new ArrayList<>(this.voterReplicaStates.values());
-        Collections.sort(followersByFetchOffset);
+        ArrayList<ReplicaState> followersByDescendingFetchOffset = new ArrayList<>(this.voterReplicaStates.values());
+        Collections.sort(followersByDescendingFetchOffset);
         int indexOfHw = voterReplicaStates.size() / 2;
-        OptionalLong highWatermarkUpdateOpt = followersByFetchOffset.get(indexOfHw).endOffset;
+        OptionalLong highWatermarkUpdateOpt = followersByDescendingFetchOffset.get(indexOfHw).endOffset;
 
         if (highWatermarkUpdateOpt.isPresent()) {
             // When a leader is first elected, it cannot know the high watermark of the previous
