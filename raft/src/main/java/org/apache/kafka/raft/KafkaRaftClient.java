@@ -113,7 +113,6 @@ public class KafkaRaftClient implements RaftClient {
     private final Timer electionTimer;
     private final int electionTimeoutMs;
     private final int electionJitterMs;
-    private final int retryBackoffMs;
     private final int requestTimeoutMs;
     private final long bootTimestamp;
     private final InetSocketAddress advertisedListener;
@@ -144,7 +143,6 @@ public class KafkaRaftClient implements RaftClient {
         this.quorum = quorum;
         this.time = time;
         this.electionTimer = time.timer(electionTimeoutMs);
-        this.retryBackoffMs = retryBackoffMs;
         this.electionTimeoutMs = electionTimeoutMs;
         this.electionJitterMs = electionJitterMs;
         this.requestTimeoutMs = requestTimeoutMs;
@@ -346,7 +344,7 @@ public class KafkaRaftClient implements RaftClient {
 
     private Optional<Errors> handleVoteResponse(
         RaftResponse.Inbound responseMetadata
-    ) throws  IOException {
+    ) throws IOException {
         int remoteNodeId = responseMetadata.sourceId();
         VoteResponseData response = (VoteResponseData) responseMetadata.data;
         Errors error = Errors.forCode(response.errorCode());
@@ -833,19 +831,26 @@ public class KafkaRaftClient implements RaftClient {
             default:
                 throw new IllegalArgumentException("Unexpected request type " + apiKey);
         }
-        channel.send(new RaftResponse.Outbound(request.correlationId(), responseData));
+        sendOutboundMessage(new RaftResponse.Outbound(request.correlationId(), responseData));
     }
 
     private void handleInboundMessage(RaftMessage message, long currentTimeMs) throws IOException {
+        logger.trace("Received inbound message {}", message);
+
         if (message instanceof RaftRequest.Inbound) {
-            handleRequest((RaftRequest.Inbound) message);
+            RaftRequest.Inbound request = (RaftRequest.Inbound) message;
+            handleRequest(request);
         } else if (message instanceof RaftResponse.Inbound) {
             RaftResponse.Inbound response = (RaftResponse.Inbound) message;
-            logger.debug("Received response from {}: {}", response.sourceId(), response.data);
             handleResponse(response, currentTimeMs);
         } else {
             throw new IllegalArgumentException("Unexpected message " + message);
         }
+    }
+
+    private void sendOutboundMessage(RaftMessage message) {
+        channel.send(message);
+        logger.trace("Sent outbound message: {}", message);
     }
 
     private OptionalInt maybeSendRequest(long currentTimeMs,
@@ -858,8 +863,7 @@ public class KafkaRaftClient implements RaftClient {
         } else if (connection.isReady(currentTimeMs)) {
             int correlationId = channel.newCorrelationId();
             ApiMessage request = requestData.get();
-            logger.debug("Sending request with id {} to {}: {}", correlationId, destinationId, request);
-            channel.send(new RaftRequest.Outbound(correlationId, request, destinationId, currentTimeMs));
+            sendOutboundMessage(new RaftRequest.Outbound(correlationId, request, destinationId, currentTimeMs));
             connection.onRequestSent(correlationId, time.milliseconds());
             return OptionalInt.of(correlationId);
         }
