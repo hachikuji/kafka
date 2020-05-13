@@ -152,6 +152,17 @@ public class QuorumStateTest {
     }
 
     @Test
+    public void testCannotBecomeFollowerOfSelf() throws IOException {
+        int otherNodeId = localId + 1;
+        Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
+        assertEquals(0, store.readElectionState().epoch);
+        QuorumState state = new QuorumState(localId, voters, store, new LogContext());
+        state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
+        assertThrows(IllegalArgumentException.class, () -> state.becomeFetchingFollower(0, localId));
+        assertThrows(IllegalArgumentException.class, () -> state.becomeVotedFollower(0, localId));
+    }
+
+    @Test
     public void testCannotBecomeLeaderIfCurrentlyFollowing() throws IOException {
         int leaderId = 1;
         int epoch = 5;

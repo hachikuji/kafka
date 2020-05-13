@@ -73,7 +73,7 @@ import java.util.stream.Collectors;
  * the only ones who are eligible to handle protocol requests and they are the only ones
  * who take part in elections. The protocol does not yet support dynamic quorum changes.
  *
- * There are seven request types in this protocol:
+ * These are the APIs in this protocol:
  *
  * 1) {@link VoteRequestData}: Sent by valid voters when their election timeout expires and they
  *    become a candidate. This request includes the last offset in the log which electors use
@@ -292,9 +292,17 @@ public class KafkaRaftClient implements RaftClient {
         resetConnections();
     }
 
-    private void becomeFollower(int leaderId, int epoch) throws IOException {
+    private void becomeFetchingFollower(int leaderId, int epoch) throws IOException {
         if (quorum.becomeFetchingFollower(epoch, leaderId)) {
             onBecomeFollowerOfElectedLeader(quorum.followerStateOrThrow());
+        }
+    }
+
+    private void becomeFollower(OptionalInt leaderId, int epoch) throws IOException {
+        if (leaderId.isPresent()) {
+            becomeFetchingFollower(leaderId.getAsInt(), epoch);
+        } else {
+            becomeUnattachedFollower(epoch);
         }
     }
 
@@ -306,13 +314,22 @@ public class KafkaRaftClient implements RaftClient {
                 .setVoteGranted(voteGranted);
     }
 
+    /**
+     * Handle a Vote request. This API may return the following errors:
+     *
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     * - {@link Errors#INCONSISTENT_VOTER_SET} if the request suggests inconsistent voter membership (e.g.
+     *      if this node or the sender is not one of the current known voters)
+     * - {@link Errors#INVALID_REQUEST} if the last epoch or offset are invalid
+     */
     private VoteResponseData handleVoteRequest(
         RaftRequest.Inbound requestMetadata
     ) throws IOException {
         VoteRequestData request = (VoteRequestData) requestMetadata.data;
-        Optional<Exception> errorOpt = validateLeaderOnlyRequest(request.candidateId(), request.candidateEpoch());
+        Optional<Errors> errorOpt = validateVoterOnlyRequest(request.candidateId(), request.candidateEpoch());
         if (errorOpt.isPresent()) {
-            return buildVoteResponse(Errors.forException(errorOpt.get()), false);
+            return buildVoteResponse(errorOpt.get(), false);
         }
 
         if (quorum.isLeader()) {
@@ -332,8 +349,15 @@ public class KafkaRaftClient implements RaftClient {
             } else if (state.hasVoted()) {
                 voteGranted = state.isVotedCandidate(candidateId);
             } else {
-                OffsetAndEpoch lastEpochEndOffset = new OffsetAndEpoch(request.lastEpochEndOffset(), request.lastEpoch());
-                voteGranted = lastEpochEndOffset.compareTo(endOffset()) >= 0;
+                int lastEpoch = request.lastEpoch();
+                long lastEpochEndOffset = request.lastEpochEndOffset();
+                if (lastEpochEndOffset < 0 || lastEpoch < 0 || lastEpoch >= request.candidateEpoch()) {
+                    return buildVoteResponse(Errors.INVALID_REQUEST, false);
+                }
+
+                OffsetAndEpoch lastEpochEndOffsetAndEpoch = new OffsetAndEpoch(
+                    lastEpochEndOffset, lastEpoch);
+                voteGranted = lastEpochEndOffsetAndEpoch.compareTo(endOffset()) >= 0;
             }
 
             if (voteGranted)
@@ -342,15 +366,24 @@ public class KafkaRaftClient implements RaftClient {
         }
     }
 
-    private Optional<Errors> handleVoteResponse(
+    /**
+     * Handle a received Vote response.
+     *
+     * @param responseMetadata The inbound response
+     * @return true if the response was handled successfully and does not need to be retried, false otherwise
+     */
+    private boolean handleVoteResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
         int remoteNodeId = responseMetadata.sourceId();
         VoteResponseData response = (VoteResponseData) responseMetadata.data;
         Errors error = Errors.forCode(response.errorCode());
+        OptionalInt responseLeaderId = optionalLeaderId(response.leaderId());
+        int responseEpoch = response.leaderEpoch();
 
-        if (handleNonMatchingResponseLeaderAndEpoch(response.leaderEpoch(), optionalLeaderId(response.leaderId()))) {
-            return Optional.of(error);
+        Optional<Boolean> handled = maybeHandleStandardError(error, responseLeaderId, responseEpoch);
+        if (handled.isPresent()) {
+            return handled.get();
         } else if (error == Errors.NONE) {
             if (quorum.isLeader()) {
                 logger.debug("Ignoring vote response {} since we already became leader for epoch {}",
@@ -372,9 +405,9 @@ public class KafkaRaftClient implements RaftClient {
                     }
                 }
             }
-            return Optional.empty();
+            return true;
         } else {
-            return handleUnexpectedError(response, error);
+            return handleUnexpectedError(error, responseMetadata);
         }
     }
 
@@ -391,36 +424,53 @@ public class KafkaRaftClient implements RaftClient {
                 .setLeaderId(quorum.leaderIdOrNil());
     }
 
+    /**
+     * Handle a BeginEpoch request. This API may return the following errors:
+     *
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#INCONSISTENT_VOTER_SET} if the request suggests inconsistent voter membership (e.g.
+     *      if this node or the sender is not one of the current known voters)
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     */
     private BeginQuorumEpochResponseData handleBeginQuorumEpochRequest(
         RaftRequest.Inbound requestMetadata
     ) throws IOException {
         BeginQuorumEpochRequestData request = (BeginQuorumEpochRequestData) requestMetadata.data;
-        Optional<Exception> errorOpt = validateLeaderOnlyRequest(request.leaderId(), request.leaderEpoch());
+        Optional<Errors> errorOpt = validateVoterOnlyRequest(request.leaderId(), request.leaderEpoch());
         if (errorOpt.isPresent()) {
-            return buildBeginQuorumEpochResponse(Errors.forException(errorOpt.get()));
+            return buildBeginQuorumEpochResponse(errorOpt.get());
         }
 
         int requestLeaderId = request.leaderId();
         int requestEpoch = request.leaderEpoch();
-        becomeFollower(requestLeaderId, requestEpoch);
+        becomeFetchingFollower(requestLeaderId, requestEpoch);
         return buildBeginQuorumEpochResponse(Errors.NONE);
     }
 
-    private Optional<Errors> handleBeginQuorumEpochResponse(
+    /**
+     * Handle a received BeginQuorumEpoch response.
+     *
+     * @param responseMetadata The inbound response
+     * @return true if the response was handled successfully and does not need to be retried, false otherwise
+     */
+    private boolean handleBeginQuorumEpochResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
         int remoteNodeId = responseMetadata.sourceId();
         BeginQuorumEpochResponseData response = (BeginQuorumEpochResponseData) responseMetadata.data;
         Errors error = Errors.forCode(response.errorCode());
+        OptionalInt responseLeaderId = optionalLeaderId(response.leaderId());
+        int responseEpoch = response.leaderEpoch();
 
-        if (handleNonMatchingResponseLeaderAndEpoch(response.leaderEpoch(), optionalLeaderId(response.leaderId()))) {
-            return Optional.of(error);
+        Optional<Boolean> handled = maybeHandleStandardError(error, responseLeaderId, responseEpoch);
+        if (handled.isPresent()) {
+            return handled.get();
         } else if (error == Errors.NONE) {
             LeaderState state = quorum.leaderStateOrThrow();
             state.addEndorsementFrom(remoteNodeId);
-            return Optional.empty();
+            return true;
         } else {
-            return handleUnexpectedError(response, error);
+            return handleUnexpectedError(error, responseMetadata);
         }
     }
 
@@ -431,13 +481,21 @@ public class KafkaRaftClient implements RaftClient {
                 .setLeaderId(quorum.leaderIdOrNil());
     }
 
+    /**
+     * Handle an EndEpoch request. This API may return the following errors:
+     *
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#INCONSISTENT_VOTER_SET} if the request suggests inconsistent voter membership (e.g.
+     *      if this node or the sender is not one of the current known voters)
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     */
     private EndQuorumEpochResponseData handleEndQuorumEpochRequest(
         RaftRequest.Inbound requestMetadata
     ) throws IOException {
         EndQuorumEpochRequestData request = (EndQuorumEpochRequestData) requestMetadata.data;
-        Optional<Exception> errorOpt = validateLeaderOnlyRequest(request.leaderId(), request.leaderEpoch());
+        Optional<Errors> errorOpt = validateVoterOnlyRequest(request.leaderId(), request.leaderEpoch());
         if (errorOpt.isPresent()) {
-            return buildEndQuorumEpochResponse(Errors.forException(errorOpt.get()));
+            return buildEndQuorumEpochResponse(errorOpt.get());
         }
 
         // Regardless of our current state, we will become a candidate.
@@ -446,19 +504,27 @@ public class KafkaRaftClient implements RaftClient {
         return buildEndQuorumEpochResponse(Errors.NONE);
     }
 
-
-    private Optional<Errors> handleEndQuorumEpochResponse(
+    /**
+     * Handle a received EndQuorumEpoch response.
+     *
+     * @param responseMetadata The inbound response
+     * @return true if the response was handled successfully and does not need to be retried, false otherwise
+     */
+    private boolean handleEndQuorumEpochResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
         EndQuorumEpochResponseData response = (EndQuorumEpochResponseData) responseMetadata.data;
         Errors error = Errors.forCode(response.errorCode());
+        OptionalInt responseLeaderId = optionalLeaderId(response.leaderId());
+        int responseEpoch = response.leaderEpoch();
 
-        if (handleNonMatchingResponseLeaderAndEpoch(response.leaderEpoch(), optionalLeaderId(response.leaderId()))) {
-            return Optional.of(error);
+        Optional<Boolean> handled = maybeHandleStandardError(error, responseLeaderId, responseEpoch);
+        if (handled.isPresent()) {
+            return handled.get();
         } else if (error == Errors.NONE) {
-            return Optional.empty();
+            return true;
         } else {
-            return handleUnexpectedError(response, error);
+            return handleUnexpectedError(error, responseMetadata);
         }
     }
 
@@ -467,48 +533,56 @@ public class KafkaRaftClient implements RaftClient {
         Records records,
         OptionalLong highWatermark
     ) throws IOException {
-        return new FetchQuorumRecordsResponseData()
-                .setErrorCode(error.code())
-                .setLeaderEpoch(quorum.epoch())
-                .setLeaderId(quorum.leaderIdOrNil())
-                .setRecords(RaftUtil.serializeRecords(records))
-                .setHighWatermark(highWatermark.orElse(-1L));
+        return buildEmptyFetchQuorumRecordsResponse(error, highWatermark)
+            .setRecords(RaftUtil.serializeRecords(records));
     }
 
-    private FetchQuorumRecordsResponseData buildOutOfRangeFetchQuorumRecordsResponse(
-        OffsetAndEpoch nextOffsetAndEpoch,
+    private FetchQuorumRecordsResponseData buildEmptyFetchQuorumRecordsResponse(
+        Errors error,
         OptionalLong highWatermark
     ) {
         return new FetchQuorumRecordsResponseData()
-            .setErrorCode(Errors.OFFSET_OUT_OF_RANGE.code())
+            .setErrorCode(error.code())
             .setLeaderEpoch(quorum.epoch())
             .setLeaderId(quorum.leaderIdOrNil())
-            .setNextFetchOffset(nextOffsetAndEpoch.offset)
-            .setNextFetchOffsetEpoch(nextOffsetAndEpoch.epoch)
             .setRecords(ByteBuffer.wrap(new byte[0]))
             .setHighWatermark(highWatermark.orElse(-1L));
     }
 
-
+    /**
+     * Handle a FetchQuorumRecords request. This API may return the following errors:
+     *
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     * - {@link Errors#INVALID_REQUEST} if the request epoch is larger than the leader's current epoch
+     *     or if either the fetch offset or the last fetched epoch is invalid
+     */
     private FetchQuorumRecordsResponseData handleFetchQuorumRecordsRequest(
         RaftRequest.Inbound requestMetadata
     ) throws IOException {
         FetchQuorumRecordsRequestData request = (FetchQuorumRecordsRequestData) requestMetadata.data;
-        Optional<Exception> errorOpt = validateLeaderOnlyRequest(request.leaderEpoch());
+        Optional<Errors> errorOpt = validateLeaderOnlyRequest(request.leaderEpoch());
         if (errorOpt.isPresent()) {
-            return buildFetchQuorumRecordsResponse(Errors.forException(errorOpt.get()), MemoryRecords.EMPTY,
-                    OptionalLong.empty());
+            return buildEmptyFetchQuorumRecordsResponse(errorOpt.get(), OptionalLong.empty());
+        }
+
+        int replicaId = request.replicaId();
+        long fetchOffset = request.fetchOffset();
+        int lastFetchedEpoch = request.lastFetchedEpoch();
+
+        if (fetchOffset < 0 || lastFetchedEpoch < 0 || lastFetchedEpoch > request.leaderEpoch()) {
+            return buildEmptyFetchQuorumRecordsResponse(Errors.INVALID_REQUEST, OptionalLong.empty());
         }
 
         LeaderState state = quorum.leaderStateOrThrow();
-        long fetchOffset = request.fetchOffset();
-        int lastFetchedEpoch = request.lastFetchedEpoch();
-        int replicaId = request.replicaId();
         OptionalLong highWatermark = state.highWatermark();
-
         Optional<OffsetAndEpoch> nextOffsetOpt = validateFetchOffsetAndEpoch(fetchOffset, lastFetchedEpoch);
+
         if (nextOffsetOpt.isPresent()) {
-            return buildOutOfRangeFetchQuorumRecordsResponse(nextOffsetOpt.get(), highWatermark);
+            OffsetAndEpoch nextOffsetAndEpoch = nextOffsetOpt.get();
+            return buildEmptyFetchQuorumRecordsResponse(Errors.NONE, highWatermark)
+                .setNextFetchOffset(nextOffsetAndEpoch.offset)
+                .setNextFetchOffsetEpoch(nextOffsetAndEpoch.epoch);
         } else if (quorum.isVoter(replicaId)) {
             // Voters can read to the end of the log
             updateReplicaEndOffset(state, replicaId, fetchOffset);
@@ -528,14 +602,9 @@ public class KafkaRaftClient implements RaftClient {
      * to in case it is not.
      */
     private Optional<OffsetAndEpoch> validateFetchOffsetAndEpoch(long fetchOffset, int lastFetchedEpoch) {
-        if (lastFetchedEpoch < 0) {
-            return Optional.empty();
-        }
-
         OffsetAndEpoch endOffsetAndEpoch = log.endOffsetForEpoch(lastFetchedEpoch)
             .orElse(new OffsetAndEpoch(-1L, -1));
-        if (endOffsetAndEpoch.epoch != lastFetchedEpoch ||
-            endOffsetAndEpoch.offset < fetchOffset) {
+        if (endOffsetAndEpoch.epoch != lastFetchedEpoch || endOffsetAndEpoch.offset < fetchOffset) {
             return Optional.of(endOffsetAndEpoch);
         } else {
             return Optional.empty();
@@ -548,47 +617,50 @@ public class KafkaRaftClient implements RaftClient {
         return OptionalInt.of(leaderIdOrNil);
     }
 
-    private Optional<Errors> handleFetchQuorumRecordsResponse(
+    /**
+     * Handle a received FetchQuorumRecords response.
+     *
+     * @param responseMetadata The inbound response
+     * @return true if the response was handled successfully and does not need to be retried, false otherwise
+     */
+    private boolean handleFetchQuorumRecordsResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
         FetchQuorumRecordsResponseData response = (FetchQuorumRecordsResponseData) responseMetadata.data;
         Errors error = Errors.forCode(response.errorCode());
+        OptionalInt responseLeaderId = optionalLeaderId(response.leaderId());
+        int responseEpoch = response.leaderEpoch();
 
-        if (handleNonMatchingResponseLeaderAndEpoch(response.leaderEpoch(), optionalLeaderId(response.leaderId()))) {
-            return Optional.of(error);
+        Optional<Boolean> handled = maybeHandleStandardError(error, responseLeaderId, responseEpoch);
+        if (handled.isPresent()) {
+            return handled.get();
         }
 
         FollowerState state = quorum.followerStateOrThrow();
         if (error == Errors.NONE) {
-            ByteBuffer recordsBuffer = response.records();
-            log.appendAsFollower(MemoryRecords.readableRecords(recordsBuffer));
+            if (response.nextFetchOffset() > 0) {
+                // The leader is asking us to truncate before continuing
+                OffsetAndEpoch nextFetchOffsetAndEpoch = new OffsetAndEpoch(
+                    response.nextFetchOffset(), response.nextFetchOffsetEpoch());
 
-            OptionalLong highWatermark = response.highWatermark() < 0 ?
-                OptionalLong.empty() : OptionalLong.of(response.highWatermark());
-            updateFollowerHighWatermark(state, highWatermark);
-            logger.trace("Follower end offset updated to {} after append", endOffset());
-
-            electionTimer.reset(electionTimeoutMs);
-            return Optional.empty();
-        } else if (error == Errors.OFFSET_OUT_OF_RANGE) {
-            OffsetAndEpoch nextFetchOffsetAndEpoch = new OffsetAndEpoch(
-                response.nextFetchOffset(), response.nextFetchOffsetEpoch());
-
-            if (nextFetchOffsetAndEpoch.offset < 0 || nextFetchOffsetAndEpoch.epoch < 0) {
-                logger.warn("Leader returned an unknown truncation offset to our FetchQuorumRecords request");
-            } else {
                 log.truncateToEndOffset(nextFetchOffsetAndEpoch).ifPresent(truncationOffset -> {
                     logger.info("Truncated to offset {} after out of range error from leader {}",
                         truncationOffset, quorum.leaderIdOrNil());
                 });
+            } else {
+                ByteBuffer recordsBuffer = response.records();
+                log.appendAsFollower(MemoryRecords.readableRecords(recordsBuffer));
+
+                OptionalLong highWatermark = response.highWatermark() < 0 ?
+                    OptionalLong.empty() : OptionalLong.of(response.highWatermark());
+                updateFollowerHighWatermark(state, highWatermark);
+                logger.trace("Follower end offset updated to {} after append", endOffset());
             }
 
             electionTimer.reset(electionTimeoutMs);
-
-            // We do not return the error, so that we do not go through the backoff logic
-            return Optional.empty();
+            return true;
         } else {
-            return handleUnexpectedError(response, error);
+            return handleUnexpectedError(error, responseMetadata);
         }
     }
 
@@ -602,69 +674,65 @@ public class KafkaRaftClient implements RaftClient {
         return OptionalLong.empty();
     }
 
+    /**
+     * Handle a FindQuorum request. Currently this API does not return any application errors.
+     */
     private FindQuorumResponseData handleFindQuorumRequest(
         RaftRequest.Inbound requestMetadata
     ) {
         FindQuorumRequestData request = (FindQuorumRequestData) requestMetadata.data;
-
-        // Only voters are allowed to handle FindLeader requests
-        Errors error = Errors.NONE;
-        if (shutdown.get() != null) {
-            error = Errors.BROKER_NOT_AVAILABLE;
-        } else {
-            HostInfo hostInfo = new HostInfo(
-                new InetSocketAddress(request.host(), request.port()),
-                request.bootTimestamp()
-            );
-            if (quorum.isVoter(request.replicaId())) {
-                connections.maybeUpdate(request.replicaId(), hostInfo);
-            }
+        HostInfo hostInfo = new HostInfo(
+            new InetSocketAddress(request.host(), request.port()),
+            request.bootTimestamp()
+        );
+        if (quorum.isVoter(request.replicaId())) {
+            connections.maybeUpdate(request.replicaId(), hostInfo);
         }
 
         List<FindQuorumResponseData.Voter> voters = new ArrayList<>();
         for (Map.Entry<Integer, Optional<HostInfo>> voterEntry : connections.allVoters().entrySet()) {
             FindQuorumResponseData.Voter voter = new FindQuorumResponseData.Voter();
             voter.setVoterId(voterEntry.getKey());
-            voterEntry.getValue().ifPresent(hostInfo -> {
-                voter.setHost(hostInfo.address.getHostString())
-                    .setPort(hostInfo.address.getPort())
-                    .setBootTimestamp(hostInfo.bootTimestamp);
+            voterEntry.getValue().ifPresent(voterHostInfo -> {
+                voter.setHost(voterHostInfo.address.getHostString())
+                    .setPort(voterHostInfo.address.getPort())
+                    .setBootTimestamp(voterHostInfo.bootTimestamp);
             });
             voters.add(voter);
         }
 
         return new FindQuorumResponseData()
-            .setErrorCode(error.code())
+            .setErrorCode(Errors.NONE.code())
             .setLeaderEpoch(quorum.epoch())
             .setLeaderId(quorum.leaderIdOrNil())
             .setVoters(voters);
     }
 
-    private Optional<Errors> handleFindQuorumResponse(
+    /**
+     * Handle a received FindQuorum response.
+     *
+     * @param responseMetadata The inbound response
+     * @return true if the response was handled successfully and does not need to be retried, false otherwise
+     */
+    private boolean handleFindQuorumResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
         FindQuorumResponseData response = (FindQuorumResponseData) responseMetadata.data;
         Errors error = Errors.forCode(response.errorCode());
+        OptionalInt responseLeaderId = optionalLeaderId(response.leaderId());
+        int responseEpoch = response.leaderEpoch();
 
-        // Regardless of error, we take the latest connection states from the response
+        // Always update voter connections if they are present, regardless of errors
         updateVoterConnections(response);
 
-        OptionalInt leaderIdOpt = optionalLeaderId(response.leaderId());
-        if (handleNonMatchingResponseLeaderAndEpoch(response.leaderEpoch(), leaderIdOpt)) {
-            // Unlike other API types, FindQuorum may indicate have a higher epoch or
-            // a different leaderId than our own and still return an error code of NONE,
-            // so we have to check for it
-            if (error == Errors.NONE)
-                return Optional.empty();
-            return Optional.of(error);
+        Optional<Boolean> handled = maybeHandleStandardError(error, responseLeaderId, responseEpoch);
+        if (handled.isPresent()) {
+            return handled.get();
         } else if (error == Errors.NONE) {
-            // We only need to become a follower if the current leader is not elected
-            if (leaderIdOpt.isPresent() && leaderIdOpt.getAsInt() != quorum.localId) {
-                becomeFollower(leaderIdOpt.getAsInt(), response.leaderEpoch());
-            }
-            return Optional.empty();
+            maybeBecomeFollower(responseLeaderId, responseEpoch);
+            return true;
         } else {
-            return handleUnexpectedError(response, error);
+            return handleUnexpectedError(error, responseMetadata);
         }
     }
 
@@ -678,40 +746,73 @@ public class KafkaRaftClient implements RaftClient {
         }
     }
 
-    private boolean hasInconsistentLeader(int epoch, OptionalInt leaderId) {
+    private boolean hasConsistentLeader(int epoch, OptionalInt leaderId) {
         // Only elected leaders are sent in the request/response header, so if we have an elected
         // leaderId, it should be consistent with what is in the message.
-        if (epoch != quorum.epoch()) {
-            return false;
-        } else {
-            if (!quorum.leaderId().isPresent())
-                return false;
-            if (!leaderId.isPresent())
-                return false;
-            return !quorum.leaderId().equals(leaderId);
-        }
-    }
-
-    private void becomeFollower(int epoch, OptionalInt leaderId) throws IOException {
-        if (leaderId.isPresent()) {
-            becomeFollower(leaderId.getAsInt(), epoch);
-        } else {
-            becomeUnattachedFollower(epoch);
-        }
-    }
-
-    private Optional<Errors> handleUnexpectedError(ApiMessage response, Errors error) throws IOException {
-        if (quorum.isObserver() && error == Errors.BROKER_NOT_AVAILABLE) {
-            becomeUnattachedFollower(quorum.epoch());
-            return Optional.empty();
-        }
-        logger.debug("Discarded response {} with error {}", response, error);
-        return Optional.of(error);
-    }
-
-    private boolean handleNonMatchingResponseLeaderAndEpoch(int epoch, OptionalInt leaderId) throws IOException {
-        if (epoch < quorum.epoch()) {
+        if (leaderId.isPresent() && leaderId.getAsInt() == quorum.localId) {
+            // The response indicates that we should be the leader, so we verify that is the case
+            return quorum.isLeader();
+        } else if (epoch != quorum.epoch()) {
             return true;
+        } else {
+            if (!leaderId.isPresent())
+                return true;
+            if (!quorum.leaderId().isPresent())
+                return true;
+            return leaderId.equals(quorum.leaderId());
+        }
+    }
+
+    /**
+     * Handle response errors that are common across request types.
+     *
+     * @param error Error from the received response
+     * @param leaderId Optional leaderId from the response
+     * @param epoch Epoch received from the response
+     * @return Optional value indicating whether the error was handled here. True indicates
+     *   that the response need not be retried, false otherwise.
+     */
+    private Optional<Boolean> maybeHandleStandardError(
+        Errors error,
+        OptionalInt leaderId,
+        int epoch
+    ) throws IOException {
+        if (epoch < quorum.epoch()) {
+            // We have a larger epoch, so the response is no longer relevant
+            return Optional.of(true);
+        } else if (error == Errors.FENCED_LEADER_EPOCH) {
+            // The response indicates that the request had a stale epoch, but we need
+            // to validate the epoch from the response against our current state.
+            maybeBecomeFollower(leaderId, epoch);
+            return Optional.of(true);
+        } else if (error == Errors.BROKER_NOT_AVAILABLE) {
+            if (quorum.isObserver()) {
+                becomeUnattachedFollower(epoch);
+                return Optional.of(true);
+            } else {
+                return Optional.of(false);
+            }
+        } else if (error == Errors.INCONSISTENT_GROUP_PROTOCOL) {
+            // For now we treat this as a fatal error. Once we have support for quorum
+            // reassignment, this error could suggest that either we or the recipient of
+            // the request just has stale voter information, which means we can retry
+            // after backing off.
+            throw new IllegalStateException("Received error indicating inconsistent voter sets");
+        } else if (error == Errors.INVALID_REQUEST) {
+            throw new IllegalStateException("Received unexpected invalid request error");
+        }
+
+        return Optional.empty();
+    }
+
+    private void maybeBecomeFollower(
+        OptionalInt leaderId,
+        int epoch
+    ) throws IOException {
+        if (!hasConsistentLeader(epoch, leaderId)) {
+            throw new IllegalStateException("Received response with leader " + leaderId +
+                " and epoch " + epoch + " which is inconsistent with current leader " +
+                quorum.leaderId() + " and epoch " + quorum.epoch());
         } else if (epoch > quorum.epoch()) {
             // For any request type, if the response indicates a higher epoch, we bump our local
             // epoch and become a follower. Responses only include elected leaders.
@@ -719,41 +820,45 @@ public class KafkaRaftClient implements RaftClient {
             if (gracefulShutdown != null) {
                 gracefulShutdown.onEpochUpdate(epoch);
             } else {
-                becomeFollower(epoch, leaderId);
+                becomeFollower(leaderId, epoch);
             }
-
-            return true;
-        } else if (hasInconsistentLeader(epoch, leaderId)) {
-            throw new IllegalStateException("Received response with leader " + leaderId +
-                    " which is inconsistent with current leader " + quorum.leaderId());
+        } else if (leaderId.isPresent() && !quorum.leaderId().isPresent()) {
+            // The response indicates the leader of the current epoch, which is currently unknown
+            becomeFetchingFollower(leaderId.getAsInt(), epoch);
         }
+    }
+
+
+    private boolean handleUnexpectedError(Errors error, RaftResponse.Inbound response) {
+        logger.error("Unexpected error {} in {} response: {}",
+            error, response.data.apiKey(), response);
         return false;
     }
 
     private void handleResponse(RaftResponse.Inbound response, long currentTimeMs) throws IOException {
         // The response epoch matches the local epoch, so we can handle the response
         ApiKeys apiKey = ApiKeys.forId(response.data.apiKey());
-        final Optional<Errors> errorOpt;
+        final boolean handledSuccessfully;
 
         switch (apiKey) {
             case FETCH_QUORUM_RECORDS:
-                errorOpt = handleFetchQuorumRecordsResponse(response);
+                handledSuccessfully = handleFetchQuorumRecordsResponse(response);
                 break;
 
             case VOTE:
-                errorOpt = handleVoteResponse(response);
+                handledSuccessfully = handleVoteResponse(response);
                 break;
 
             case BEGIN_QUORUM_EPOCH:
-                errorOpt = handleBeginQuorumEpochResponse(response);
+                handledSuccessfully = handleBeginQuorumEpochResponse(response);
                 break;
 
             case END_QUORUM_EPOCH:
-                errorOpt = handleEndQuorumEpochResponse(response);
+                handledSuccessfully = handleEndQuorumEpochResponse(response);
                 break;
 
             case FIND_QUORUM:
-                errorOpt = handleFindQuorumResponse(response);
+                handledSuccessfully = handleFindQuorumResponse(response);
                 break;
 
             default:
@@ -761,44 +866,48 @@ public class KafkaRaftClient implements RaftClient {
         }
 
         ConnectionState connection = connections.getOrCreate(response.sourceId());
-        if (errorOpt.isPresent()) {
-            connection.onResponseError(response.correlationId, currentTimeMs);
-        } else {
+        if (handledSuccessfully) {
             connection.onResponseReceived(response.correlationId);
+        } else {
+            connection.onResponseError(response.correlationId, currentTimeMs);
         }
     }
 
-    private Optional<Exception> validateLeaderOnlyRequest(int remoteNodeId, int requestEpoch) throws IOException {
-        if (quorum.isObserver()) {
-            return Optional.of(Errors.INVALID_REQUEST.exception());
-        } else if (!quorum.isVoter(remoteNodeId)) {
-            return Optional.of(Errors.INVALID_REQUEST.exception());
-        } else if (requestEpoch < quorum.epoch()) {
-            return Optional.of(Errors.FENCED_LEADER_EPOCH.exception());
+    /**
+     * Validate a request which is only valid between voters.
+     */
+    private Optional<Errors> validateVoterOnlyRequest(int remoteNodeId, int requestEpoch) throws IOException {
+        if (requestEpoch < quorum.epoch()) {
+            return Optional.of(Errors.FENCED_LEADER_EPOCH);
+        } else if (quorum.isObserver() || !quorum.isVoter(remoteNodeId)) {
+            return Optional.of(Errors.INCONSISTENT_VOTER_SET);
         } else if (shutdown.get() != null) {
             shutdown.get().onEpochUpdate(requestEpoch);
-            return Optional.of(Errors.BROKER_NOT_AVAILABLE.exception());
+            return Optional.of(Errors.BROKER_NOT_AVAILABLE);
         }
 
-        // TODO: seems like a weird place to do this...
+        // The request is from a valid voter and indicates a larger epoch,
+        // so we transition to follower status before handling the request
         if (requestEpoch > quorum.epoch()) {
             becomeUnattachedFollower(requestEpoch);
         }
         return Optional.empty();
     }
 
-    private Optional<Exception> validateLeaderOnlyRequest(int requestEpoch) {
-        if (quorum.isObserver()) {
-            return Optional.of(new KafkaException("Observers are not allowed to receive requests"));
-        } else if (requestEpoch < quorum.epoch()) {
-            return Optional.of(Errors.FENCED_LEADER_EPOCH.exception());
-        } else if (requestEpoch > quorum.epoch()) {
-            // We cannot be the leader of an epoch we are not aware of
-            return Optional.of(Errors.UNKNOWN_LEADER_EPOCH.exception());
-        } else if (!quorum.isLeader()) {
-            return Optional.of(Errors.NOT_LEADER_FOR_PARTITION.exception());
+    /**
+     * Validate a request which is intended for the current quorum leader.
+     */
+    private Optional<Errors> validateLeaderOnlyRequest(int requestEpoch) {
+        if (requestEpoch < quorum.epoch()) {
+            return Optional.of(Errors.FENCED_LEADER_EPOCH);
+        } else if (requestEpoch > quorum.epoch() || !quorum.isLeader()) {
+            // If the epoch in the request is larger than our own epoch or
+            // it matches our epoch and we are not a leader, then the request
+            // is invalid. Unlike with Kafka topic partitions, leaders will
+            // always be the first to know of their status.
+            return Optional.of(Errors.INVALID_REQUEST);
         } else if (shutdown.get() != null) {
-            return Optional.of(Errors.BROKER_NOT_AVAILABLE.exception());
+            return Optional.of(Errors.BROKER_NOT_AVAILABLE);
         }
         return Optional.empty();
     }
@@ -866,6 +975,8 @@ public class KafkaRaftClient implements RaftClient {
             sendOutboundMessage(new RaftRequest.Outbound(correlationId, request, destinationId, currentTimeMs));
             connection.onRequestSent(correlationId, time.milliseconds());
             return OptionalInt.of(correlationId);
+        } else {
+            logger.trace("Connection {} is not ready for sending", connection);
         }
         return OptionalInt.empty();
     }

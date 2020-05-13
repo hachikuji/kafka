@@ -222,6 +222,18 @@ public class ConnectionCache {
             state = State.READY;
             inFlightCorrelationId = Optional.empty();
         }
+
+        @Override
+        public String toString() {
+            return "ConnectionState(" +
+                "id=" + id +
+                ", hostInfo=" + hostInfo +
+                ", state=" + state +
+                ", lastSendTimeMs=" + lastSendTimeMs +
+                ", lastFailTimeMs=" + lastFailTimeMs +
+                ", inFlightCorrelationId=" + inFlightCorrelationId +
+                ')';
+        }
     }
 
 }
