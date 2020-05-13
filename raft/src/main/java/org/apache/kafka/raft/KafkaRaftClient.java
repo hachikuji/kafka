@@ -828,7 +828,6 @@ public class KafkaRaftClient implements RaftClient {
         }
     }
 
-
     private boolean handleUnexpectedError(Errors error, RaftResponse.Inbound response) {
         logger.error("Unexpected error {} in {} response: {}",
             error, response.data.apiKey(), response);

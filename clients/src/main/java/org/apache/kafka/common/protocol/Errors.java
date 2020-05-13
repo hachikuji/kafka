@@ -321,7 +321,7 @@ public enum Errors {
         GroupSubscribedToTopicException::new),
     INVALID_RECORD(87, "This record has failed the validation on broker and hence will be rejected.", InvalidRecordException::new),
     UNSTABLE_OFFSET_COMMIT(88, "There are unstable offsets that need to be cleared.", UnstableOffsetCommitException::new),
-    INCONSISTENT_VOTER_SET(90, "Indicates that the either the sender or recipient of a " +
+    INCONSISTENT_VOTER_SET(89, "Indicates that the either the sender or recipient of a " +
         "voter-only request is not one of the expected voters", InconsistentVoterSetException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
