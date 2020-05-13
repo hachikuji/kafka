@@ -366,12 +366,6 @@ public class KafkaRaftClient implements RaftClient {
         }
     }
 
-    /**
-     * Handle a received Vote response.
-     *
-     * @param responseMetadata The inbound response
-     * @return true if the response was handled successfully and does not need to be retried, false otherwise
-     */
     private boolean handleVoteResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
@@ -447,12 +441,6 @@ public class KafkaRaftClient implements RaftClient {
         return buildBeginQuorumEpochResponse(Errors.NONE);
     }
 
-    /**
-     * Handle a received BeginQuorumEpoch response.
-     *
-     * @param responseMetadata The inbound response
-     * @return true if the response was handled successfully and does not need to be retried, false otherwise
-     */
     private boolean handleBeginQuorumEpochResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
@@ -504,12 +492,6 @@ public class KafkaRaftClient implements RaftClient {
         return buildEndQuorumEpochResponse(Errors.NONE);
     }
 
-    /**
-     * Handle a received EndQuorumEpoch response.
-     *
-     * @param responseMetadata The inbound response
-     * @return true if the response was handled successfully and does not need to be retried, false otherwise
-     */
     private boolean handleEndQuorumEpochResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
@@ -550,7 +532,12 @@ public class KafkaRaftClient implements RaftClient {
     }
 
     /**
-     * Handle a FetchQuorumRecords request. This API may return the following errors:
+     * Handle a FetchQuorumRecords request. The fetch offset and last fetched epoch are always
+     * validated against the current log. In the case that they do not match, the response will
+     * indicate the diverging offset/epoch. A follower is expected to truncate its log in this
+     * case and resend the fetch.
+     *
+     * This API may return the following errors:
      *
      * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
      * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
@@ -617,12 +604,6 @@ public class KafkaRaftClient implements RaftClient {
         return OptionalInt.of(leaderIdOrNil);
     }
 
-    /**
-     * Handle a received FetchQuorumRecords response.
-     *
-     * @param responseMetadata The inbound response
-     * @return true if the response was handled successfully and does not need to be retried, false otherwise
-     */
     private boolean handleFetchQuorumRecordsResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
@@ -708,12 +689,6 @@ public class KafkaRaftClient implements RaftClient {
             .setVoters(voters);
     }
 
-    /**
-     * Handle a received FindQuorum response.
-     *
-     * @param responseMetadata The inbound response
-     * @return true if the response was handled successfully and does not need to be retried, false otherwise
-     */
     private boolean handleFindQuorumResponse(
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
@@ -752,14 +727,11 @@ public class KafkaRaftClient implements RaftClient {
         if (leaderId.isPresent() && leaderId.getAsInt() == quorum.localId) {
             // The response indicates that we should be the leader, so we verify that is the case
             return quorum.isLeader();
-        } else if (epoch != quorum.epoch()) {
-            return true;
         } else {
-            if (!leaderId.isPresent())
-                return true;
-            if (!quorum.leaderId().isPresent())
-                return true;
-            return leaderId.equals(quorum.leaderId());
+            return epoch != quorum.epoch()
+                || !leaderId.isPresent()
+                || !quorum.leaderId().isPresent()
+                || leaderId.equals(quorum.leaderId());
         }
     }
 
@@ -769,8 +741,15 @@ public class KafkaRaftClient implements RaftClient {
      * @param error Error from the received response
      * @param leaderId Optional leaderId from the response
      * @param epoch Epoch received from the response
-     * @return Optional value indicating whether the error was handled here. True indicates
-     *   that the response need not be retried, false otherwise.
+     * @return Optional value indicating whether the error was handled here and the outcome of
+     *    that handling. Specifically:
+     *
+     *    - Optional.empty means that the response was not handled here and the custom
+     *        API handler should be applied
+     *    - Optional.of(true) indicates that the response was successfully handled here and
+     *        the request does not need to be retried
+     *    - Optional.of(false) indicates that the response was handled here, but that the request
+     *        will need to be retried
      */
     private Optional<Boolean> maybeHandleStandardError(
         Errors error,
@@ -822,7 +801,7 @@ public class KafkaRaftClient implements RaftClient {
             } else {
                 becomeFollower(leaderId, epoch);
             }
-        } else if (leaderId.isPresent() && !quorum.leaderId().isPresent()) {
+        } else if (leaderId.isPresent() && !quorum.hasLeader()) {
             // The response indicates the leader of the current epoch, which is currently unknown
             becomeFetchingFollower(leaderId.getAsInt(), epoch);
         }
@@ -879,6 +858,10 @@ public class KafkaRaftClient implements RaftClient {
         if (requestEpoch < quorum.epoch()) {
             return Optional.of(Errors.FENCED_LEADER_EPOCH);
         } else if (quorum.isObserver() || !quorum.isVoter(remoteNodeId)) {
+            // Inconsistent voter state could be the result of an active
+            // reassignment which has not been propagated to all of the
+            // expected voters. We generally expect this to be a transient
+            // error until all voters have replicated the reassignment record.
             return Optional.of(Errors.INCONSISTENT_VOTER_SET);
         } else if (shutdown.get() != null) {
             shutdown.get().onEpochUpdate(requestEpoch);

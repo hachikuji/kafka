@@ -111,6 +111,10 @@ public class QuorumState {
             return OptionalInt.empty();
     }
 
+    public boolean hasLeader() {
+        return leaderId().isPresent();
+    }
+
     public boolean isLeader() {
         return state instanceof LeaderState;
     }
