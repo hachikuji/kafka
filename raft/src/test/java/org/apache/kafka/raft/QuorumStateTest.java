@@ -84,7 +84,7 @@ public class QuorumStateTest {
         FollowerState followerState = state.followerStateOrThrow();
         assertTrue(followerState.hasVoted());
         assertEquals(epoch, followerState.epoch());
-        assertTrue(followerState.isVotedCandidate(node1));
+        assertTrue(followerState.hasVotedFor(node1));
     }
 
     @Test
@@ -244,7 +244,7 @@ public class QuorumStateTest {
         assertEquals(OptionalInt.empty(), state.leaderId());
         FollowerState followerState = state.followerStateOrThrow();
         assertTrue(followerState.hasVoted());
-        assertTrue(followerState.isVotedCandidate(otherNodeId));
+        assertTrue(followerState.hasVotedFor(otherNodeId));
         assertEquals(ElectionState.withVotedCandidate(5, otherNodeId), store.readElectionState());
     }
 
@@ -283,7 +283,7 @@ public class QuorumStateTest {
         assertEquals(OptionalInt.empty(), state.leaderId());
         FollowerState followerState = state.followerStateOrThrow();
         assertTrue(followerState.hasVoted());
-        assertTrue(followerState.isVotedCandidate(otherNodeId));
+        assertTrue(followerState.hasVotedFor(otherNodeId));
         assertEquals(ElectionState.withVotedCandidate(5, otherNodeId), store.readElectionState());
     }
 
@@ -298,7 +298,7 @@ public class QuorumStateTest {
         FollowerState followerState = state.followerStateOrThrow();
         assertEquals(5, followerState.epoch());
         assertTrue(followerState.hasVoted());
-        assertTrue(followerState.isVotedCandidate(otherNodeId));
+        assertTrue(followerState.hasVotedFor(otherNodeId));
         assertEquals(ElectionState.withVotedCandidate(5, otherNodeId), store.readElectionState());
     }
 
@@ -313,7 +313,7 @@ public class QuorumStateTest {
         FollowerState followerState = state.followerStateOrThrow();
         assertEquals(8, followerState.epoch());
         assertTrue(followerState.hasVoted());
-        assertTrue(followerState.isVotedCandidate(otherNodeId));
+        assertTrue(followerState.hasVotedFor(otherNodeId));
         assertEquals(ElectionState.withVotedCandidate(8, otherNodeId), store.readElectionState());
     }
 
@@ -363,7 +363,7 @@ public class QuorumStateTest {
         FollowerState followerState = state.followerStateOrThrow();
         assertFalse(followerState.hasLeader());
         assertTrue(followerState.hasVoted());
-        assertTrue(followerState.isVotedCandidate(node1));
+        assertTrue(followerState.hasVotedFor(node1));
         assertEquals(ElectionState.withVotedCandidate(5, node1), store.readElectionState());
     }
 
