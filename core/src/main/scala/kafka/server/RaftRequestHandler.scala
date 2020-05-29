@@ -49,7 +49,7 @@ class RaftRequestHandler(networkChannel: KafkaNetworkChannel,
             requestBody,
             response => sendResponse(request, Some(response)))
 
-        case _ => throw new UnsupportedVersionException(s"Unsupported api key: ${request.header.apiKey}")
+        case _ => throw new IllegalArgumentException(s"Unsupported api key: ${request.header.apiKey}")
       }
     } catch {
       case e: FatalExitError => throw e

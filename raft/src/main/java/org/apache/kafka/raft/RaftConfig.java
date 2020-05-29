@@ -105,7 +105,7 @@ public class RaftConfig extends AbstractConfig {
                 QUORUM_ELECTION_TIMEOUT_MS_DOC)
             .define(QUORUM_ELECTION_JITTER_MAX_MS_CONFIG,
                 ConfigDef.Type.INT,
-                100,
+                5000,
                 atLeast(0),
                 ConfigDef.Importance.HIGH,
                 QUORUM_ELECTION_JITTER_MAX_MS_DOC)

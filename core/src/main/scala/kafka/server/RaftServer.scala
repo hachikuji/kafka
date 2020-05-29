@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import joptsimple.OptionParser
 import kafka.log.{Log, LogConfig, LogManager}
 import kafka.network.SocketServer
-import kafka.raft.{KafkaMetadataLog, KafkaNetworkChannel, KafkaRequestPurgatory}
+import kafka.raft.{KafkaFuturePurgatory, KafkaMetadataLog, KafkaNetworkChannel}
 import kafka.security.CredentialProvider
 import kafka.utils.timer.SystemTimer
 import kafka.utils.{CommandLineUtils, Exit, KafkaScheduler, Logging}
@@ -39,7 +39,7 @@ import org.apache.kafka.common.security.JaasContext
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.utils.{LogContext, Time, Utils}
-import org.apache.kafka.raft.{ReplicatedCounter, FileBasedStateStore, KafkaRaftClient, QuorumState, RaftConfig}
+import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, QuorumState, RaftConfig, ReplicatedCounter}
 
 import scala.jdk.CollectionConverters._
 
@@ -103,7 +103,7 @@ class RaftServer(val config: KafkaConfig) extends Logging {
 
     val shutdown = new AtomicBoolean(false)
     try {
-      val counter = new ReplicatedCounter(raftClient, logContext, true)
+      val counter = new ReplicatedCounter(config.brokerId, logContext, true)
       val incrementThread = new Thread() {
         override def run(): Unit = {
           while (!shutdown.get()) {
@@ -178,7 +178,7 @@ class RaftServer(val config: KafkaConfig) extends Logging {
       logContext
     )
 
-    val purgatory = new KafkaRequestPurgatory(
+    val purgatory = new KafkaFuturePurgatory(
       config.brokerId,
       new SystemTimer("raft-purgatory-reaper"),
       reaperEnabled = true)
@@ -207,30 +207,41 @@ class RaftServer(val config: KafkaConfig) extends Logging {
       config.saslInterBrokerHandshakeRequestEnable,
       logContext
     )
+
+    val metricGroupPrefix = "raft-channel"
+    val collectPerConnectionMetrics = false
+
     val selector = new Selector(
       NetworkReceive.UNLIMITED,
       config.connectionsMaxIdleMs,
       metrics,
       time,
-      "raft-channel",
+      metricGroupPrefix,
       Map.empty[String, String].asJava,
-      false,
+      collectPerConnectionMetrics,
       channelBuilder,
       logContext
     )
+
+    val clientId = s"broker-${config.brokerId}-raft-client"
+    val maxInflightRequestsPerConnection = 1
+    val reconnectBackoffMs = 50
+    val reconnectBackoffMsMs = 50
+    val discoverBrokerVersions = false
+
     new NetworkClient(
       selector,
       new ManualMetadataUpdater(),
-      s"broker-${config.brokerId}-raft-client",
-      1,
-      50,
-      50,
+      clientId,
+      maxInflightRequestsPerConnection,
+      reconnectBackoffMs,
+      reconnectBackoffMsMs,
       Selectable.USE_DEFAULT_BUFFER_SIZE,
       config.socketReceiveBufferBytes,
       raftConfig.requestTimeoutMs,
       ClientDnsLookup.USE_ALL_DNS_IPS,
       time,
-      false,
+      discoverBrokerVersions,
       new ApiVersions,
       logContext
     )
