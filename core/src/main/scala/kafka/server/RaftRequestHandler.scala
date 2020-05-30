@@ -20,7 +20,6 @@ package kafka.server
 import kafka.network.RequestChannel
 import kafka.raft.KafkaNetworkChannel
 import kafka.utils.Logging
-import org.apache.kafka.common.errors.UnsupportedVersionException
 import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse}
