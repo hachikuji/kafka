@@ -54,7 +54,7 @@ public class ConnectionCache {
         // Mimic logic in `Cluster.bootstrap` until we think of something smarter
         int nodeId = -1;
         for (InetSocketAddress address : bootstrapServers) {
-            ConnectionState connection = new BootstrapConnectionState(nodeId);
+            ConnectionState connection = new ConnectionState(nodeId);
             connection.maybeUpdate(new HostInfo(address, 0L));
             bootstrapConnections.put(nodeId, connection);
             bootstrapServerIds.add(nodeId);
@@ -151,19 +151,6 @@ public class ConnectionCache {
         BACKING_OFF,
         READY
     }
-
-    private class BootstrapConnectionState extends ConnectionState {
-
-        public BootstrapConnectionState(long id) {
-            super(id);
-        }
-
-        @Override
-        void onResponseReceived(long requestId, long timeMs) {
-            onResponseError(requestId, timeMs);
-        }
-    }
-
 
     public class ConnectionState {
         private final long id;
