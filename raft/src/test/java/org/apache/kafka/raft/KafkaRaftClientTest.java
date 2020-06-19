@@ -1218,10 +1218,12 @@ public class KafkaRaftClientTest {
         client.shutdown(shutdownTimeoutMs);
 
         // We should still be running until we have had a chance to send EndQuorumEpoch
+        assertTrue(client.isShuttingDown());
         assertTrue(client.isRunning());
 
         // Send EndQuorumEpoch request to the other vote
         client.poll();
+        assertTrue(client.isShuttingDown());
         assertTrue(client.isRunning());
 
         assertSentEndQuorumEpochRequest(1, OptionalInt.of(localId), otherNodeId);
@@ -1230,6 +1232,7 @@ public class KafkaRaftClientTest {
         deliverRequest(voteRequest(2, otherNodeId, 0, 0L));
 
         client.poll();
+        assertFalse(client.isShuttingDown());
         assertFalse(client.isRunning());
     }
 

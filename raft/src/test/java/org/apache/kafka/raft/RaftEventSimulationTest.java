@@ -45,6 +45,7 @@ import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -180,6 +181,45 @@ public class RaftEventSimulationTest {
     }
 
     private void testElectionAfterLeaderFailure(QuorumConfig config) throws IOException {
+        testElectionAfterLeaderShutdown(config, Cluster::kill);
+    }
+
+    @Test
+    public void testElectionAfterLeaderGracefulShutdownQuorumSizeThree() throws IOException {
+        testElectionAfterLeaderGracefulShutdown(new QuorumConfig(3, 0));
+    }
+
+    @Test
+    public void testElectionAfterLeaderGracefulShutdownQuorumSizeThreeAndTwoObservers() throws IOException {
+        testElectionAfterLeaderGracefulShutdown(new QuorumConfig(3, 2));
+    }
+
+    @Test
+    public void testElectionAfterLeaderGracefulShutdownQuorumSizeFour() throws IOException {
+        testElectionAfterLeaderGracefulShutdown(new QuorumConfig(4, 0));
+    }
+
+    @Test
+    public void testElectionAfterLeaderGracefulShutdownQuorumSizeFourAndTwoObservers() throws IOException {
+        testElectionAfterLeaderGracefulShutdown(new QuorumConfig(4, 2));
+    }
+
+    @Test
+    public void testElectionAfterLeaderGracefulShutdownQuorumSizeFive() throws IOException {
+        testElectionAfterLeaderGracefulShutdown(new QuorumConfig(5, 0));
+    }
+
+    @Test
+    public void testElectionAfterLeaderGracefulShutdownQuorumSizeFiveAndThreeObservers() throws IOException {
+        testElectionAfterLeaderGracefulShutdown(new QuorumConfig(5, 3));
+    }
+
+    private void testElectionAfterLeaderGracefulShutdown(QuorumConfig config) throws IOException {
+        testElectionAfterLeaderShutdown(config, Cluster::shutdown);
+    }
+
+    private void testElectionAfterLeaderShutdown(QuorumConfig config,
+                                                 BiConsumer<Cluster, Integer> doShutdown) throws IOException {
         // We need at least three voters to run this tests
         assumeTrue(config.numVoters > 2);
 
@@ -201,9 +241,9 @@ public class RaftEventSimulationTest {
             scheduler.schedule(new SequentialAppendAction(cluster), 0, 2, 3);
             scheduler.runUntil(() -> cluster.anyReachedHighWatermark(10));
 
-            // Kill the leader and write some more data. We can verify the new leader has been elected
+            // Shutdown the leader and write some more data. We can verify the new leader has been elected
             // by verifying that the high watermark can still advance.
-            cluster.kill(leaderId);
+            doShutdown.accept(cluster, leaderId);
             scheduler.runUntil(() -> cluster.allReachedHighWatermark(20));
         }
     }
@@ -410,7 +450,10 @@ public class RaftEventSimulationTest {
 
         @Override
         public void execute() {
-            cluster.withCurrentLeader(node -> node.counter.increment());
+            cluster.withCurrentLeader(node -> {
+                if (!node.client.isShuttingDown())
+                    node.counter.increment();
+            });
         }
     }
 
@@ -581,6 +624,14 @@ public class RaftEventSimulationTest {
 
         void kill(int nodeId) {
             running.remove(nodeId);
+        }
+
+        void shutdown(int nodeId) {
+            RaftNode node = running.get(nodeId);
+            if (node == null) {
+                throw new IllegalStateException("Attempt to shutdown a node which is not currently running");
+            }
+            node.client.shutdown(500).whenComplete((res, exception) -> kill(nodeId));
         }
 
         void pollIfRunning(int nodeId) {

@@ -1313,6 +1313,11 @@ public class KafkaRaftClient implements RaftClient {
         return gracefulShutdown == null || !gracefulShutdown.isFinished();
     }
 
+    public boolean isShuttingDown() {
+        GracefulShutdown gracefulShutdown = shutdown.get();
+        return gracefulShutdown != null && !gracefulShutdown.isFinished();
+    }
+
     private void pollShutdown(GracefulShutdown shutdown) throws IOException {
         // Graceful shutdown allows a leader or candidate to resign its leadership without
         // awaiting expiration of the election timeout. During shutdown, we no longer update
@@ -1324,7 +1329,7 @@ public class KafkaRaftClient implements RaftClient {
 
         if (quorum.isFollower() || quorum.remoteVoters().isEmpty()) {
             // Shutdown immediately if we are a follower or we are the only voter
-            shutdown.finished.set(true);
+            shutdown.complete();
         } else if (!shutdown.isFinished()) {
             long currentTimeMs = shutdown.finishTimer.currentTimeMs();
             maybeSendEndQuorumEpoch(currentTimeMs);
@@ -1438,11 +1443,13 @@ public class KafkaRaftClient implements RaftClient {
     }
 
     @Override
-    public void shutdown(int timeoutMs) {
-        // TODO: Safe to access epoch? Need to reset connections to be able to send EndQuorumEpoch? Block until shutdown completes?
+    public CompletableFuture<Void> shutdown(int timeoutMs) {
+        logger.info("Beginning graceful shutdown");
+        CompletableFuture<Void> shutdownComplete = new CompletableFuture<>();
         kafkaRaftMetrics.close();
-        shutdown.set(new GracefulShutdown(timeoutMs, quorum.epoch()));
+        shutdown.set(new GracefulShutdown(timeoutMs, quorum.epoch(), shutdownComplete));
         channel.wakeup();
+        return shutdownComplete;
     }
 
     public OptionalLong highWatermark() {
@@ -1450,39 +1457,52 @@ public class KafkaRaftClient implements RaftClient {
     }
 
     private class GracefulShutdown {
+        final long shutdownTimeoutMs;
         final int epoch;
         final Timer finishTimer;
-
-        final AtomicBoolean finished = new AtomicBoolean(false);
+        final CompletableFuture<Void> completeFuture;
 
         public GracefulShutdown(long shutdownTimeoutMs,
-                                int epoch) {
+                                int epoch,
+                                CompletableFuture<Void> completeFuture) {
+            this.shutdownTimeoutMs = shutdownTimeoutMs;
             this.finishTimer = time.timer(shutdownTimeoutMs);
             this.epoch = epoch;
+            this.completeFuture = completeFuture;
         }
 
         public void onEpochUpdate(int epoch) {
             // Shutdown is complete once the epoch has been bumped, which indicates
             // that a new election has been started.
-
-            if (epoch > this.epoch)
-                finished.set(true);
+            if (epoch > this.epoch) {
+                complete();
+            }
         }
 
         public void update() {
             finishTimer.update();
+            if (finishTimer.isExpired()) {
+                logger.warn("Graceful shutdown timed out after {}ms", shutdownTimeoutMs);
+                completeFuture.completeExceptionally(
+                    new TimeoutException("Timeout expired before shutdown completed"));
+            }
         }
 
         public boolean isFinished() {
-            return succeeded() || failed();
+            return completeFuture.isDone();
         }
 
         public boolean succeeded() {
-            return finished.get();
+            return isFinished() && !failed();
         }
 
         public boolean failed() {
-            return finishTimer.isExpired();
+            return completeFuture.isCompletedExceptionally();
+        }
+
+        public void complete() {
+            logger.info("Graceful shutdown completed");
+            completeFuture.complete(null);
         }
     }
 
