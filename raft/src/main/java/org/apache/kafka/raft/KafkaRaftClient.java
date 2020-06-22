@@ -64,7 +64,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -1457,7 +1456,6 @@ public class KafkaRaftClient implements RaftClient {
     }
 
     private class GracefulShutdown {
-        final long shutdownTimeoutMs;
         final int epoch;
         final Timer finishTimer;
         final CompletableFuture<Void> completeFuture;
@@ -1465,7 +1463,6 @@ public class KafkaRaftClient implements RaftClient {
         public GracefulShutdown(long shutdownTimeoutMs,
                                 int epoch,
                                 CompletableFuture<Void> completeFuture) {
-            this.shutdownTimeoutMs = shutdownTimeoutMs;
             this.finishTimer = time.timer(shutdownTimeoutMs);
             this.epoch = epoch;
             this.completeFuture = completeFuture;
@@ -1482,7 +1479,7 @@ public class KafkaRaftClient implements RaftClient {
         public void update() {
             finishTimer.update();
             if (finishTimer.isExpired()) {
-                logger.warn("Graceful shutdown timed out after {}ms", shutdownTimeoutMs);
+                logger.warn("Graceful shutdown timed out after {}ms", timer.timeoutMs());
                 completeFuture.completeExceptionally(
                     new TimeoutException("Timeout expired before shutdown completed"));
             }
