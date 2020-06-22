@@ -1030,12 +1030,7 @@ public class KafkaRaftClient implements RaftClient {
         } else if (epoch > quorum.epoch()) {
             // If the request or response indicates a higher epoch, we bump our local
             // epoch and become a follower.
-            GracefulShutdown gracefulShutdown = shutdown.get();
-            if (gracefulShutdown != null) {
-                gracefulShutdown.onEpochUpdate(epoch);
-            } else if (leaderId.isPresent()) {
-                becomeFollower(leaderId, epoch);
-            }
+            becomeFollower(leaderId, epoch);
         } else if (leaderId.isPresent() && !quorum.hasLeader()) {
             // The request or response indicates the leader of the current epoch,
             // which is currently unknown
@@ -1102,9 +1097,6 @@ public class KafkaRaftClient implements RaftClient {
             // expected voters. We generally expect this to be a transient
             // error until all voters have replicated the reassignment record.
             return Optional.of(Errors.INCONSISTENT_VOTER_SET);
-        } else if (shutdown.get() != null) {
-            shutdown.get().onEpochUpdate(requestEpoch);
-            return Optional.of(Errors.BROKER_NOT_AVAILABLE);
         } else {
             return Optional.empty();
         }
@@ -1319,24 +1311,26 @@ public class KafkaRaftClient implements RaftClient {
 
     private void pollShutdown(GracefulShutdown shutdown) throws IOException {
         // Graceful shutdown allows a leader or candidate to resign its leadership without
-        // awaiting expiration of the election timeout. During shutdown, we no longer update
-        // quorum state. All we do is check for epoch updates and try to send EndQuorumEpoch request
-        // to finish our term. We consider the term finished if we are a follower or if one of
-        // the remaining voters bumps the existing epoch.
+        // awaiting expiration of the election timeout. As soon as another leader is elected,
+        // the shutdown is considered complete.
 
         shutdown.update();
-
-        if (quorum.isFollower() || quorum.remoteVoters().isEmpty()) {
-            // Shutdown immediately if we are a follower or we are the only voter
-            shutdown.complete();
-        } else if (!shutdown.isFinished()) {
-            long currentTimeMs = shutdown.finishTimer.currentTimeMs();
-            maybeSendEndQuorumEpoch(currentTimeMs);
-
-            List<RaftMessage> inboundMessages = channel.receive(shutdown.finishTimer.remainingMs());
-            for (RaftMessage message : inboundMessages)
-                handleInboundMessage(message, currentTimeMs);
+        if (shutdown.isFinished()) {
+            return;
         }
+
+        long currentTimeMs = shutdown.finishTimer.currentTimeMs();
+
+        if (quorum.remoteVoters().isEmpty() || quorum.hasRemoteLeader()) {
+            shutdown.complete();
+            return;
+        } else if (quorum.isLeader()) {
+            maybeSendEndQuorumEpoch(currentTimeMs);
+        }
+
+        List<RaftMessage> inboundMessages = channel.receive(shutdown.finishTimer.remainingMs());
+        for (RaftMessage message : inboundMessages)
+            handleInboundMessage(message, currentTimeMs);
     }
 
     public void poll() throws IOException {
@@ -1446,7 +1440,7 @@ public class KafkaRaftClient implements RaftClient {
         logger.info("Beginning graceful shutdown");
         CompletableFuture<Void> shutdownComplete = new CompletableFuture<>();
         kafkaRaftMetrics.close();
-        shutdown.set(new GracefulShutdown(timeoutMs, quorum.epoch(), shutdownComplete));
+        shutdown.set(new GracefulShutdown(timeoutMs, shutdownComplete));
         channel.wakeup();
         return shutdownComplete;
     }
@@ -1456,24 +1450,13 @@ public class KafkaRaftClient implements RaftClient {
     }
 
     private class GracefulShutdown {
-        final int epoch;
         final Timer finishTimer;
         final CompletableFuture<Void> completeFuture;
 
         public GracefulShutdown(long shutdownTimeoutMs,
-                                int epoch,
                                 CompletableFuture<Void> completeFuture) {
             this.finishTimer = time.timer(shutdownTimeoutMs);
-            this.epoch = epoch;
             this.completeFuture = completeFuture;
-        }
-
-        public void onEpochUpdate(int epoch) {
-            // Shutdown is complete once the epoch has been bumped, which indicates
-            // that a new election has been started.
-            if (epoch > this.epoch) {
-                complete();
-            }
         }
 
         public void update() {

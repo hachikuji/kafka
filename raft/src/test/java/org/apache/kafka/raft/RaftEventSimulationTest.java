@@ -45,7 +45,6 @@ import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -181,7 +180,7 @@ public class RaftEventSimulationTest {
     }
 
     private void testElectionAfterLeaderFailure(QuorumConfig config) throws IOException {
-        testElectionAfterLeaderShutdown(config, Cluster::kill);
+        testElectionAfterLeaderShutdown(config, false);
     }
 
     @Test
@@ -215,11 +214,10 @@ public class RaftEventSimulationTest {
     }
 
     private void testElectionAfterLeaderGracefulShutdown(QuorumConfig config) throws IOException {
-        testElectionAfterLeaderShutdown(config, Cluster::shutdown);
+        testElectionAfterLeaderShutdown(config, true);
     }
 
-    private void testElectionAfterLeaderShutdown(QuorumConfig config,
-                                                 BiConsumer<Cluster, Integer> doShutdown) throws IOException {
+    private void testElectionAfterLeaderShutdown(QuorumConfig config, boolean isGracefulShutdown) throws IOException {
         // We need at least three voters to run this tests
         assumeTrue(config.numVoters > 2);
 
@@ -243,7 +241,12 @@ public class RaftEventSimulationTest {
 
             // Shutdown the leader and write some more data. We can verify the new leader has been elected
             // by verifying that the high watermark can still advance.
-            doShutdown.accept(cluster, leaderId);
+            if (isGracefulShutdown) {
+                cluster.shutdown(leaderId);
+            } else {
+                cluster.kill(leaderId);
+            }
+
             scheduler.runUntil(() -> cluster.allReachedHighWatermark(20));
         }
     }
