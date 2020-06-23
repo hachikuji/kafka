@@ -1439,10 +1439,13 @@ public class KafkaRaftClient implements RaftClient {
     public CompletableFuture<Void> shutdown(int timeoutMs) {
         logger.info("Beginning graceful shutdown");
         CompletableFuture<Void> shutdownComplete = new CompletableFuture<>();
-        kafkaRaftMetrics.close();
         shutdown.set(new GracefulShutdown(timeoutMs, shutdownComplete));
         channel.wakeup();
         return shutdownComplete;
+    }
+
+    private void close() {
+        kafkaRaftMetrics.close();
     }
 
     public OptionalLong highWatermark() {
@@ -1462,6 +1465,7 @@ public class KafkaRaftClient implements RaftClient {
         public void update() {
             finishTimer.update();
             if (finishTimer.isExpired()) {
+                close();
                 logger.warn("Graceful shutdown timed out after {}ms", timer.timeoutMs());
                 completeFuture.completeExceptionally(
                     new TimeoutException("Timeout expired before shutdown completed"));
@@ -1481,6 +1485,7 @@ public class KafkaRaftClient implements RaftClient {
         }
 
         public void complete() {
+            close();
             logger.info("Graceful shutdown completed");
             completeFuture.complete(null);
         }
