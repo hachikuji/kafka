@@ -188,9 +188,10 @@ public class RaftEventSimulationTest {
             MessageRouter router = new MessageRouter(cluster);
             EventScheduler scheduler = schedulerWithDefaultInvariants(cluster);
 
-            // Start with node 1 as the leader
+            // Start with node 0 as the leader
+            int leaderId = 0;
             Set<Integer> voters = cluster.voters();
-            cluster.initializeElection(ElectionState.withElectedLeader(2, 0, voters));
+            cluster.initializeElection(ElectionState.withElectedLeader(2, leaderId, voters));
             cluster.startAll();
             assertTrue(cluster.hasConsistentLeader());
 
@@ -202,7 +203,7 @@ public class RaftEventSimulationTest {
 
             // Kill the leader and write some more data. We can verify the new leader has been elected
             // by verifying that the high watermark can still advance.
-            cluster.kill(0);
+            cluster.kill(leaderId);
             scheduler.runUntil(() -> cluster.allReachedHighWatermark(20));
         }
     }
@@ -836,7 +837,6 @@ public class RaftEventSimulationTest {
         @Override
         public void verify() {
             for (Map.Entry<Integer, PersistentState> nodeEntry : cluster.nodes.entrySet()) {
-                int nodeId = nodeEntry.getKey();
                 PersistentState state = nodeEntry.getValue();
                 ElectionState electionState = state.store.readElectionState();
 
