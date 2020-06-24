@@ -273,8 +273,8 @@ class RaftServer(val config: KafkaConfig) extends Logging {
     override def doWork(): Unit = {
       if (counter.isLeader) {
         counter.increment()
-        pause(500, TimeUnit.MILLISECONDS)
       }
+      pause(500, TimeUnit.MILLISECONDS)
     }
   }
 
