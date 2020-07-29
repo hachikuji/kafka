@@ -79,11 +79,6 @@ import org.apache.kafka.common.errors.OffsetNotAvailableException;
 import org.apache.kafka.common.errors.OffsetOutOfRangeException;
 import org.apache.kafka.common.errors.OperationNotAttemptedException;
 import org.apache.kafka.common.errors.OutOfOrderSequenceException;
-<<<<<<< HEAD
-import org.apache.kafka.common.errors.ThrottlingQuotaExceededException;
-import org.apache.kafka.common.errors.UnstableOffsetCommitException;
-=======
->>>>>>> KCORE-414; Make request/response error handling more conventional (#319)
 import org.apache.kafka.common.errors.PolicyViolationException;
 import org.apache.kafka.common.errors.PreferredLeaderNotAvailableException;
 import org.apache.kafka.common.errors.ProducerFencedException;
@@ -96,6 +91,7 @@ import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.errors.SecurityDisabledException;
 import org.apache.kafka.common.errors.StaleBrokerEpochException;
+import org.apache.kafka.common.errors.ThrottlingQuotaExceededException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.TopicAuthorizationException;
 import org.apache.kafka.common.errors.TopicDeletionDisabledException;
