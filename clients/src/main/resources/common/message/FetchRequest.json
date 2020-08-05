@@ -75,7 +75,6 @@
           "about": "The current leader epoch of the partition." },
         { "name": "FetchOffset", "type": "int64", "versions": "0+",
           "about": "The message offset." },
-        // TODO: Are we sure we want this as a tagged field?
         { "name": "LastFetchedEpoch", "type": "int32", "versions": "12+", "default": "-1", "taggedVersions": "12+", "tag": 0,
           "about": "The epoch of the last fetched record or -1 if there is none"},
         { "name": "LogStartOffset", "type": "int64", "versions": "5+", "default": "-1", "ignorable": true,

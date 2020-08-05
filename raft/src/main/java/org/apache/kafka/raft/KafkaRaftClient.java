@@ -81,7 +81,6 @@ import java.util.stream.Collectors;
 
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.apache.kafka.raft.RaftUtil.hasValidTopicPartition;
-import static org.apache.kafka.raft.RaftUtil.singletonFetchResponse;
 
 /**
  * This class implements a Kafkaesque version of the Raft protocol. Leader election
@@ -827,7 +826,7 @@ public class KafkaRaftClient implements RaftClient {
         Optional<FetchResponseData.OffsetAndEpoch> nextFetchOffsetAndEpoch,
         Optional<LogOffsetMetadata> highWatermark
     ) {
-        return singletonFetchResponse(log.topicPartition(), Errors.NONE, partitionData -> {
+        return RaftUtil.singletonFetchResponse(log.topicPartition(), Errors.NONE, partitionData -> {
             FetchResponseData.PartitionHeader header = partitionData.partitionHeader()
                 .setErrorCode(error.code())
                 .setLogStartOffset(log.startOffset())
