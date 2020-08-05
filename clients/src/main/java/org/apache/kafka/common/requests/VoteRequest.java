@@ -23,10 +23,7 @@ import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class VoteRequest extends AbstractRequest {
     public static class Builder extends AbstractRequest.Builder<VoteRequest> {
@@ -103,23 +100,6 @@ public class VoteRequest extends AbstractRequest {
                                    .setLastOffsetEpoch(lastEpoch)
                                    .setLastOffset(lastEpochEndOffset))
                            )));
-    }
-
-    public static VoteResponseData getPartitionLevelErrorResponse(VoteRequestData data, Errors error) {
-        short errorCode = error.code();
-        List<VoteResponseData.TopicData> topicResponses = new ArrayList<>();
-        for (VoteRequestData.TopicData topic : data.topics()) {
-            topicResponses.add(
-                new VoteResponseData.TopicData()
-                    .setTopicName(topic.topicName())
-                    .setPartitions(topic.partitions().stream().map(
-                        requestPartition -> new VoteResponseData.PartitionData()
-                                                .setPartitionIndex(requestPartition.partitionIndex())
-                                                .setErrorCode(errorCode)
-                    ).collect(Collectors.toList())));
-        }
-
-        return new VoteResponseData().setTopics(topicResponses);
     }
 
 }

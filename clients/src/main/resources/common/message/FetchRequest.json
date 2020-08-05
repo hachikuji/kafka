@@ -76,8 +76,8 @@
         { "name": "FetchOffset", "type": "int64", "versions": "0+",
           "about": "The message offset." },
         // TODO: Are we sure we want this as a tagged field?
-        { "name": "FetchEpoch", "type": "int32", "versions": "12+", "default": "-1", "taggedVersions": "12+", "tag": 0,
-          "about": "The epoch of the last replicated record"},
+        { "name": "LastFetchedEpoch", "type": "int32", "versions": "12+", "default": "-1", "taggedVersions": "12+", "tag": 0,
+          "about": "The epoch of the last fetched record or -1 if there is none"},
         { "name": "LogStartOffset", "type": "int64", "versions": "5+", "default": "-1", "ignorable": true,
           "about": "The earliest available offset of the follower replica.  The field is only used when the request is sent by the follower."},
         { "name": "PartitionMaxBytes", "type": "int32", "versions": "0+",

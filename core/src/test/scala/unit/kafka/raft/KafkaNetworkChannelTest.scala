@@ -111,7 +111,6 @@ class KafkaNetworkChannelTest {
 
   @Test
   def testReceiveAndSendInboundRequest(): Unit = {
-
     for (apiKey <- RaftApis) {
       val request = KafkaNetworkChannel.buildRequest(buildTestRequest(apiKey)).build()
       val responseRef = new AtomicReference[AbstractResponse]()
@@ -175,7 +174,7 @@ class KafkaNetworkChannelTest {
           fetchPartition
             .setCurrentLeaderEpoch(5)
             .setFetchOffset(333)
-            .setFetchEpoch(5)
+            .setLastFetchedEpoch(5)
         })
         request.setReplicaId(1)
 

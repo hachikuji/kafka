@@ -17,6 +17,7 @@
 package org.apache.kafka.raft;
 
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.NotLeaderOrFollowerException;
 import org.apache.kafka.common.message.BeginQuorumEpochRequestData;
@@ -508,7 +509,8 @@ public class KafkaRaftClient implements RaftClient {
         VoteRequestData request = (VoteRequestData) requestMetadata.data;
 
         if (!hasValidTopicPartition(request, log.topicPartition())) {
-            return VoteRequest.getPartitionLevelErrorResponse(request, Errors.UNKNOWN_TOPIC_OR_PARTITION);
+            // Until we support multi-raft, we treat topic partition mismatches as invalid requests
+            return new VoteResponseData().setErrorCode(Errors.INVALID_REQUEST.code());
         }
 
         VoteRequestData.PartitionData partitionRequest =
@@ -577,7 +579,7 @@ public class KafkaRaftClient implements RaftClient {
         VoteResponseData response = (VoteResponseData) responseMetadata.data;
         Errors topLevelError = Errors.forCode(response.errorCode());
         if (topLevelError != Errors.NONE) {
-            return handleUnexpectedError(topLevelError, responseMetadata);
+            return handleTopLevelError(topLevelError, responseMetadata);
         }
 
         if (!hasValidTopicPartition(response, log.topicPartition())) {
@@ -668,8 +670,8 @@ public class KafkaRaftClient implements RaftClient {
         BeginQuorumEpochRequestData request = (BeginQuorumEpochRequestData) requestMetadata.data;
 
         if (!hasValidTopicPartition(request, log.topicPartition())) {
-            return BeginQuorumEpochRequest.getPartitionLevelErrorResponse(
-                request, Errors.UNKNOWN_TOPIC_OR_PARTITION);
+            // Until we support multi-raft, we treat topic partition mismatches as invalid requests
+            return new BeginQuorumEpochResponseData().setErrorCode(Errors.INVALID_REQUEST.code());
         }
 
         BeginQuorumEpochRequestData.PartitionData partitionRequest =
@@ -694,7 +696,7 @@ public class KafkaRaftClient implements RaftClient {
         BeginQuorumEpochResponseData response = (BeginQuorumEpochResponseData) responseMetadata.data;
         Errors topLevelError = Errors.forCode(response.errorCode());
         if (topLevelError != Errors.NONE) {
-            return handleUnexpectedError(topLevelError, responseMetadata);
+            return handleTopLevelError(topLevelError, responseMetadata);
         }
 
         if (!hasValidTopicPartition(response, log.topicPartition())) {
@@ -743,8 +745,8 @@ public class KafkaRaftClient implements RaftClient {
         EndQuorumEpochRequestData request = (EndQuorumEpochRequestData) requestMetadata.data;
 
         if (!hasValidTopicPartition(request, log.topicPartition())) {
-            return EndQuorumEpochRequest.getPartitionLevelErrorResponse(
-                request, Errors.UNKNOWN_TOPIC_OR_PARTITION);
+            // Until we support multi-raft, we treat topic partition mismatches as invalid requests
+            return new EndQuorumEpochResponseData().setErrorCode(Errors.INVALID_REQUEST.code());
         }
 
         EndQuorumEpochRequestData.PartitionData partitionRequest =
@@ -795,7 +797,7 @@ public class KafkaRaftClient implements RaftClient {
         EndQuorumEpochResponseData response = (EndQuorumEpochResponseData) responseMetadata.data;
         Errors topLevelError = Errors.forCode(response.errorCode());
         if (topLevelError != Errors.NONE) {
-            return handleUnexpectedError(topLevelError, responseMetadata);
+            return handleTopLevelError(topLevelError, responseMetadata);
         }
 
         if (!hasValidTopicPartition(response, log.topicPartition())) {
@@ -868,14 +870,16 @@ public class KafkaRaftClient implements RaftClient {
     ) {
         FetchRequestData request = (FetchRequestData) requestMetadata.data;
 
-        // FIXME: Validate topic/partition
-        FetchRequestData.FetchPartition fetchPartition = request.topics().get(0).partitions().get(0);
+        if (!hasValidTopicPartition(request, log.topicPartition())) {
+            // Until we support multi-raft, we treat topic partition mismatches as invalid requests
+            return completedFuture(new FetchResponseData().setErrorCode(Errors.INVALID_REQUEST.code()));
+        }
 
-        // TODO: Do we like `lastFetchedEpoch` better?
+        FetchRequestData.FetchPartition fetchPartition = request.topics().get(0).partitions().get(0);
         if (request.maxWaitMs() < 0
             || fetchPartition.fetchOffset() < 0
-            || fetchPartition.fetchEpoch() < 0
-            || fetchPartition.fetchEpoch() > fetchPartition.currentLeaderEpoch()) {
+            || fetchPartition.lastFetchedEpoch() < 0
+            || fetchPartition.lastFetchedEpoch() > fetchPartition.currentLeaderEpoch()) {
             return completedFuture(buildEmptyFetchResponse(
                 Errors.INVALID_REQUEST, Optional.empty()));
         }
@@ -926,7 +930,7 @@ public class KafkaRaftClient implements RaftClient {
         }
 
         long fetchOffset = request.fetchOffset();
-        int lastFetchedEpoch = request.fetchEpoch();
+        int lastFetchedEpoch = request.lastFetchedEpoch();
         LeaderState state = quorum.leaderStateOrThrow();
         Optional<LogOffsetMetadata> highWatermark = state.highWatermark();
         Optional<OffsetAndEpoch> nextOffsetOpt = validateFetchOffsetAndEpoch(fetchOffset, lastFetchedEpoch);
@@ -971,10 +975,12 @@ public class KafkaRaftClient implements RaftClient {
         FetchResponseData response = (FetchResponseData) responseMetadata.data;
         Errors topLevelError = Errors.forCode(response.errorCode());
         if (topLevelError != Errors.NONE) {
-            return handleUnexpectedError(topLevelError, responseMetadata);
+            return handleTopLevelError(topLevelError, responseMetadata);
         }
 
-        // FIXME: Add topic/partition validation
+        if (!RaftUtil.hasValidTopicPartition(response, log.topicPartition())) {
+            return false;
+        }
 
         FetchResponseData.FetchablePartitionResponse partitionResponse =
             response.responses().get(0).partitionResponses().get(0);
@@ -1224,6 +1230,16 @@ public class KafkaRaftClient implements RaftClient {
         }
     }
 
+    private boolean handleTopLevelError(Errors error, RaftResponse.Inbound response) {
+        if (error == Errors.BROKER_NOT_AVAILABLE) {
+            return false;
+        } else if (error == Errors.CLUSTER_AUTHORIZATION_FAILED) {
+            throw new ClusterAuthorizationException("Received cluster authorization error in response " + response);
+        } else {
+            return handleUnexpectedError(error, response);
+        }
+    }
+
     private boolean handleUnexpectedError(Errors error, RaftResponse.Inbound response) {
         logger.error("Unexpected error {} in {} response: {}",
             error, response.data.apiKey(), response);
@@ -1447,7 +1463,7 @@ public class KafkaRaftClient implements RaftClient {
         FetchRequestData request = RaftUtil.singletonFetchRequest(log.topicPartition(), fetchPartition -> {
             fetchPartition
                 .setCurrentLeaderEpoch(quorum.epoch())
-                .setFetchEpoch(log.lastFetchedEpoch())
+                .setLastFetchedEpoch(log.lastFetchedEpoch())
                 .setFetchOffset(log.endOffset().offset);
         });
         return request

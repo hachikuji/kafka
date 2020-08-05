@@ -112,6 +112,20 @@ public class RaftUtil {
             .setResponses(Collections.singletonList(fetchableTopic));
     }
 
+    static boolean hasValidTopicPartition(FetchRequestData data, TopicPartition topicPartition) {
+        return data.topics().size() == 1 &&
+            data.topics().get(0).topic().equals(topicPartition.topic()) &&
+            data.topics().get(0).partitions().size() == 1 &&
+            data.topics().get(0).partitions().get(0).partition() == topicPartition.partition();
+    }
+
+    static boolean hasValidTopicPartition(FetchResponseData data, TopicPartition topicPartition) {
+        return data.responses().size() == 1 &&
+            data.responses().get(0).topic().equals(topicPartition.topic()) &&
+            data.responses().get(0).partitionResponses().size() == 1 &&
+            data.responses().get(0).partitionResponses().get(0).partitionHeader().partition() == topicPartition.partition();
+    }
+
     static boolean hasValidTopicPartition(VoteResponseData data, TopicPartition topicPartition) {
         return data.topics().size() == 1 &&
                    data.topics().get(0).topicName().equals(topicPartition.topic()) &&

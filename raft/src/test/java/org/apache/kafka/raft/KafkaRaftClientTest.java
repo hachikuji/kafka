@@ -1938,7 +1938,7 @@ public class KafkaRaftClientTest {
         FetchRequestData.FetchPartition fetchPartition = request.topics().get(0).partitions().get(0);
         assertEquals(epoch, fetchPartition.currentLeaderEpoch());
         assertEquals(fetchOffset, fetchPartition.fetchOffset());
-        assertEquals(lastFetchedEpoch, fetchPartition.fetchEpoch());
+        assertEquals(lastFetchedEpoch, fetchPartition.lastFetchedEpoch());
         assertEquals(localId, request.replicaId());
         return raftMessage.correlationId();
     }
@@ -2104,7 +2104,7 @@ public class KafkaRaftClientTest {
         FetchRequestData request = RaftUtil.singletonFetchRequest(METADATA_PARTITION, fetchPartition -> {
             fetchPartition
                 .setCurrentLeaderEpoch(epoch)
-                .setFetchEpoch(lastFetchedEpoch)
+                .setLastFetchedEpoch(lastFetchedEpoch)
                 .setFetchOffset(fetchOffset);
         });
         return request

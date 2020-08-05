@@ -23,10 +23,7 @@ import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class BeginQuorumEpochRequest extends AbstractRequest {
     public static class Builder extends AbstractRequest.Builder<BeginQuorumEpochRequest> {
@@ -92,24 +89,6 @@ public class BeginQuorumEpochRequest extends AbstractRequest {
                                    .setLeaderEpoch(leaderEpoch)
                                    .setLeaderId(leaderId))))
                    );
-    }
-
-
-    public static BeginQuorumEpochResponseData getPartitionLevelErrorResponse(BeginQuorumEpochRequestData data, Errors error) {
-        short errorCode = error.code();
-        List<BeginQuorumEpochResponseData.TopicData> topicResponses = new ArrayList<>();
-        for (BeginQuorumEpochRequestData.TopicData topic : data.topics()) {
-            topicResponses.add(
-                new BeginQuorumEpochResponseData.TopicData()
-                    .setTopicName(topic.topicName())
-                    .setPartitions(topic.partitions().stream().map(
-                        requestPartition -> new BeginQuorumEpochResponseData.PartitionData()
-                                                .setPartitionIndex(requestPartition.partitionIndex())
-                                                .setErrorCode(errorCode)
-                    ).collect(Collectors.toList())));
-        }
-
-        return new BeginQuorumEpochResponseData().setTopics(topicResponses);
     }
 
 }
