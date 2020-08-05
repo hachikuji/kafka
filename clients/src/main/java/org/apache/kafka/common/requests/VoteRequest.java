@@ -67,7 +67,8 @@ public class VoteRequest extends AbstractRequest {
 
     @Override
     public AbstractResponse getErrorResponse(int throttleTimeMs, Throwable e) {
-        return new VoteResponse(getTopLevelErrorResponse(Errors.forException(e)));
+        return new VoteResponse(new VoteResponseData()
+            .setErrorCode(Errors.forException(e).code()));
     }
 
     public static VoteRequestData singletonRequest(TopicPartition topicPartition,
@@ -121,7 +122,4 @@ public class VoteRequest extends AbstractRequest {
         return new VoteResponseData().setTopics(topicResponses);
     }
 
-    public static VoteResponseData getTopLevelErrorResponse(Errors error) {
-        return new VoteResponseData().setErrorCode(error.code());
-    }
 }

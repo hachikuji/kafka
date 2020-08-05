@@ -67,7 +67,8 @@ public class EndQuorumEpochRequest extends AbstractRequest {
 
     @Override
     public EndQuorumEpochResponse getErrorResponse(int throttleTimeMs, Throwable e) {
-        return new EndQuorumEpochResponse(getTopLevelErrorResponse(Errors.forException(e)));
+        return new EndQuorumEpochResponse(new EndQuorumEpochResponseData()
+            .setErrorCode(Errors.forException(e).code()));
     }
 
     public static EndQuorumEpochRequestData singletonRequest(TopicPartition topicPartition,
@@ -117,7 +118,4 @@ public class EndQuorumEpochRequest extends AbstractRequest {
         return new EndQuorumEpochResponseData().setTopics(topicResponses);
     }
 
-    public static EndQuorumEpochResponseData getTopLevelErrorResponse(Errors error) {
-        return new EndQuorumEpochResponseData().setErrorCode(error.code());
-    }
 }

@@ -30,9 +30,6 @@ import org.apache.kafka.common.message.VoteResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.ApiMessage;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.requests.BeginQuorumEpochRequest;
-import org.apache.kafka.common.requests.EndQuorumEpochRequest;
-import org.apache.kafka.common.requests.VoteRequest;
 
 import java.util.Collections;
 import java.util.OptionalInt;
@@ -47,21 +44,21 @@ public class RaftUtil {
         return errorResponse(apiKey, error, 0, OptionalInt.empty());
     }
 
+    // TODO: Remove epoch/leaderId from parameters after FindQuorum is gone
     public static ApiMessage errorResponse(
         ApiKeys apiKey,
         Errors error,
         int epoch,
         OptionalInt leaderIdOpt
     ) {
-        // FIXME: Do we need to return leaderId and epoch here?
         int leaderId = leaderIdOpt.orElse(-1);
         switch (apiKey) {
             case VOTE:
-                return VoteRequest.getTopLevelErrorResponse(error);
+                return new VoteResponseData().setErrorCode(error.code());
             case BEGIN_QUORUM_EPOCH:
-                return BeginQuorumEpochRequest.getTopLevelErrorResponse(error);
+                return new BeginQuorumEpochResponseData().setErrorCode(error.code());
             case END_QUORUM_EPOCH:
-                return EndQuorumEpochRequest.getTopLevelErrorResponse(error);
+                return new EndQuorumEpochResponseData().setErrorCode(error.code());
             case FETCH:
                 return new FetchResponseData().setErrorCode(error.code());
             case FIND_QUORUM:

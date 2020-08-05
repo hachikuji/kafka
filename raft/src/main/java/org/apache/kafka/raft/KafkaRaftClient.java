@@ -575,18 +575,16 @@ public class KafkaRaftClient implements RaftClient {
     ) throws IOException {
         int remoteNodeId = responseMetadata.sourceId();
         VoteResponseData response = (VoteResponseData) responseMetadata.data;
-
-        if (!hasValidTopicPartition(response, log.topicPartition())) {
-            return false;
-        }
-
         Errors topLevelError = Errors.forCode(response.errorCode());
         if (topLevelError != Errors.NONE) {
             return handleUnexpectedError(topLevelError, responseMetadata);
         }
 
-        VoteResponseData.PartitionData partitionResponse = response.topics().get(0).partitions().get(0);
+        if (!hasValidTopicPartition(response, log.topicPartition())) {
+            return false;
+        }
 
+        VoteResponseData.PartitionData partitionResponse = response.topics().get(0).partitions().get(0);
         Errors error = Errors.forCode(partitionResponse.errorCode());
         OptionalInt responseLeaderId = optionalLeaderId(partitionResponse.leaderId());
         int responseEpoch = partitionResponse.leaderEpoch();
@@ -694,14 +692,13 @@ public class KafkaRaftClient implements RaftClient {
     ) throws IOException {
         int remoteNodeId = responseMetadata.sourceId();
         BeginQuorumEpochResponseData response = (BeginQuorumEpochResponseData) responseMetadata.data;
-
-        if (!hasValidTopicPartition(response, log.topicPartition())) {
-            return false;
-        }
-
         Errors topLevelError = Errors.forCode(response.errorCode());
         if (topLevelError != Errors.NONE) {
             return handleUnexpectedError(topLevelError, responseMetadata);
+        }
+
+        if (!hasValidTopicPartition(response, log.topicPartition())) {
+            return false;
         }
 
         BeginQuorumEpochResponseData.PartitionData partitionResponse =
@@ -796,14 +793,13 @@ public class KafkaRaftClient implements RaftClient {
         RaftResponse.Inbound responseMetadata
     ) throws IOException {
         EndQuorumEpochResponseData response = (EndQuorumEpochResponseData) responseMetadata.data;
-
-        if (!hasValidTopicPartition(response, log.topicPartition())) {
-            return false;
-        }
-
         Errors topLevelError = Errors.forCode(response.errorCode());
         if (topLevelError != Errors.NONE) {
             return handleUnexpectedError(topLevelError, responseMetadata);
+        }
+
+        if (!hasValidTopicPartition(response, log.topicPartition())) {
+            return false;
         }
 
         EndQuorumEpochResponseData.PartitionData partitionResponse =
