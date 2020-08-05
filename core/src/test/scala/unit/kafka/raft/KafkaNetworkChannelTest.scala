@@ -130,7 +130,7 @@ class KafkaNetworkChannelTest {
       channel.receive(1000)
 
       assertNotNull(responseRef.get)
-      assertEquals(1, responseRef.get.errorCounts.get(Errors.INVALID_REQUEST))
+      assertEquals(Errors.INVALID_REQUEST, extractError(KafkaNetworkChannel.responseData(responseRef.get)))
     }
   }
 

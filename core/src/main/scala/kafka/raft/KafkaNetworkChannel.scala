@@ -67,6 +67,27 @@ object KafkaNetworkChannel {
         new FindQuorumRequest.Builder(findLeaderRequest)
     }
   }
+
+  private[raft] def responseData(response: AbstractResponse): ApiMessage = {
+    response match {
+      case voteResponse: VoteResponse => voteResponse.data
+      case beginEpochResponse: BeginQuorumEpochResponse => beginEpochResponse.data
+      case endEpochResponse: EndQuorumEpochResponse => endEpochResponse.data
+      case fetchResponse: FetchResponse[_] => fetchResponse.data
+      case findLeaderResponse: FindQuorumResponse => findLeaderResponse.data
+    }
+  }
+
+  private[raft] def requestData(request: AbstractRequest): ApiMessage = {
+    request match {
+      case voteRequest: VoteRequest => voteRequest.data
+      case beginEpochRequest: BeginQuorumEpochRequest => beginEpochRequest.data
+      case endEpochRequest: EndQuorumEpochRequest => endEpochRequest.data
+      case fetchRequest: FetchRequest => fetchRequest.data
+      case findLeaderRequest: FindQuorumRequest => findLeaderRequest.data
+    }
+  }
+
 }
 
 class KafkaNetworkChannel(time: Time,
@@ -165,26 +186,6 @@ class KafkaNetworkChannel(time: Time,
       responseData(response.responseBody)
     }
     new RaftResponse.Inbound(header.correlationId, data, response.destination.toInt)
-  }
-
-  private def responseData(response: AbstractResponse): ApiMessage = {
-    response match {
-      case voteResponse: VoteResponse => voteResponse.data
-      case beginEpochResponse: BeginQuorumEpochResponse => beginEpochResponse.data
-      case endEpochResponse: EndQuorumEpochResponse => endEpochResponse.data
-      case fetchResponse: FetchResponse[_] => fetchResponse.data
-      case findLeaderResponse: FindQuorumResponse => findLeaderResponse.data
-    }
-  }
-
-  private def requestData(request: AbstractRequest): ApiMessage = {
-    request match {
-      case voteRequest: VoteRequest => voteRequest.data
-      case beginEpochRequest: BeginQuorumEpochRequest => beginEpochRequest.data
-      case endEpochRequest: EndQuorumEpochRequest => endEpochRequest.data
-      case fetchRequest: FetchRequest => fetchRequest.data
-      case findLeaderRequest: FindQuorumRequest => findLeaderRequest.data
-    }
   }
 
   private def pollInboundResponses(timeoutMs: Long): util.List[RaftMessage] = {
