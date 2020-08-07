@@ -328,7 +328,7 @@ public enum Errors {
     PRODUCER_FENCED(90, "There is a newer producer with the same transactionalId " +
             "which fences the current one.", ProducerFencedException::new),
     INCONSISTENT_VOTER_SET(91, "Indicates that the either the sender or recipient of a " +
-        "voter-only request is not one of the expected voters", InconsistentVoterSetException::new);
+            "voter-only request is not one of the expected voters", InconsistentVoterSetException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 
