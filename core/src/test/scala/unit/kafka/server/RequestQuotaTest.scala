@@ -571,12 +571,6 @@ class RequestQuotaTest extends BaseRequestTest {
           new EndQuorumEpochRequest.Builder(EndQuorumEpochRequest.singletonRequest(
             tp, 10, 2, 5, Collections.singletonList(3)))
 
-        case ApiKeys.FIND_QUORUM =>
-          new FindQuorumRequest.Builder(new FindQuorumRequestData()
-            .setHost("hostname")
-            .setPort(22)
-            .setReplicaId(0))
-
         case _ =>
           throw new IllegalArgumentException("Unsupported API key " + apiKey)
     }
