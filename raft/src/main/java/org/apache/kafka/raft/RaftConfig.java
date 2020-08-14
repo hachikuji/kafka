@@ -39,7 +39,7 @@ public class RaftConfig extends AbstractConfig {
 
     private static final String QUORUM_PREFIX = "quorum.";
 
-    public static final String QUORUM_VOTERS_CONFIG = QUORUM_PREFIX + "quorum.voters";
+    public static final String QUORUM_VOTERS_CONFIG = QUORUM_PREFIX + "voters";
     private static final String QUORUM_VOTERS_DOC = "Map of id/endpoint information for " +
         "the set of voters in a comma-separated list of `{id}@{host}:{port}` entries. " +
         "For example: `1@localhost:9092,2@localhost:9093,3@localhost:9094`";
