@@ -166,8 +166,9 @@ class RequestQuotaTest extends BaseRequestTest {
 
     for (apiKey <- ApiKeys.values) {
       apiKey match {
-        case ApiKeys.VOTE | ApiKeys.FIND_QUORUM |
-             ApiKeys.BEGIN_QUORUM_EPOCH | ApiKeys.END_QUORUM_EPOCH =>
+        case ApiKeys.VOTE
+             | ApiKeys.BEGIN_QUORUM_EPOCH
+             | ApiKeys.END_QUORUM_EPOCH =>
           // FIXME: Those apis are not implemented yet
         case _ =>
           submitTest(apiKey, () => checkUnauthorizedRequestThrottle(apiKey))
