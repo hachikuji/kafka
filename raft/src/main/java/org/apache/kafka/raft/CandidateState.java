@@ -16,9 +16,11 @@
  */
 package org.apache.kafka.raft;
 
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Timer;
+
 import java.util.HashMap;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -27,6 +29,9 @@ public class CandidateState implements EpochState {
     private final int epoch;
     private final int retries;
     private final Map<Integer, VoteState> voteStates = new HashMap<>();
+    private final int electionTimeoutMs;
+    private final Timer electionTimer;
+    private final Timer backoffTimer;
 
     /**
      * The life time of a candidate state is the following:
@@ -38,11 +43,21 @@ public class CandidateState implements EpochState {
      */
     private boolean isBackingOff;
 
-    protected CandidateState(int localId, int epoch, Set<Integer> voters, int retries) {
+    protected CandidateState(
+        Time time,
+        int localId,
+        int epoch,
+        Set<Integer> voters,
+        int retries,
+        int electionTimeoutMs
+    ) {
         this.localId = localId;
         this.epoch = epoch;
         this.retries = retries;
         this.isBackingOff = false;
+        this.electionTimeoutMs = electionTimeoutMs;
+        this.electionTimer = time.timer(electionTimeoutMs);
+        this.backoffTimer = time.timer(0);
 
         for (Integer voterId : voters) {
             voteStates.put(voterId, VoteState.UNRECORDED);
@@ -138,8 +153,10 @@ public class CandidateState implements EpochState {
     /**
      * Record the current election has failed since we've either received sufficient rejecting voters or election timed out
      */
-    public void startBackingOff() {
-        isBackingOff = true;
+    public void startBackingOff(long currentTimeMs, long backoffDurationMs) {
+        this.backoffTimer.update(currentTimeMs);
+        this.backoffTimer.reset(backoffDurationMs);
+        this.isBackingOff = true;
     }
 
     /**
@@ -166,19 +183,52 @@ public class CandidateState implements EpochState {
             .collect(Collectors.toSet());
     }
 
+    public boolean hasElectionTimeoutExpired(long currentTimeMs) {
+        electionTimer.update(currentTimeMs);
+        return electionTimer.isExpired();
+    }
+
+    public boolean isBackoffComplete(long currentTimeMs) {
+        backoffTimer.update(currentTimeMs);
+        return backoffTimer.isExpired();
+    }
+
+    public long remainingBackoffMs(long currentTimeMs) {
+        if (!isBackingOff) {
+            throw new IllegalStateException("Candidate is not currently backing off");
+        }
+        backoffTimer.update(currentTimeMs);
+        return backoffTimer.remainingMs();
+    }
+
+    public long remainingElectionTimeMs(long currentTimeMs) {
+        electionTimer.update(currentTimeMs);
+        return electionTimer.remainingMs();
+    }
+
     @Override
     public ElectionState election() {
         return ElectionState.withVotedCandidate(epoch, localId, voteStates.keySet());
     }
 
     @Override
-    public LeaderAndEpoch leaderAndEpoch() {
-        return new LeaderAndEpoch(OptionalInt.empty(), epoch);
+    public int epoch() {
+        return epoch;
     }
 
     @Override
-    public int epoch() {
-        return epoch;
+    public String toString() {
+        return "Candidate(" +
+            "localId=" + localId +
+            ", epoch=" + epoch +
+            ", retries=" + retries +
+            ", electionTimeoutMs=" + electionTimeoutMs +
+            ')';
+    }
+
+    @Override
+    public String name() {
+        return "Candidate";
     }
 
     private enum VoteState {

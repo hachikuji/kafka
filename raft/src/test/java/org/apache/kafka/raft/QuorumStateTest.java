@@ -17,6 +17,7 @@
 package org.apache.kafka.raft;
 
 import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Utils;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -24,6 +25,7 @@ import org.mockito.Mockito;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Random;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
@@ -36,16 +38,32 @@ public class QuorumStateTest {
     private final int localId = 0;
     private final int logEndEpoch = 0;
     private final MockQuorumStateStore store = new MockQuorumStateStore();
+    private final MockTime time = new MockTime();
+    private final int electionTimeoutMs = 5000;
+    private final int fetchTimeoutMs = 10000;
+
+    private QuorumState buildQuorumState(Set<Integer> voters) {
+        return new QuorumState(
+            localId,
+            voters,
+            electionTimeoutMs,
+            fetchTimeoutMs,
+            store,
+            time,
+            new LogContext(),
+            new Random(1)
+        );
+    }
 
     @Test
     public void testInitializePrimordialEpoch() throws IOException {
         Set<Integer> voters = Utils.mkSet(localId);
         assertNull(store.readElectionState());
 
-        QuorumState state = initializeEmptyState(voters, store);
-        assertTrue(state.isFollower());
+        QuorumState state = initializeEmptyState(voters);
+        assertTrue(state.isUnattached());
         assertEquals(0, state.epoch());
-        state.becomeCandidate();
+        state.transitionToCandidate();
         CandidateState candidateState = state.candidateStateOrThrow();
         assertTrue(candidateState.isVoteGranted());
         assertEquals(1, candidateState.epoch());
@@ -59,13 +77,12 @@ public class QuorumStateTest {
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
         store.writeElectionState(ElectionState.withElectedLeader(epoch, node1, voters));
 
-        QuorumState state = new QuorumState(localId, voters, store, new LogContext());
+        QuorumState state = buildQuorumState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
         assertTrue(state.isFollower());
         assertEquals(epoch, state.epoch());
 
         FollowerState followerState = state.followerStateOrThrow();
-        assertTrue(followerState.hasLeader());
         assertEquals(epoch, followerState.epoch());
         assertEquals(node1, followerState.leaderId());
     }
@@ -78,16 +95,15 @@ public class QuorumStateTest {
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
         store.writeElectionState(ElectionState.withVotedCandidate(epoch, node1, voters));
 
-        QuorumState state = new QuorumState(localId, voters, store, new LogContext());
+        QuorumState state = buildQuorumState(voters);
 
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        assertTrue(state.isFollower());
+        assertTrue(state.isVoted());
         assertEquals(epoch, state.epoch());
 
-        FollowerState followerState = state.followerStateOrThrow();
-        assertTrue(followerState.hasVoted());
-        assertEquals(epoch, followerState.epoch());
-        assertTrue(followerState.hasVotedFor(node1));
+        VotedState votedState = state.votedStateOrThrow();
+        assertEquals(epoch, votedState.epoch());
+        assertEquals(node1, votedState.votedId());
     }
 
     @Test
@@ -98,7 +114,7 @@ public class QuorumStateTest {
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
         store.writeElectionState(ElectionState.withVotedCandidate(epoch, localId, voters));
 
-        QuorumState state = new QuorumState(localId, voters, store, new LogContext());
+        QuorumState state = buildQuorumState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
         assertTrue(state.isCandidate());
         assertEquals(epoch, state.epoch());
@@ -116,7 +132,7 @@ public class QuorumStateTest {
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
         store.writeElectionState(ElectionState.withElectedLeader(epoch, localId, voters));
 
-        QuorumState state = new QuorumState(localId, voters, store, new LogContext());
+        QuorumState state = buildQuorumState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
         assertTrue(state.isLeader());
         assertEquals(epoch, state.epoch());
@@ -131,14 +147,28 @@ public class QuorumStateTest {
         Set<Integer> voters = Utils.mkSet(localId);
         assertNull(store.readElectionState());
 
-        QuorumState state = initializeEmptyState(voters, store);
-        state.becomeCandidate();
+        QuorumState state = initializeEmptyState(voters);
+        state.transitionToCandidate();
         assertTrue(state.isCandidate());
 
-        LeaderState leaderState = state.becomeLeader(0L);
+        state.transitionToLeader(0L);
+        LeaderState leaderState = state.leaderStateOrThrow();
         assertTrue(state.isLeader());
         assertEquals(1, leaderState.epoch());
         assertEquals(Optional.empty(), leaderState.highWatermark());
+    }
+
+    @Test
+    public void testLeaderToLeader() throws IOException {
+        Set<Integer> voters = Utils.mkSet(localId);
+        assertNull(store.readElectionState());
+
+        QuorumState state = initializeEmptyState(voters);
+        state.transitionToCandidate();
+        assertTrue(state.isCandidate());
+
+        state.transitionToLeader(0L);
+        assertThrows(IllegalStateException.class, () -> state.transitionToLeader(0L));
     }
 
     @Test
@@ -148,12 +178,12 @@ public class QuorumStateTest {
 
         store.writeElectionState(ElectionState.withUnknownLeader(1, voters));
 
-        QuorumState state = new QuorumState(localId, voters, store, new LogContext());
+        QuorumState state = buildQuorumState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeCandidate();
-        state.becomeLeader(0L);
+        state.transitionToCandidate();
+        state.transitionToLeader(0L);
         assertTrue(state.isLeader());
-        assertThrows(IllegalStateException.class, () -> state.becomeLeader(0L));
+        assertThrows(IllegalStateException.class, () -> state.transitionToLeader(0L));
         assertTrue(state.isLeader());
     }
 
@@ -161,46 +191,46 @@ public class QuorumStateTest {
     public void testCannotBecomeFollowerOfSelf() throws IOException {
         Set<Integer> voters = Utils.mkSet(localId);
         assertNull(store.readElectionState());
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
 
-        assertThrows(IllegalArgumentException.class, () -> state.becomeFetchingFollower(0, localId));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeVotedFollower(0, localId));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToFollower(0, localId));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToVoted(0, localId));
     }
 
     @Test
-    public void testCannotBecomeLeaderIfCurrentlyFollowing() throws IOException {
+    public void testCannotTransitionFromUnattachedToLeader() throws IOException {
         int leaderId = 1;
         int epoch = 5;
         Set<Integer> voters = Utils.mkSet(localId, leaderId);
         store.writeElectionState(ElectionState.withVotedCandidate(epoch, leaderId, voters));
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        assertTrue(state.isFollower());
-        assertThrows(IllegalStateException.class, () -> state.becomeLeader(0L));
+        assertTrue(state.isUnattached());
+        assertThrows(IllegalStateException.class, () -> state.transitionToLeader(0L));
     }
 
     @Test
     public void testCannotBecomeCandidateIfCurrentlyLeading() throws IOException {
         Set<Integer> voters = Utils.mkSet(localId);
-        QuorumState state = initializeEmptyState(voters, store);
-        state.becomeCandidate();
-        state.becomeLeader(0L);
+        QuorumState state = initializeEmptyState(voters);
+        state.transitionToCandidate();
+        state.transitionToLeader(0L);
         assertTrue(state.isLeader());
-        assertThrows(IllegalStateException.class, state::becomeCandidate);
+        assertThrows(IllegalStateException.class, state::transitionToCandidate);
     }
 
     @Test
     public void testCannotBecomeLeaderWithoutGrantedVote() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeCandidate();
+        state.transitionToCandidate();
         assertFalse(state.candidateStateOrThrow().isVoteGranted());
-        assertThrows(IllegalStateException.class, () -> state.becomeLeader(0L));
+        assertThrows(IllegalStateException.class, () -> state.transitionToLeader(0L));
         state.candidateStateOrThrow().recordGrantedVote(otherNodeId);
         assertTrue(state.candidateStateOrThrow().isVoteGranted());
-        state.becomeLeader(0L);
+        state.transitionToLeader(0L);
         assertTrue(state.isLeader());
     }
 
@@ -209,157 +239,174 @@ public class QuorumStateTest {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
 
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
 
-        state.becomeCandidate();
+        state.transitionToCandidate();
         state.candidateStateOrThrow().recordGrantedVote(otherNodeId);
-        state.becomeLeader(0L);
-        assertTrue(state.becomeFetchingFollower(5, otherNodeId));
+        state.transitionToLeader(0L);
+        state.transitionToFollower(5, otherNodeId);
+
         assertEquals(5, state.epoch());
         assertEquals(OptionalInt.of(otherNodeId), state.leaderId());
         assertEquals(ElectionState.withElectedLeader(5, otherNodeId, voters), store.readElectionState());
     }
 
-    private QuorumState initializeEmptyState(Set<Integer> voters,
-                                             MockQuorumStateStore store) throws IOException {
-        QuorumState state = new QuorumState(localId, voters, store, new LogContext());
+    private QuorumState initializeEmptyState(Set<Integer> voters) throws IOException {
+        QuorumState state = buildQuorumState(voters);
         store.writeElectionState(ElectionState.withUnknownLeader(0, voters));
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
         return state;
     }
 
     @Test
-    public void testLeaderToUnattachedFollower() throws IOException {
+    public void testLeaderToUnattached() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeCandidate();
+        state.transitionToCandidate();
         state.candidateStateOrThrow().recordGrantedVote(otherNodeId);
-        state.becomeLeader(0L);
-        assertTrue(state.becomeUnattachedFollower(5));
+        state.transitionToLeader(0L);
+        state.transitionToUnattached(5);
         assertEquals(5, state.epoch());
         assertEquals(OptionalInt.empty(), state.leaderId());
         assertEquals(ElectionState.withUnknownLeader(5, voters), store.readElectionState());
     }
 
     @Test
-    public void testLeaderToFollowerOfVotedCandidate() throws IOException {
+    public void testLeaderToVoted() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeCandidate();
+        state.transitionToCandidate();
         state.candidateStateOrThrow().recordGrantedVote(otherNodeId);
-        state.becomeLeader(0L);
-        assertTrue(state.becomeVotedFollower(5, otherNodeId));
+        state.transitionToLeader(0L);
+        state.transitionToVoted(5, otherNodeId);
+
         assertEquals(5, state.epoch());
         assertEquals(OptionalInt.empty(), state.leaderId());
-        FollowerState followerState = state.followerStateOrThrow();
-        assertTrue(followerState.hasVoted());
-        assertTrue(followerState.hasVotedFor(otherNodeId));
+        VotedState votedState = state.votedStateOrThrow();
+        assertEquals(otherNodeId, votedState.votedId());
         assertEquals(ElectionState.withVotedCandidate(5, otherNodeId, voters), store.readElectionState());
     }
 
     @Test
-    public void testCandidateToFollowerOfElectedLeader() throws IOException {
+    public void testCandidateToFollower() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        assertTrue(state.becomeFetchingFollower(5, otherNodeId));
+        state.transitionToCandidate();
+
+        state.transitionToFollower(5, otherNodeId);
         assertEquals(5, state.epoch());
         assertEquals(OptionalInt.of(otherNodeId), state.leaderId());
         assertEquals(ElectionState.withElectedLeader(5, otherNodeId, voters), store.readElectionState());
     }
 
     @Test
-    public void testCandidateToUnattachedFollower() throws IOException {
+    public void testCandidateToUnattached() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        assertTrue(state.becomeUnattachedFollower(5));
+        state.transitionToCandidate();
+
+        state.transitionToUnattached(5);
         assertEquals(5, state.epoch());
         assertEquals(OptionalInt.empty(), state.leaderId());
         assertEquals(ElectionState.withUnknownLeader(5, voters), store.readElectionState());
     }
 
     @Test
-    public void testCandidateToFollowerOfVotedCandidate() throws IOException {
+    public void testCandidateToVoted() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        assertTrue(state.becomeVotedFollower(5, otherNodeId));
+        state.transitionToCandidate();
+
+        state.transitionToVoted(5, otherNodeId);
         assertEquals(5, state.epoch());
         assertEquals(OptionalInt.empty(), state.leaderId());
-        FollowerState followerState = state.followerStateOrThrow();
-        assertTrue(followerState.hasVoted());
-        assertTrue(followerState.hasVotedFor(otherNodeId));
+
+        VotedState followerState = state.votedStateOrThrow();
+        assertEquals(otherNodeId, followerState.votedId());
         assertEquals(ElectionState.withVotedCandidate(5, otherNodeId, voters), store.readElectionState());
     }
 
     @Test
-    public void testUnattachedFollowerToFollowerOfVotedCandidateSameEpoch() throws IOException {
+    public void testUnattachedToVotedSameEpoch() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeUnattachedFollower(5);
-        state.becomeVotedFollower(5, otherNodeId);
-        FollowerState followerState = state.followerStateOrThrow();
-        assertEquals(5, followerState.epoch());
-        assertTrue(followerState.hasVoted());
-        assertTrue(followerState.hasVotedFor(otherNodeId));
+        state.transitionToUnattached(5);
+        state.transitionToVoted(5, otherNodeId);
+
+        VotedState votedState = state.votedStateOrThrow();
+        assertEquals(5, votedState.epoch());
+        assertEquals(otherNodeId, votedState.votedId());
         assertEquals(ElectionState.withVotedCandidate(5, otherNodeId, voters), store.readElectionState());
     }
 
     @Test
-    public void testUnattachedFollowerToFollowerOfVotedCandidateHigherEpoch() throws IOException {
+    public void testUnattachedToVotedHigherEpoch() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeUnattachedFollower(5);
-        state.becomeVotedFollower(8, otherNodeId);
-        FollowerState followerState = state.followerStateOrThrow();
-        assertEquals(8, followerState.epoch());
-        assertTrue(followerState.hasVoted());
-        assertTrue(followerState.hasVotedFor(otherNodeId));
+        state.transitionToUnattached(5);
+        state.transitionToVoted(8, otherNodeId);
+
+        VotedState votedState = state.votedStateOrThrow();
+        assertEquals(8, votedState.epoch());
+        assertEquals(otherNodeId, votedState.votedId());
         assertEquals(ElectionState.withVotedCandidate(8, otherNodeId, voters), store.readElectionState());
     }
 
     @Test
-    public void testVotedFollowerToFollowerOfElectedLeaderSameEpoch() throws IOException {
+    public void testVotedToVotedSameEpoch() throws IOException {
         int node1 = 1;
         int node2 = 2;
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeVotedFollower(5, node1);
-        state.becomeFetchingFollower(5, node2);
+        state.transitionToUnattached(5);
+        state.transitionToVoted(8, node1);
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToVoted(8, node1));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToVoted(8, node2));
+    }
+
+    @Test
+    public void testVotedToFollowerSameEpoch() throws IOException {
+        int node1 = 1;
+        int node2 = 2;
+        Set<Integer> voters = Utils.mkSet(localId, node1, node2);
+        QuorumState state = initializeEmptyState(voters);
+        state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
+        state.transitionToVoted(5, node1);
+        state.transitionToFollower(5, node2);
+
         FollowerState followerState = state.followerStateOrThrow();
         assertEquals(5, followerState.epoch());
-        assertTrue(followerState.hasLeader());
-        assertFalse(followerState.hasVoted());
         assertEquals(node2, followerState.leaderId());
         assertEquals(ElectionState.withElectedLeader(5, node2, voters), store.readElectionState());
     }
 
     @Test
-    public void testVotedFollowerToFollowerOfElectedLeaderHigherEpoch() throws IOException {
+    public void testVotedToFollowerHigherEpoch() throws IOException {
         int node1 = 1;
         int node2 = 2;
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeVotedFollower(5, node1);
-        state.becomeFetchingFollower(8, node2);
+        state.transitionToVoted(5, node1);
+        state.transitionToFollower(8, node2);
+
         FollowerState followerState = state.followerStateOrThrow();
         assertEquals(8, followerState.epoch());
-        assertTrue(followerState.hasLeader());
-        assertFalse(followerState.hasVoted());
         assertEquals(node2, followerState.leaderId());
         assertEquals(ElectionState.withElectedLeader(8, node2, voters), store.readElectionState());
     }
@@ -369,14 +416,13 @@ public class QuorumStateTest {
         int node1 = 1;
         int node2 = 2;
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeVotedFollower(5, node1);
-        assertThrows(IllegalArgumentException.class, () -> state.becomeVotedFollower(5, node2));
-        FollowerState followerState = state.followerStateOrThrow();
-        assertFalse(followerState.hasLeader());
-        assertTrue(followerState.hasVoted());
-        assertTrue(followerState.hasVotedFor(node1));
+        state.transitionToVoted(5, node1);
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToVoted(5, node2));
+
+        VotedState votedState = state.votedStateOrThrow();
+        assertEquals(node1, votedState.votedId());
         assertEquals(ElectionState.withVotedCandidate(5, node1, voters), store.readElectionState());
     }
 
@@ -385,45 +431,43 @@ public class QuorumStateTest {
         int node1 = 1;
         int node2 = 2;
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeFetchingFollower(8, node2);
-        assertThrows(IllegalArgumentException.class, () -> state.becomeFetchingFollower(8, node1));
+        state.transitionToFollower(8, node2);
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToFollower(8, node1));
+
         FollowerState followerState = state.followerStateOrThrow();
         assertEquals(8, followerState.epoch());
-        assertTrue(followerState.hasLeader());
-        assertFalse(followerState.hasVoted());
         assertEquals(node2, followerState.leaderId());
         assertEquals(ElectionState.withElectedLeader(8, node2, voters), store.readElectionState());
     }
 
     @Test
-    public void testFollowerOfElectedLeaderHigherEpoch() throws IOException {
+    public void testFollowerToFollowerHigherEpoch() throws IOException {
         int node1 = 1;
         int node2 = 2;
         Set<Integer> voters = Utils.mkSet(localId, node1, node2);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeFetchingFollower(8, node2);
-        assertThrows(IllegalArgumentException.class, () -> state.becomeFetchingFollower(8, node1));
+        state.transitionToFollower(8, node2);
+        state.transitionToFollower(9, node1);
+
         FollowerState followerState = state.followerStateOrThrow();
-        assertEquals(8, followerState.epoch());
-        assertTrue(followerState.hasLeader());
-        assertFalse(followerState.hasVoted());
-        assertEquals(node2, followerState.leaderId());
-        assertEquals(ElectionState.withElectedLeader(8, node2, voters), store.readElectionState());
+        assertEquals(9, followerState.epoch());
+        assertEquals(node1, followerState.leaderId());
+        assertEquals(ElectionState.withElectedLeader(9, node1, voters), store.readElectionState());
     }
 
     @Test
     public void testCannotTransitionFromFollowerToLowerEpoch() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeUnattachedFollower(5);
-        assertThrows(IllegalArgumentException.class, () -> state.becomeUnattachedFollower(4));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeVotedFollower(4, otherNodeId));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeFetchingFollower(4, otherNodeId));
+        state.transitionToUnattached(5);
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToUnattached(4));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToVoted(4, otherNodeId));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToFollower(4, otherNodeId));
         assertEquals(5, state.epoch());
         assertEquals(ElectionState.withUnknownLeader(5, voters), store.readElectionState());
     }
@@ -432,13 +476,13 @@ public class QuorumStateTest {
     public void testCannotTransitionFromCandidateToLowerEpoch() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeUnattachedFollower(5);
-        state.becomeCandidate();
-        assertThrows(IllegalArgumentException.class, () -> state.becomeUnattachedFollower(4));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeVotedFollower(4, otherNodeId));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeFetchingFollower(4, otherNodeId));
+        state.transitionToUnattached(5);
+        state.transitionToCandidate();
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToUnattached(4));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToVoted(4, otherNodeId));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToFollower(4, otherNodeId));
         assertEquals(6, state.epoch());
         assertEquals(ElectionState.withVotedCandidate(6, localId, voters), store.readElectionState());
     }
@@ -447,15 +491,15 @@ public class QuorumStateTest {
     public void testCannotTransitionFromLeaderToLowerEpoch() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        state.becomeUnattachedFollower(5);
-        state.becomeCandidate();
+        state.transitionToUnattached(5);
+        state.transitionToCandidate();
         state.candidateStateOrThrow().recordGrantedVote(otherNodeId);
-        state.becomeLeader(0L);
-        assertThrows(IllegalArgumentException.class, () -> state.becomeUnattachedFollower(4));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeVotedFollower(4, otherNodeId));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeFetchingFollower(4, otherNodeId));
+        state.transitionToLeader(0L);
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToUnattached(4));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToVoted(4, otherNodeId));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToFollower(4, otherNodeId));
         assertEquals(6, state.epoch());
         assertEquals(ElectionState.withElectedLeader(6, localId, voters), store.readElectionState());
     }
@@ -465,50 +509,34 @@ public class QuorumStateTest {
         int otherNodeId = 1;
         int nonVoterId = 2;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeVotedFollower(4, nonVoterId));
-        assertThrows(IllegalArgumentException.class, () -> state.becomeFetchingFollower(4, nonVoterId));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToVoted(4, nonVoterId));
+        assertThrows(IllegalArgumentException.class, () -> state.transitionToFollower(4, nonVoterId));
     }
 
     @Test
-    public void testObserverCannotBecomeCandidateCandidateOrLeader() throws IOException {
+    public void testObserverCannotBecomeCandidateOrLeaderOrVoted() throws IOException {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
         assertTrue(state.isObserver());
-        assertTrue(state.isFollower());
-        assertThrows(IllegalStateException.class, state::becomeCandidate);
-        assertThrows(IllegalStateException.class, () -> state.becomeLeader(0L));
-    }
-
-    @Test
-    public void testObserverDetachLeader() throws IOException {
-        int otherNodeId = 1;
-        Set<Integer> voters = Utils.mkSet(otherNodeId);
-        QuorumState state = initializeEmptyState(voters, store);
-        state.initialize(new OffsetAndEpoch(0L, logEndEpoch));
-        assertTrue(state.isObserver());
-        assertTrue(state.isFollower());
-        state.becomeFetchingFollower(1, otherNodeId);
-        assertEquals(1, state.epoch());
-        // If we disconnect from the leader, we may become an unattached follower with the
-        // current epoch so that we can discover the new leader.
-        state.becomeUnattachedFollower(1);
-        assertEquals(1, state.epoch());
+        assertThrows(IllegalStateException.class, state::transitionToCandidate);
+        assertThrows(IllegalStateException.class, () -> state.transitionToLeader(0L));
+        assertThrows(IllegalStateException.class, () -> state.transitionToVoted(5, otherNodeId));
     }
 
     @Test
     public void testInitializeWithCorruptedStore() throws IOException {
         QuorumStateStore stateStore = Mockito.mock(QuorumStateStore.class);
         Mockito.doThrow(IOException.class).when(stateStore).readElectionState();
-        QuorumState state = new QuorumState(localId, Utils.mkSet(1), stateStore, new LogContext());
+        QuorumState state = buildQuorumState(Utils.mkSet(localId));
 
         int epoch = 2;
         state.initialize(new OffsetAndEpoch(0L, epoch));
         assertEquals(epoch, state.epoch());
-        assertTrue(state.isFollower());
+        assertTrue(state.isUnattached());
         assertFalse(state.hasLeader());
     }
 
@@ -517,7 +545,7 @@ public class QuorumStateTest {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
 
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
 
         int unknownVoterId = 2;
         Set<Integer> stateVoters = Utils.mkSet(localId, otherNodeId, unknownVoterId);
@@ -533,23 +561,23 @@ public class QuorumStateTest {
         int otherNodeId = 1;
         Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
 
-        QuorumState state = initializeEmptyState(voters, store);
+        QuorumState state = initializeEmptyState(voters);
         assertFalse(state.hasRemoteLeader());
 
-        state.becomeCandidate();
+        state.transitionToCandidate();
         assertFalse(state.hasRemoteLeader());
 
         state.candidateStateOrThrow().recordGrantedVote(otherNodeId);
-        state.becomeLeader(0L);
+        state.transitionToLeader(0L);
         assertFalse(state.hasRemoteLeader());
 
-        state.becomeUnattachedFollower(state.epoch() + 1);
+        state.transitionToUnattached(state.epoch() + 1);
         assertFalse(state.hasRemoteLeader());
 
-        state.becomeVotedFollower(state.epoch() + 1, otherNodeId);
+        state.transitionToVoted(state.epoch() + 1, otherNodeId);
         assertFalse(state.hasRemoteLeader());
 
-        state.becomeFetchingFollower(state.epoch() + 1, otherNodeId);
+        state.transitionToFollower(state.epoch() + 1, otherNodeId);
         assertTrue(state.hasRemoteLeader());
     }
 
