@@ -19,7 +19,6 @@ package org.apache.kafka.raft;
 import java.io.Closeable;
 import java.net.InetSocketAddress;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * A simple network interface with few assumptions. We do not assume ordering
@@ -58,11 +57,6 @@ public interface NetworkChannel extends Closeable {
      * Update connection information for the given id.
      */
     void updateEndpoint(int id, InetSocketAddress address);
-
-    /**
-     * Get the endpoint for the node with the given id
-     */
-    Optional<InetSocketAddress> endpoint(int id);
 
     default void close() {}
 

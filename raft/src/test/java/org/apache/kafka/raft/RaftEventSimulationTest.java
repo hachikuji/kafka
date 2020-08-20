@@ -600,10 +600,6 @@ public class RaftEventSimulationTest {
             return nodes.keySet();
         }
 
-        int randomNodeId() {
-            return random.nextInt(nodes.size());
-        }
-
         int majoritySize() {
             return voters.size() / 2 + 1;
         }

@@ -193,7 +193,6 @@ public class KafkaRaftClient implements RaftClient {
                            int fetchMaxWaitMs,
                            LogContext logContext,
                            Random random) {
-        // FIXME: Validate voter connections against stored cache state
         this.channel = channel;
         this.log = log;
         this.quorum = quorum;
@@ -1395,9 +1394,6 @@ public class KafkaRaftClient implements RaftClient {
     }
 
     private void maybeSendVoterFetch(long currentTimeMs) throws IOException {
-        // TODO: After a fetch timeout, do we want to avoid sending the request
-        // to the current leader?
-
         OptionalInt readyVoterIdOpt = connections.findReadyVoter(currentTimeMs);
         if (readyVoterIdOpt.isPresent()) {
             maybeSendRequest(currentTimeMs, readyVoterIdOpt.getAsInt(), this::buildFetchRequest);

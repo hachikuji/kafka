@@ -24,7 +24,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MockNetworkChannel implements NetworkChannel {
@@ -71,11 +70,6 @@ public class MockNetworkChannel implements NetworkChannel {
     @Override
     public void updateEndpoint(int id, InetSocketAddress address) {
         addressCache.put(id, address);
-    }
-
-    @Override
-    public Optional<InetSocketAddress> endpoint(int id) {
-        return Optional.ofNullable(addressCache.get(id));
     }
 
     public List<RaftMessage> drainSendQueue() {

@@ -55,7 +55,7 @@ public class RaftConfig extends AbstractConfig {
 
     public static final String QUORUM_ELECTION_BACKOFF_MAX_MS_CONFIG = QUORUM_PREFIX + "election.backoff.max.ms";
     private static final String QUORUM_ELECTION_BACKOFF_MAX_MS_DOC = "Maximum time in milliseconds before starting new elections. " +
-            "This is used in the binary exponential backoff mechanism that helps prevent gridlocked elections";
+        "This is used in the binary exponential backoff mechanism that helps prevent gridlocked elections";
 
     static {
         CONFIG = new ConfigDef()
@@ -77,8 +77,14 @@ public class RaftConfig extends AbstractConfig {
                 new ConfigDef.Validator() {
                     @Override
                     public void ensureValid(String name, Object value) {
-                        if (value == null || ((List) value).isEmpty()) {
-                            throw new ConfigException(name, value, "Empty list");
+                        if (value == null) {
+                            throw new ConfigException(name, null);
+                        }
+
+                        @SuppressWarnings("unchecked")
+                        Map<Integer, InetSocketAddress> voterConnections = parseVoterConnections((List) value);
+                        if (voterConnections.isEmpty()) {
+                            throw new ConfigException(name, value);
                         }
                     }
 
@@ -158,17 +164,28 @@ public class RaftConfig extends AbstractConfig {
     }
 
     public Map<Integer, InetSocketAddress> quorumVoterConnections() {
+        return parseVoterConnections(getList(QUORUM_VOTERS_CONFIG));
+    }
+
+    private static Integer parseVoterId(String idString) {
+        try {
+            return Integer.parseInt(idString);
+        } catch (NumberFormatException e) {
+            throw new ConfigException("Failed to parse voter ID as an integer from " + idString);
+        }
+    }
+
+    private static Map<Integer, InetSocketAddress> parseVoterConnections(List<String> voterEntries) {
         Map<Integer, InetSocketAddress> voterMap = new HashMap<>();
 
-        List<String> voterMapEntries = getList(QUORUM_VOTERS_CONFIG);
-        for (String voterMapEntry : voterMapEntries) {
+        for (String voterMapEntry : voterEntries) {
             String[] idAndAddress = voterMapEntry.split("@");
             if (idAndAddress.length != 2) {
                 throw new ConfigException("Invalid configuration value for " + QUORUM_VOTERS_CONFIG
                     + ". Each entry should be in the form `{id}@{host}:{port}`.");
             }
 
-            Integer voterId = Integer.parseInt(idAndAddress[0]);
+            Integer voterId = parseVoterId(idAndAddress[0]);
             String host = Utils.getHost(idAndAddress[1]);
             if (host == null) {
                 throw new ConfigException("Failed to parse host name from entry " + voterMapEntry
@@ -187,6 +204,7 @@ public class RaftConfig extends AbstractConfig {
         }
 
         return voterMap;
+
     }
 
 }

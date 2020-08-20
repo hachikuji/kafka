@@ -166,12 +166,6 @@ class KafkaNetworkChannel(time: Time,
     }
   }
 
-  override def endpoint(id: Int): Optional[InetSocketAddress] = {
-    endpoints.get(id).map { node =>
-      new InetSocketAddress(node.host, node.port)
-    }.asJava
-  }
-
   def getConnectionInfo(nodeId: Int): Node = {
     if (!endpoints.contains(nodeId))
       null
