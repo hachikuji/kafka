@@ -2850,10 +2850,6 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleEndEpoch(request: RequestChannel.Request): Unit = ???
 
-  def handleFetchRecords(request: RequestChannel.Request): Unit = ???
-
-  def handleFindQuorum(request: RequestChannel.Request): Unit = ???
-
   def handleDescribeQuorum(request: RequestChannel.Request): Unit = ???
 
   def allowTokenRequests(request: RequestChannel.Request): Boolean = {

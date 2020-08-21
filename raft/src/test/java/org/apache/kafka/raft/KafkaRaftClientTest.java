@@ -17,6 +17,7 @@
 package org.apache.kafka.raft;
 
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.ClusterAuthorizationException;
 import org.apache.kafka.common.errors.NotLeaderOrFollowerException;
 import org.apache.kafka.common.message.BeginQuorumEpochRequestData;
 import org.apache.kafka.common.message.BeginQuorumEpochResponseData;
@@ -198,7 +199,7 @@ public class KafkaRaftClientTest {
 
         // Send BeginQuorumEpoch to voters
         client.poll();
-        assertBeginQuorumEpochRequest(1);
+        assertSentBeginQuorumEpochRequest(1);
 
         Records records = log.read(0, Isolation.UNCOMMITTED).records;
         RecordBatch batch = records.batches().iterator().next();
@@ -1826,7 +1827,7 @@ public class KafkaRaftClientTest {
         pollUntilSend(client);
 
         // We send BeginEpoch, but it gets lost and the destination finds the leader through the Fetch API
-        assertBeginQuorumEpochRequest(epoch);
+        assertSentBeginQuorumEpochRequest(epoch);
 
         deliverRequest(fetchRequest(
             epoch, otherNodeId, 0L, 0, 500));
@@ -1992,9 +1993,81 @@ public class KafkaRaftClientTest {
         assertEquals(1, metrics.metrics().size());
     }
 
-    // TODO: Add test case for top-level error codes
+    @Test
+    public void testClusterAuthorizationFailedInFetch() throws Exception {
+        int otherNodeId = 1;
+        int epoch = 5;
 
+        Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
+        quorumStateStore.writeElectionState(ElectionState.withElectedLeader(epoch, otherNodeId, voters));
+        KafkaRaftClient client = buildClient(voters);
+        assertEquals(ElectionState.withElectedLeader(epoch, otherNodeId, voters), quorumStateStore.readElectionState());
 
+        pollUntilSend(client);
+
+        int correlationId = assertSentFetchRequest(epoch, 0, 0);
+        FetchResponseData response = new FetchResponseData()
+            .setErrorCode(Errors.CLUSTER_AUTHORIZATION_FAILED.code());
+        deliverResponse(correlationId, otherNodeId, response);
+        assertThrows(ClusterAuthorizationException.class, client::poll);
+    }
+
+    @Test
+    public void testClusterAuthorizationFailedInBeginQuorumEpoch() throws Exception {
+        int otherNodeId = 1;
+        int epoch = 5;
+
+        Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
+        quorumStateStore.writeElectionState(ElectionState.withElectedLeader(epoch, localId, voters));
+        KafkaRaftClient client = buildClient(voters);
+        assertEquals(ElectionState.withElectedLeader(epoch, localId, voters), quorumStateStore.readElectionState());
+
+        pollUntilSend(client);
+        int correlationId = assertSentBeginQuorumEpochRequest(epoch);
+        BeginQuorumEpochResponseData response = new BeginQuorumEpochResponseData()
+            .setErrorCode(Errors.CLUSTER_AUTHORIZATION_FAILED.code());
+
+        deliverResponse(correlationId, otherNodeId, response);
+        assertThrows(ClusterAuthorizationException.class, client::poll);
+    }
+
+    @Test
+    public void testClusterAuthorizationFailedInVote() throws Exception {
+        int otherNodeId = 1;
+        int epoch = 5;
+
+        Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
+        quorumStateStore.writeElectionState(ElectionState.withVotedCandidate(epoch, localId, voters));
+        KafkaRaftClient client = buildClient(voters);
+        assertEquals(ElectionState.withVotedCandidate(epoch, localId, voters), quorumStateStore.readElectionState());
+
+        pollUntilSend(client);
+        int correlationId = assertSentVoteRequest(epoch, 0, 0L);
+        VoteResponseData response = new VoteResponseData()
+            .setErrorCode(Errors.CLUSTER_AUTHORIZATION_FAILED.code());
+
+        deliverResponse(correlationId, otherNodeId, response);
+        assertThrows(ClusterAuthorizationException.class, client::poll);
+    }
+
+    @Test
+    public void testClusterAuthorizationFailedInEndQuorumEpoch() throws Exception {
+        int otherNodeId = 1;
+        int epoch = 2;
+
+        Set<Integer> voters = Utils.mkSet(localId, otherNodeId);
+        KafkaRaftClient client = initializeAsLeader(voters, epoch);
+
+        client.shutdown(5000);
+        pollUntilSend(client);
+
+        int correlationId = assertSentEndQuorumEpochRequest(epoch, OptionalInt.of(localId), otherNodeId);
+        EndQuorumEpochResponseData response = new EndQuorumEpochResponseData()
+            .setErrorCode(Errors.CLUSTER_AUTHORIZATION_FAILED.code());
+
+        deliverResponse(correlationId, otherNodeId, response);
+        assertThrows(ClusterAuthorizationException.class, client::poll);
+    }
 
     private KafkaMetric getMetric(final Metrics metrics, final String name) {
         return metrics.metrics().get(metrics.metricName(name, "raft-metrics"));
@@ -2166,7 +2239,7 @@ public class KafkaRaftClientTest {
         return voteRequests;
     }
 
-    private int assertBeginQuorumEpochRequest(int epoch) {
+    private int assertSentBeginQuorumEpochRequest(int epoch) {
         List<RaftRequest.Outbound> requests = collectBeginEpochRequests(epoch);
         assertEquals(1, requests.size());
         return requests.get(0).correlationId;
@@ -2191,8 +2264,7 @@ public class KafkaRaftClientTest {
     private RaftRequest.Outbound assertSentFetchRequest() {
         List<RaftRequest.Outbound> sentRequests = channel.drainSentRequests(ApiKeys.FETCH);
         assertEquals(1, sentRequests.size());
-        RaftRequest.Outbound raftRequest = sentRequests.get(0);
-        return raftRequest;
+        return sentRequests.get(0);
     }
 
     private void assertFetchRequestData(

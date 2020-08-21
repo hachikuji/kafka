@@ -472,7 +472,7 @@ public class KafkaRaftClient implements RaftClient {
         OptionalInt responseLeaderId = optionalLeaderId(partitionResponse.leaderId());
         int responseEpoch = partitionResponse.leaderEpoch();
 
-        Optional<Boolean> handled = maybeHandleCommonResponse(responseMetadata.sourceId(),
+        Optional<Boolean> handled = maybeHandleCommonResponse(
             error, responseLeaderId, responseEpoch, currentTimeMs);
         if (handled.isPresent()) {
             return handled.get();
@@ -595,7 +595,7 @@ public class KafkaRaftClient implements RaftClient {
         OptionalInt responseLeaderId = optionalLeaderId(partitionResponse.leaderId());
         int responseEpoch = partitionResponse.leaderEpoch();
 
-        Optional<Boolean> handled = maybeHandleCommonResponse(responseMetadata.sourceId(),
+        Optional<Boolean> handled = maybeHandleCommonResponse(
             partitionError, responseLeaderId, responseEpoch, currentTimeMs);
         if (handled.isPresent()) {
             return handled.get();
@@ -709,7 +709,7 @@ public class KafkaRaftClient implements RaftClient {
         OptionalInt responseLeaderId = optionalLeaderId(partitionResponse.leaderId());
         int responseEpoch = partitionResponse.leaderEpoch();
 
-        Optional<Boolean> handled = maybeHandleCommonResponse(responseMetadata.sourceId(),
+        Optional<Boolean> handled = maybeHandleCommonResponse(
             partitionError, responseLeaderId, responseEpoch, currentTimeMs);
         if (handled.isPresent()) {
             return handled.get();
@@ -950,7 +950,7 @@ public class KafkaRaftClient implements RaftClient {
         int responseEpoch = currentLeaderIdAndEpoch.leaderEpoch();
         Errors error = Errors.forCode(partitionResponse.errorCode());
 
-        Optional<Boolean> handled = maybeHandleCommonResponse(responseMetadata.sourceId(),
+        Optional<Boolean> handled = maybeHandleCommonResponse(
             error, responseLeaderId, responseEpoch, currentTimeMs);
         if (handled.isPresent()) {
             return handled.get();
@@ -1066,7 +1066,6 @@ public class KafkaRaftClient implements RaftClient {
     /**
      * Handle response errors that are common across request types.
      *
-     * @param sourceId The source of the response (i.e. the destination of the corresponding request)
      * @param error Error from the received response
      * @param leaderId Optional leaderId from the response
      * @param epoch Epoch received from the response
@@ -1082,7 +1081,6 @@ public class KafkaRaftClient implements RaftClient {
      *        will need to be retried
      */
     private Optional<Boolean> maybeHandleCommonResponse(
-        int sourceId,
         Errors error,
         OptionalInt leaderId,
         int epoch,
@@ -1505,7 +1503,6 @@ public class KafkaRaftClient implements RaftClient {
             );
             return Math.min(backoffMs, state.remainingFetchTimeMs(currentTimeMs));
         }
-
     }
 
     private long pollFollowerAsObserver(FollowerState state, long currentTimeMs) {
@@ -1517,7 +1514,6 @@ public class KafkaRaftClient implements RaftClient {
             // If the current leader is backing off due to some failure or if the
             // request has timed out, then we attempt to send the Fetch to another
             // voter in order to discover if there has been a leader change.
-
             ConnectionState connection = requestManager.getOrCreate(state.leaderId());
             if (connection.hasRequestTimedOut(currentTimeMs)) {
                 backoffMs = maybeSendAnyVoterFetch(currentTimeMs);
@@ -1568,7 +1564,6 @@ public class KafkaRaftClient implements RaftClient {
         long fetchBackoffMs = maybeSendAnyVoterFetch(currentTimeMs);
         return Math.min(fetchBackoffMs, state.remainingElectionTimeMs(currentTimeMs));
     }
-
 
     private long pollCurrentState(long currentTimeMs) throws IOException {
         if (quorum.isLeader()) {
