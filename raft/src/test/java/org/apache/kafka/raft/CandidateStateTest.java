@@ -108,6 +108,14 @@ public class CandidateStateTest {
     }
 
     @Test
+    public void testCannotRejectVoteFromLocalId() {
+        int otherNodeId = 1;
+        CandidateState state = new CandidateState(time, localId, epoch,
+            Utils.mkSet(localId, otherNodeId), 0, electionTimeoutMs);
+        assertThrows(IllegalArgumentException.class, () -> state.recordRejectedVote(localId));
+    }
+
+    @Test
     public void testCannotChangeVoteGrantedToRejected() {
         int otherNodeId = 1;
         CandidateState state = new CandidateState(time, localId, epoch,

@@ -229,7 +229,7 @@ public class QuorumState {
     public void transitionToUnattached(int epoch) throws IOException {
         int currentEpoch = state.epoch();
         if (epoch <= currentEpoch) {
-            throw new IllegalArgumentException("Cannot transition to Unattached with epoch= " + epoch +
+            throw new IllegalStateException("Cannot transition to Unattached with epoch= " + epoch +
                 " from current state " + state);
         }
 
@@ -265,22 +265,22 @@ public class QuorumState {
         int candidateId
     ) throws IOException {
         if (candidateId == localId) {
-            throw new IllegalArgumentException("Cannot transition to Voted with votedId=" + candidateId +
+            throw new IllegalStateException("Cannot transition to Voted with votedId=" + candidateId +
                 " and epoch=" + epoch + " since it matches the local broker.id");
         } else if (isObserver()) {
             throw new IllegalStateException("Cannot transition to Voted with votedId=" + candidateId +
                 " and epoch=" + epoch + " since the local broker.id=" + localId + " is not a voter");
         } else if (!isVoter(candidateId)) {
-            throw new IllegalArgumentException("Cannot transition to Voted with voterId=" + candidateId +
+            throw new IllegalStateException("Cannot transition to Voted with voterId=" + candidateId +
                 " and epoch=" + epoch + " since it is not one of the voters " + voters);
         }
 
         int currentEpoch = state.epoch();
         if (epoch < currentEpoch) {
-            throw new IllegalArgumentException("Cannot transition to Voted with votedId=" + candidateId +
+            throw new IllegalStateException("Cannot transition to Voted with votedId=" + candidateId +
                 " and epoch=" + epoch + " since the current epoch " + currentEpoch + " is larger");
         } else if (epoch == currentEpoch && !isUnattached()) {
-            throw new IllegalArgumentException("Cannot transition to Voted with votedId=" + candidateId +
+            throw new IllegalStateException("Cannot transition to Voted with votedId=" + candidateId +
                 " and epoch=" + epoch + " from the current state " + state);
         }
 
@@ -304,20 +304,20 @@ public class QuorumState {
         int leaderId
     ) throws IOException {
         if (leaderId == localId) {
-            throw new IllegalArgumentException("Cannot transition to Follower with leaderId=" + leaderId +
+            throw new IllegalStateException("Cannot transition to Follower with leaderId=" + leaderId +
                 " and epoch=" + epoch + " since it matches the local broker.id=" + localId);
         } else if (!isVoter(leaderId)) {
-            throw new IllegalArgumentException("Cannot transition to Follower with leaderId=" + leaderId +
+            throw new IllegalStateException("Cannot transition to Follower with leaderId=" + leaderId +
                 " and epoch=" + epoch + " since it is not one of the voters " + voters);
         }
 
         int currentEpoch = state.epoch();
         if (epoch < currentEpoch) {
-            throw new IllegalArgumentException("Cannot transition to Follower with leaderId=" + leaderId +
+            throw new IllegalStateException("Cannot transition to Follower with leaderId=" + leaderId +
                 " and epoch=" + epoch + " since the current epoch " + currentEpoch + " is larger");
         } else if (epoch == currentEpoch
             && (isFollower() || isLeader())) {
-            throw new IllegalArgumentException("Cannot transition to Follower with leaderId=" + leaderId +
+            throw new IllegalStateException("Cannot transition to Follower with leaderId=" + leaderId +
                 " and epoch=" + epoch + " from state " + state);
         }
 
@@ -385,11 +385,6 @@ public class QuorumState {
         return electionTimeoutMs + random.nextInt(electionTimeoutMs);
     }
 
-    private void becomeLeader(LeaderState state) {
-        this.state = state;
-        log.info("Become leader in epoch {}", epoch());
-    }
-
     public FollowerState followerStateOrThrow() {
         if (isFollower())
             return (FollowerState) state;
@@ -411,13 +406,13 @@ public class QuorumState {
     public LeaderState leaderStateOrThrow() {
         if (isLeader())
             return (LeaderState) state;
-        throw new IllegalStateException("Expected to be a leader, but current state is " + state);
+        throw new IllegalStateException("Expected to be Leader, but current state is " + state);
     }
 
     public CandidateState candidateStateOrThrow() {
         if (isCandidate())
             return (CandidateState) state;
-        throw new IllegalStateException("Expected to be a candidate, but current state is " + state);
+        throw new IllegalStateException("Expected to be Candidate, but current state is " + state);
     }
 
     public LeaderAndEpoch leaderAndEpoch() {

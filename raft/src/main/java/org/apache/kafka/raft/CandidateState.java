@@ -28,7 +28,7 @@ public class CandidateState implements EpochState {
     private final int localId;
     private final int epoch;
     private final int retries;
-    private final Map<Integer, VoteState> voteStates = new HashMap<>();
+    private final Map<Integer, State> voteStates = new HashMap<>();
     private final int electionTimeoutMs;
     private final Timer electionTimer;
     private final Timer backoffTimer;
@@ -60,9 +60,9 @@ public class CandidateState implements EpochState {
         this.backoffTimer = time.timer(0);
 
         for (Integer voterId : voters) {
-            voteStates.put(voterId, VoteState.UNRECORDED);
+            voteStates.put(voterId, State.UNRECORDED);
         }
-        voteStates.put(localId, VoteState.GRANTED);
+        voteStates.put(localId, State.GRANTED);
     }
 
     public int localId() {
@@ -74,11 +74,11 @@ public class CandidateState implements EpochState {
     }
 
     private long numGranted() {
-        return voteStates.values().stream().filter(state -> state == VoteState.GRANTED).count();
+        return voteStates.values().stream().filter(state -> state == State.GRANTED).count();
     }
 
     private long numUnrecorded() {
-        return voteStates.values().stream().filter(state -> state == VoteState.UNRECORDED).count();
+        return voteStates.values().stream().filter(state -> state == State.UNRECORDED).count();
     }
 
     /**
@@ -120,14 +120,14 @@ public class CandidateState implements EpochState {
      *         rejected by this node
      */
     public boolean recordGrantedVote(int remoteNodeId) {
-        VoteState voteState = voteStates.get(remoteNodeId);
-        if (voteState == null) {
+        State state = voteStates.get(remoteNodeId);
+        if (state == null) {
             throw new IllegalArgumentException("Attempt to grant vote to non-voter " + remoteNodeId);
-        } else if (voteState == VoteState.REJECTED) {
+        } else if (state == State.REJECTED) {
             throw new IllegalArgumentException("Attempt to grant vote from node " + remoteNodeId +
                 " which previously rejected our request");
         }
-        return voteStates.put(remoteNodeId, VoteState.GRANTED) == VoteState.UNRECORDED;
+        return voteStates.put(remoteNodeId, State.GRANTED) == State.UNRECORDED;
     }
 
     /**
@@ -139,15 +139,15 @@ public class CandidateState implements EpochState {
      *         granted by this node
      */
     public boolean recordRejectedVote(int remoteNodeId) {
-        VoteState voteState = voteStates.get(remoteNodeId);
-        if (voteState == null) {
+        State state = voteStates.get(remoteNodeId);
+        if (state == null) {
             throw new IllegalArgumentException("Attempt to reject vote to non-voter " + remoteNodeId);
-        } else if (voteState == VoteState.GRANTED) {
+        } else if (state == State.GRANTED) {
             throw new IllegalArgumentException("Attempt to reject vote from node " + remoteNodeId +
                 " which previously granted our request");
         }
 
-        return voteStates.put(remoteNodeId, VoteState.REJECTED) == VoteState.UNRECORDED;
+        return voteStates.put(remoteNodeId, State.REJECTED) == State.UNRECORDED;
     }
 
     /**
@@ -166,9 +166,18 @@ public class CandidateState implements EpochState {
      */
     public Set<Integer> unrecordedVoters() {
         return voteStates.entrySet().stream()
-            .filter(entry -> entry.getValue() == VoteState.UNRECORDED)
+            .filter(entry -> entry.getValue() == State.UNRECORDED)
             .map(Map.Entry::getKey)
             .collect(Collectors.toSet());
+    }
+
+    /**
+     * Get the set of voters that have granted our vote requests.
+     *
+     * @return The set of granting voters, which should always contain the ID of the candidate
+     */
+    public Set<Integer> grantingVoters() {
+        return votersInState(State.GRANTED);
     }
 
     /**
@@ -177,8 +186,12 @@ public class CandidateState implements EpochState {
      * @return The set of rejecting voters
      */
     public Set<Integer> rejectingVoters() {
+        return votersInState(State.REJECTED);
+    }
+
+    private Set<Integer> votersInState(State state) {
         return voteStates.entrySet().stream()
-            .filter(entry -> entry.getValue() == VoteState.REJECTED)
+            .filter(entry -> entry.getValue() == state)
             .map(Map.Entry::getKey)
             .collect(Collectors.toSet());
     }
@@ -231,7 +244,7 @@ public class CandidateState implements EpochState {
         return "Candidate";
     }
 
-    private enum VoteState {
+    private enum State {
         UNRECORDED,
         GRANTED,
         REJECTED

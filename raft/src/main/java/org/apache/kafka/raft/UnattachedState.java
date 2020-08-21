@@ -65,6 +65,10 @@ public class UnattachedState implements EpochState {
         return "Unattached";
     }
 
+    public long electionTimeoutMs() {
+        return electionTimeoutMs;
+    }
+
     public long remainingElectionTimeMs(long currentTimeMs) {
         electionTimer.update(currentTimeMs);
         return electionTimer.remainingMs();
