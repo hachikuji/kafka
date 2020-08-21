@@ -503,7 +503,7 @@ public class KafkaRaftClient implements RaftClient {
 
                 }
             } else {
-                logger.debug("Ignoring vote response {} since we are now a follower for epoch {}",
+                logger.debug("Ignoring vote response {} since we are no longer a candidate in epoch {}",
                     partitionResponse, quorum.epoch());
             }
             return true;
@@ -512,13 +512,11 @@ public class KafkaRaftClient implements RaftClient {
         }
     }
 
-    // TODO: Let's move this into QuorumState
     private int binaryExponentialElectionBackoffMs(int retries) {
         if (retries <= 0) {
             throw new IllegalArgumentException("Retries " + retries + " should be larger than zero");
         }
-
-        // upper limit exponential co-efficients at 20
+        // upper limit exponential co-efficients at 20 to avoid overflow
         return Math.min(RETRY_BACKOFF_BASE_MS * random.nextInt(2 << Math.min(20, retries - 1)), electionBackoffMaxMs);
     }
 
@@ -980,8 +978,6 @@ public class KafkaRaftClient implements RaftClient {
 
                     // Since the end offset has been updated, we should complete any delayed
                     // reads at the end offset.
-
-                    // FIXME: Come up with a better solution for completing all
                     fetchPurgatory.maybeComplete(
                         new LogOffset(Long.MAX_VALUE, Isolation.UNCOMMITTED),
                         currentTimeMs);
