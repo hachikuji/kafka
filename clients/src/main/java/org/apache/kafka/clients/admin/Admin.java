@@ -1450,6 +1450,93 @@ public interface Admin extends AutoCloseable {
     UpdateFeaturesResult updateFeatures(Map<String, FeatureUpdate> featureUpdates, UpdateFeaturesOptions options);
 
     /**
+     * Describe producer state on a set of topic partitions. See
+     * {@link #describeProducers(Collection, DescribeProducersOptions)} for more details.
+     *
+     * @param partitions The set of partitions to query
+     * @return The result
+     */
+    default DescribeProducersResult describeProducers(Collection<TopicPartition> partitions) {
+        return describeProducers(partitions, new DescribeProducersOptions());
+    }
+
+    /**
+     * Describe active producer state on a set of topic partitions. Unless a specific broker
+     * is requested through {@link DescribeProducersOptions#setBrokerId(int)}, this will
+     * query the partition leader to find the producer state.
+     *
+     * @param partitions The set of partitions to query
+     * @param options Options to control the method behavior
+     * @return The result
+     */
+    DescribeProducersResult describeProducers(Collection<TopicPartition> partitions, DescribeProducersOptions options);
+
+    /**
+     * Describe the state of a set of transactionalIds. See
+     * {@link #describeTransactions(Collection, DescribeTransactionsOptions)} for more details.
+     *
+     * @param transactionalIds The set of transactionalIds to query
+     * @return The result
+     */
+    default DescribeTransactionsResult describeTransactions(Collection<String> transactionalIds) {
+        return describeTransactions(transactionalIds, new DescribeTransactionsOptions());
+    }
+
+    /**
+     * Describe the state of a set of transactionalIds from the respective transaction coordinators,
+     * which are dynamically discovered.
+     *
+     * @param transactionalIds The set of transactionalIds to query
+     * @param options Options to control the method behavior
+     * @return The result
+     */
+    DescribeTransactionsResult describeTransactions(Collection<String> transactionalIds, DescribeTransactionsOptions options);
+
+    /**
+     * List active transactions in the cluster. See
+     * {@link #listTransactions(ListTransactionsOptions)} for more details.
+     *
+     * @return The result
+     */
+    default ListTransactionsResult listTransactions() {
+        return listTransactions(new ListTransactionsOptions());
+    }
+
+    /**
+     * List active transactions in the cluster. This will query all potential transaction
+     * coordinators in the cluster and collect the state of all transactionalIds. Users
+     * should typically attempt to reduce the size of the result set using
+     * {@link ListTransactionsOptions#filterProducerIds(Set)} or
+     * {@link ListTransactionsOptions#filterStates(Set)}
+     *
+     * @param options Options to control the method behavior (including filters)
+     * @return The result
+     */
+    ListTransactionsResult listTransactions(ListTransactionsOptions options);
+
+    /**
+     * Forcefully abort a transaction which is open on a topic partition. See
+     * {@link #abortTransaction(AbortTransactionSpec, AbortTransactionOptions)} for more details.
+     *
+     * @param spec The transaction specification including topic partition and producer details
+     * @return The result
+     */
+    default AbortTransactionResult abortTransaction(AbortTransactionSpec spec) {
+        return abortTransaction(spec, new AbortTransactionOptions());
+    }
+
+    /**
+     * Forcefully abort a transaction which is open on a topic partition. This will
+     * send a `WriteTxnMarkers` request to the partition leader in order to abort the
+     * transaction. This requires administrative privileges.
+     *
+     * @param spec The transaction specification including topic partition and producer details
+     * @param options Options to control the method behavior (including filters)
+     * @return The result
+     */
+    AbortTransactionResult abortTransaction(AbortTransactionSpec spec, AbortTransactionOptions options);
+
+    /**
      * Get the metrics kept by the adminClient
      */
     Map<MetricName, ? extends Metric> metrics();

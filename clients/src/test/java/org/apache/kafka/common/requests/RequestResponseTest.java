@@ -94,6 +94,10 @@ import org.apache.kafka.common.message.DescribeConfigsResponseData.DescribeConfi
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsResponseData.DescribedGroup;
+import org.apache.kafka.common.message.DescribeProducersRequestData;
+import org.apache.kafka.common.message.DescribeProducersResponseData;
+import org.apache.kafka.common.message.DescribeTransactionsRequestData;
+import org.apache.kafka.common.message.DescribeTransactionsResponseData;
 import org.apache.kafka.common.message.ElectLeadersResponseData.PartitionResult;
 import org.apache.kafka.common.message.ElectLeadersResponseData.ReplicaElectionResult;
 import org.apache.kafka.common.message.EndTxnRequestData;
@@ -128,6 +132,8 @@ import org.apache.kafka.common.message.ListOffsetsResponseData.ListOffsetsPartit
 import org.apache.kafka.common.message.ListOffsetsResponseData.ListOffsetsTopicResponse;
 import org.apache.kafka.common.message.ListPartitionReassignmentsRequestData;
 import org.apache.kafka.common.message.ListPartitionReassignmentsResponseData;
+import org.apache.kafka.common.message.ListTransactionsRequestData;
+import org.apache.kafka.common.message.ListTransactionsResponseData;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
 import org.apache.kafka.common.message.OffsetCommitResponseData;
 import org.apache.kafka.common.message.OffsetDeleteRequestData;
@@ -511,6 +517,15 @@ public class RequestResponseTest {
         checkRequest(createAlterClientQuotasRequest(), true);
         checkErrorResponse(createAlterClientQuotasRequest(), unknownServerException, true);
         checkResponse(createAlterClientQuotasResponse(), 0, true);
+        checkRequest(createDescribeProducersRequest(), true);
+        checkErrorResponse(createDescribeProducersRequest(), unknownServerException, true);
+        checkResponse(createDescribeProducersResponse(), 0, true);
+        checkRequest(createDescribeTransactionsRequest(), true);
+        checkErrorResponse(createDescribeTransactionsRequest(), unknownServerException, true);
+        checkResponse(createDescribeTransactionsResponse(), 0, true);
+        checkRequest(createListTransactionsRequest(), true);
+        checkErrorResponse(createListTransactionsRequest(), unknownServerException, true);
+        checkResponse(createListTransactionsResponse(), 0, true);
     }
 
     @Test
@@ -1941,7 +1956,7 @@ public class RequestResponseTest {
     private WriteTxnMarkersRequest createWriteTxnMarkersRequest() {
         List<TopicPartition> partitions = Collections.singletonList(new TopicPartition("topic", 73));
         WriteTxnMarkersRequest.TxnMarkerEntry txnMarkerEntry = new WriteTxnMarkersRequest.TxnMarkerEntry(21L, (short) 42, 73, TransactionResult.ABORT, partitions);
-        return new WriteTxnMarkersRequest.Builder(ApiKeys.WRITE_TXN_MARKERS.latestVersion(), Collections.singletonList(txnMarkerEntry)).build();
+        return new WriteTxnMarkersRequest.Builder(Collections.singletonList(txnMarkerEntry)).build();
     }
 
     private WriteTxnMarkersResponse createWriteTxnMarkersResponse() {
@@ -2620,4 +2635,97 @@ public class RequestResponseTest {
         assertEquals(Integer.valueOf(1), createUpdateMetadataResponse().errorCounts().get(Errors.NONE));
         assertEquals(Integer.valueOf(1), createWriteTxnMarkersResponse().errorCounts().get(Errors.NONE));
     }
+
+    private DescribeProducersRequest createDescribeProducersRequest() {
+        DescribeProducersRequestData data = new DescribeProducersRequestData();
+        DescribeProducersRequestData.TopicRequest topicRequest = new DescribeProducersRequestData.TopicRequest();
+        topicRequest.partitionIndexes().add(0);
+        topicRequest.partitionIndexes().add(1);
+        data.topics().add(topicRequest);
+        return new DescribeProducersRequest.Builder(data).build();
+    }
+
+    private DescribeProducersResponse createDescribeProducersResponse() {
+        DescribeProducersResponseData data = new DescribeProducersResponseData();
+        DescribeProducersResponseData.TopicResponse topicResponse = new DescribeProducersResponseData.TopicResponse();
+        topicResponse.partitions().add(new DescribeProducersResponseData.PartitionResponse()
+            .setErrorCode(Errors.NONE.code())
+            .setPartitionIndex(0)
+            .setActiveProducers(Arrays.asList(
+                new DescribeProducersResponseData.ProducerState()
+                    .setProducerId(1234L)
+                    .setProducerEpoch(15)
+                    .setLastTimestamp(13490218304L)
+                    .setCurrentTxnStartOffset(5000),
+                new DescribeProducersResponseData.ProducerState()
+                    .setProducerId(9876L)
+                    .setProducerEpoch(32)
+                    .setLastTimestamp(13490218399L)
+            ))
+        );
+        data.topics().add(topicResponse);
+        return new DescribeProducersResponse(data);
+    }
+
+    private DescribeTransactionsRequest createDescribeTransactionsRequest() {
+        DescribeTransactionsRequestData data = new DescribeTransactionsRequestData()
+            .setTransactionalIds(asList("t1", "t2", "t3"));
+        return new DescribeTransactionsRequest.Builder(data).build();
+    }
+
+    private DescribeTransactionsResponse createDescribeTransactionsResponse() {
+        DescribeTransactionsResponseData data = new DescribeTransactionsResponseData();
+        data.setTransactionStates(asList(
+            new DescribeTransactionsResponseData.TransactionState()
+                .setErrorCode(Errors.NONE.code())
+                .setTransactionalId("t1")
+                .setProducerId(12345L)
+                .setProducerEpoch(15)
+                .setTransactionStartTimeMs(13490218304L)
+                .setTransactionState("Empty"),
+            new DescribeTransactionsResponseData.TransactionState()
+                .setErrorCode(Errors.NONE.code())
+                .setTransactionalId("t2")
+                .setProducerId(98765L)
+                .setProducerEpoch(30)
+                .setTransactionStartTimeMs(13490218304L)
+                .setTransactionState("Ongoing")
+                .setTopicPartitions(asList(
+                    new DescribeTransactionsResponseData.TopicData()
+                        .setName("foo")
+                        .setPartitionIndexes(asList(1, 3, 5, 7)),
+                    new DescribeTransactionsResponseData.TopicData()
+                        .setName("bar")
+                        .setPartitionIndexes(asList(1, 3))
+                )),
+            new DescribeTransactionsResponseData.TransactionState()
+                .setErrorCode(Errors.NOT_COORDINATOR.code())
+                .setTransactionalId("t3")
+        ));
+        return new DescribeTransactionsResponse(data);
+    }
+
+    private ListTransactionsRequest createListTransactionsRequest() {
+        return new ListTransactionsRequest.Builder(new ListTransactionsRequestData()
+            .setStatesFilter(singletonList("Ongoing"))
+            .setProducerIdFilter(asList(1L, 2L, 15L))
+        ).build();
+    }
+
+    private ListTransactionsResponse createListTransactionsResponse() {
+        ListTransactionsResponseData response = new ListTransactionsResponseData();
+        response.setErrorCode(Errors.NONE.code());
+        response.setTransactionStates(Arrays.asList(
+            new ListTransactionsResponseData.TransactionState()
+                .setTransactionalId("foo")
+                .setProducerId(12345L)
+                .setTransactionState("Ongoing"),
+            new ListTransactionsResponseData.TransactionState()
+                .setTransactionalId("bar")
+                .setProducerId(98765L)
+                .setTransactionState("PrepareAbort")
+        ));
+        return new ListTransactionsResponse(response);
+    }
+
 }

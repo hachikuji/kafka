@@ -32,8 +32,14 @@ import org.apache.kafka.clients.admin.DeleteAclsResult.FilterResults;
 import org.apache.kafka.clients.admin.DescribeReplicaLogDirsResult.ReplicaLogDirInfo;
 import org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo;
 import org.apache.kafka.clients.admin.OffsetSpec.TimestampSpec;
+import org.apache.kafka.clients.admin.internals.AbortTransactionDriver;
 import org.apache.kafka.clients.admin.internals.AdminMetadataManager;
+import org.apache.kafka.clients.admin.internals.ApiDriver;
+import org.apache.kafka.clients.admin.internals.ApiDriver.RequestSpec;
 import org.apache.kafka.clients.admin.internals.ConsumerGroupOperationContext;
+import org.apache.kafka.clients.admin.internals.DescribeProducersDriver;
+import org.apache.kafka.clients.admin.internals.DescribeTransactionsDriver;
+import org.apache.kafka.clients.admin.internals.ListTransactionsDriver;
 import org.apache.kafka.clients.admin.internals.MetadataOperationContext;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Assignment;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -316,6 +322,7 @@ public class KafkaAdminClient extends AdminClient {
     static final String NETWORK_THREAD_PREFIX = "kafka-admin-client-thread";
 
     private final Logger log;
+    private final LogContext logContext;
 
     /**
      * The default timeout to use for an operation.
@@ -570,6 +577,7 @@ public class KafkaAdminClient extends AdminClient {
                              LogContext logContext) {
         this.clientId = clientId;
         this.log = logContext.logger(KafkaAdminClient.class);
+        this.logContext = logContext;
         this.requestTimeoutMs = config.getInt(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG);
         this.defaultApiTimeoutMs = configureDefaultApiTimeoutMs(config);
         this.time = time;
@@ -730,20 +738,36 @@ public class KafkaAdminClient extends AdminClient {
         private final String callName;
         private final long deadlineMs;
         private final NodeProvider nodeProvider;
-        private int tries = 0;
+        protected int tries;
         private boolean aborted = false;
         private Node curNode = null;
-        private long nextAllowedTryMs = 0;
+        private long nextAllowedTryMs;
 
-        Call(boolean internal, String callName, long deadlineMs, NodeProvider nodeProvider) {
+        Call(boolean internal,
+             String callName,
+             long nextAllowedTryMs,
+             int tries,
+             long deadlineMs,
+             NodeProvider nodeProvider
+        ) {
             this.internal = internal;
             this.callName = callName;
+            this.nextAllowedTryMs = nextAllowedTryMs;
+            this.tries = tries;
             this.deadlineMs = deadlineMs;
             this.nodeProvider = nodeProvider;
         }
 
+        Call(boolean internal, String callName, long deadlineMs, NodeProvider nodeProvider) {
+            this(internal, callName, 0, 0, deadlineMs, nodeProvider);
+        }
+
         Call(String callName, long deadlineMs, NodeProvider nodeProvider) {
-            this(false, callName, deadlineMs, nodeProvider);
+            this(false, callName, 0, 0, deadlineMs, nodeProvider);
+        }
+
+        Call(String callName, long nextAllowedTryMs, int tries, long deadlineMs, NodeProvider nodeProvider) {
+            this(false, callName, nextAllowedTryMs, tries, deadlineMs, nodeProvider);
         }
 
         protected Node curNode() {
@@ -823,8 +847,7 @@ public class KafkaAdminClient extends AdminClient {
          *
          * @return          The AbstractRequest builder.
          */
-        @SuppressWarnings("rawtypes")
-        abstract AbstractRequest.Builder createRequest(int timeoutMs);
+        abstract AbstractRequest.Builder<?> createRequest(int timeoutMs);
 
         /**
          * Process the call response.
@@ -4361,7 +4384,53 @@ public class KafkaAdminClient extends AdminClient {
 
     private static byte[] getSaltedPasword(ScramMechanism publicScramMechanism, byte[] password, byte[] salt, int iterations) throws NoSuchAlgorithmException, InvalidKeyException {
         return new ScramFormatter(org.apache.kafka.common.security.scram.internals.ScramMechanism.forMechanismName(publicScramMechanism.mechanismName()))
-                .hi(password, salt, iterations);
+            .hi(password, salt, iterations);
+    }
+
+    @Override
+    public DescribeProducersResult describeProducers(Collection<TopicPartition> partitions, DescribeProducersOptions options) {
+        if (partitions.isEmpty()) {
+            return new DescribeProducersResult(Collections.emptyMap());
+        }
+        long currentTimeMs = time.milliseconds();
+        long deadlineMs = calcDeadlineMs(currentTimeMs, options.timeoutMs);
+        DescribeProducersDriver driver = new DescribeProducersDriver(
+            partitions, options, deadlineMs, retryBackoffMs, logContext);
+        maybeSendRequests(driver, currentTimeMs);
+        return new DescribeProducersResult(driver.futures());
+    }
+
+    @Override
+    public DescribeTransactionsResult describeTransactions(Collection<String> transactionalIds, DescribeTransactionsOptions options) {
+        if (transactionalIds.isEmpty()) {
+            return new DescribeTransactionsResult(Collections.emptyMap());
+        }
+        long currentTimeMs = time.milliseconds();
+        long deadlineMs = calcDeadlineMs(currentTimeMs, options.timeoutMs);
+        DescribeTransactionsDriver driver = new DescribeTransactionsDriver(
+            transactionalIds, deadlineMs, retryBackoffMs, logContext);
+        maybeSendRequests(driver, currentTimeMs);
+        return new DescribeTransactionsResult(driver.futures());
+    }
+
+    @Override
+    public ListTransactionsResult listTransactions(ListTransactionsOptions options) {
+        long currentTimeMs = time.milliseconds();
+        long deadlineMs = calcDeadlineMs(currentTimeMs, options.timeoutMs);
+        ListTransactionsDriver driver = new ListTransactionsDriver(
+            options, deadlineMs, retryBackoffMs, logContext);
+        maybeSendRequests(driver, currentTimeMs);
+        return new ListTransactionsResult(driver.lookupFuture());
+    }
+
+    @Override
+    public AbortTransactionResult abortTransaction(AbortTransactionSpec spec, AbortTransactionOptions options) {
+        long currentTimeMs = time.milliseconds();
+        long deadlineMs = calcDeadlineMs(currentTimeMs, options.timeoutMs);
+        AbortTransactionDriver driver = new AbortTransactionDriver(
+            spec, deadlineMs, retryBackoffMs, logContext);
+        maybeSendRequests(driver, currentTimeMs);
+        return new AbortTransactionResult(driver.futures());
     }
 
     @Override
@@ -4514,4 +4583,38 @@ public class KafkaAdminClient extends AdminClient {
             return subLevelErrors.get(subKey).exception();
         }
     }
+
+    private <K, V> void maybeSendRequests(ApiDriver<K, V> driver, long currentTimeMs) {
+        for (RequestSpec<K> spec : driver.poll()) {
+            runnable.call(newCall(driver, spec), currentTimeMs);
+        }
+    }
+
+    private <K, V> Call newCall(ApiDriver<K, V> driver, RequestSpec<K> spec) {
+        NodeProvider nodeProvider = spec.scope.destinationBrokerId().isPresent() ?
+            new ConstantNodeIdProvider(spec.scope.destinationBrokerId().getAsInt()) :
+            new LeastLoadedNodeProvider();
+
+        return new Call(spec.name, spec.nextAllowedTryMs, spec.tries, spec.deadlineMs, nodeProvider) {
+            @Override
+            AbstractRequest.Builder<?> createRequest(int timeoutMs) {
+                return spec.request;
+            }
+
+            @Override
+            void handleResponse(AbstractResponse response) {
+                long currentTimeMs = time.milliseconds();
+                driver.onResponse(currentTimeMs, spec, response);
+                maybeSendRequests(driver, currentTimeMs);
+            }
+
+            @Override
+            void handleFailure(Throwable throwable) {
+                long currentTimeMs = time.milliseconds();
+                driver.onFailure(currentTimeMs, spec, throwable);
+                maybeSendRequests(driver, currentTimeMs);
+            }
+        };
+    }
+
 }

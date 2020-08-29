@@ -24,6 +24,7 @@ import java.util
 import java.util.{Collections, Optional}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+
 import kafka.admin.{AdminUtils, RackAwareMode}
 import kafka.api.{ApiVersion, ElectLeadersRequestOps, KAFKA_0_11_0_IV0, KAFKA_2_3_IV0}
 import kafka.common.OffsetAndMetadata
@@ -48,7 +49,7 @@ import org.apache.kafka.common.internals.{FatalExitError, Topic}
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
 import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult
-import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterClientQuotasResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, AlterReplicaLogDirsResponseData, ApiVersionsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeClientQuotasResponseData, DescribeConfigsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListOffsetsResponseData, ListPartitionReassignmentsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, OffsetForLeaderEpochResponseData, RenewDelegationTokenResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
+import org.apache.kafka.common.message.{AddOffsetsToTxnResponseData, AlterClientQuotasResponseData, AlterConfigsResponseData, AlterPartitionReassignmentsResponseData, AlterReplicaLogDirsResponseData, ApiVersionsResponseData, CreateAclsResponseData, CreatePartitionsResponseData, CreateTopicsResponseData, DeleteAclsResponseData, DeleteGroupsResponseData, DeleteRecordsResponseData, DeleteTopicsResponseData, DescribeAclsResponseData, DescribeClientQuotasResponseData, DescribeClusterResponseData, DescribeConfigsResponseData, DescribeGroupsResponseData, DescribeLogDirsResponseData, DescribeProducersResponseData, DescribeTransactionsResponseData, EndTxnResponseData, ExpireDelegationTokenResponseData, FindCoordinatorResponseData, HeartbeatResponseData, InitProducerIdResponseData, JoinGroupResponseData, LeaveGroupResponseData, ListGroupsResponseData, ListOffsetsResponseData, ListPartitionReassignmentsResponseData, ListTransactionsResponseData, MetadataResponseData, OffsetCommitRequestData, OffsetCommitResponseData, OffsetDeleteResponseData, OffsetForLeaderEpochResponseData, RenewDelegationTokenResponseData, SaslAuthenticateResponseData, SaslHandshakeResponseData, StopReplicaResponseData, SyncGroupResponseData, UpdateMetadataResponseData}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteGroupsResponseData.{DeletableGroupResult, DeletableGroupResultCollection}
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
@@ -88,7 +89,6 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.util.{Failure, Success, Try}
 import kafka.coordinator.group.GroupOverview
-import org.apache.kafka.common.message.DescribeClusterResponseData
 
 import scala.annotation.nowarn
 
@@ -232,6 +232,9 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.DESCRIBE_QUORUM => requestHelper.closeConnection(request, util.Collections.emptyMap())
         case ApiKeys.FETCH_SNAPSHOT => requestHelper.closeConnection(request, util.Collections.emptyMap())
 
+        case ApiKeys.DESCRIBE_PRODUCERS => handleDescribeProducersRequest(request)
+        case ApiKeys.DESCRIBE_TRANSACTIONS => handleDescribeTransactionsRequest(request)
+        case ApiKeys.LIST_TRANSACTIONS => handleListTransactionsRequest(request)
       }
     } catch {
       case e: FatalExitError => throw e
@@ -3196,6 +3199,7 @@ class KafkaApis(val requestChannel: RequestChannel,
               throttleTimeMs)
         }
       }
+
       requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs => createResponse(requestThrottleMs))
     }
 
@@ -3208,6 +3212,85 @@ class KafkaApis(val requestChannel: RequestChannel,
     } else {
       controller.updateFeatures(updateFeaturesRequest, sendResponseCallback)
     }
+  }
+
+  def handleDescribeProducersRequest(request: RequestChannel.Request): Unit = {
+    val describeProducersRequest = request.body[DescribeProducersRequest]
+
+    def partitionError(topicPartition: TopicPartition, error: Errors): DescribeProducersResponseData.PartitionResponse = {
+      new DescribeProducersResponseData.PartitionResponse()
+        .setPartitionIndex(topicPartition.partition)
+        .setErrorCode(error.code)
+    }
+
+    val response = new DescribeProducersResponseData()
+    describeProducersRequest.data.topics.forEach { topicRequest =>
+      val topicResponse = new DescribeProducersResponseData.TopicResponse()
+        .setName(topicRequest.name)
+      val topicError = if (!authHelper.authorize(request.context, READ, TOPIC, topicRequest.name))
+        Some(Errors.TOPIC_AUTHORIZATION_FAILED)
+      else if (!metadataCache.contains(topicRequest.name))
+        Some(Errors.UNKNOWN_TOPIC_OR_PARTITION)
+      else
+        None
+
+      topicRequest.partitionIndexes.forEach { partitionId =>
+        val topicPartition = new TopicPartition(topicRequest.name, partitionId)
+        val partitionResponse = topicError match {
+          case Some(error) => partitionError(topicPartition, error)
+          case None => replicaManager.activeProducerState(topicPartition)
+        }
+        topicResponse.partitions.add(partitionResponse)
+      }
+
+      if (!topicResponse.partitions.isEmpty) {
+        response.topics.add(topicResponse)
+      }
+    }
+
+    requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs =>
+      new DescribeProducersResponse(response.setThrottleTimeMs(requestThrottleMs)))
+  }
+
+  def handleDescribeTransactionsRequest(request: RequestChannel.Request): Unit = {
+    val describeTransactionsRequest = request.body[DescribeTransactionsRequest]
+    val response = new DescribeTransactionsResponseData()
+
+    describeTransactionsRequest.data.transactionalIds.forEach { transactionalId =>
+      val transactionState = if (!authHelper.authorize(request.context, DESCRIBE, TRANSACTIONAL_ID, transactionalId)) {
+        new DescribeTransactionsResponseData.TransactionState()
+          .setTransactionalId(transactionalId)
+          .setErrorCode(Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.code)
+      } else {
+        txnCoordinator.handleDescribeTransactions(transactionalId)
+      }
+      response.transactionStates.add(transactionState)
+    }
+
+    requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs =>
+      new DescribeTransactionsResponse(response.setThrottleTimeMs(requestThrottleMs)))
+  }
+
+  def handleListTransactionsRequest(request: RequestChannel.Request): Unit = {
+    val listTransactionsRequest = request.body[ListTransactionsRequest]
+    val response = new ListTransactionsResponseData()
+
+    val filteredProducerIds = listTransactionsRequest.data.producerIdFilter.asScala.map(Long.unbox).toSet
+    val filteredStates = listTransactionsRequest.data.statesFilter.asScala.toSet
+
+    txnCoordinator.handleListTransactions(filteredProducerIds, filteredStates) match {
+      case Left(error) =>
+        response.setErrorCode(error.code)
+      case Right(transactions) =>
+        val authorizedTransactions = transactions.filter { state =>
+          authHelper.authorize(request.context, DESCRIBE, TRANSACTIONAL_ID, state.transactionalId)
+        }
+        response.setErrorCode(Errors.NONE.code)
+          .setTransactionStates(authorizedTransactions.asJava)
+    }
+
+    requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs =>
+      new ListTransactionsResponse(response.setThrottleTimeMs(requestThrottleMs)))
   }
 
   def handleDescribeCluster(request: RequestChannel.Request): Unit = {

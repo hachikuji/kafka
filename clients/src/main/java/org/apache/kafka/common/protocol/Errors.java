@@ -106,6 +106,7 @@ import org.apache.kafka.common.errors.TopicDeletionDisabledException;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.errors.TransactionCoordinatorFencedException;
 import org.apache.kafka.common.errors.TransactionalIdAuthorizationException;
+import org.apache.kafka.common.errors.TransactionalIdNotFoundException;
 import org.apache.kafka.common.errors.UnacceptableCredentialException;
 import org.apache.kafka.common.errors.UnknownLeaderEpochException;
 import org.apache.kafka.common.errors.UnknownMemberIdException;
@@ -350,7 +351,9 @@ public enum Errors {
     POSITION_OUT_OF_RANGE(
         99,
         "Requested position is not greater than or equal to zero, and less than the size of the snapshot.",
-        PositionOutOfRangeException::new);
+        PositionOutOfRangeException::new),
+    TRANSACTIONAL_ID_NOT_FOUND(100, "The transactionalId could not be found",
+        TransactionalIdNotFoundException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 

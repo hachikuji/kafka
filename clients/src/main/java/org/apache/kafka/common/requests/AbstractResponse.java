@@ -233,6 +233,12 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return FetchSnapshotResponse.parse(responseBuffer, version);
             case DESCRIBE_CLUSTER:
                 return DescribeClusterResponse.parse(responseBuffer, version);
+            case DESCRIBE_PRODUCERS:
+                return DescribeProducersResponse.parse(responseBuffer, version);
+            case DESCRIBE_TRANSACTIONS:
+                return DescribeTransactionsResponse.parse(responseBuffer, version);
+            case LIST_TRANSACTIONS:
+                return ListTransactionsResponse.parse(responseBuffer, version);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

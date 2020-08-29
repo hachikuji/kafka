@@ -16,11 +16,6 @@
  */
 package org.apache.kafka.common.utils;
 
-import java.nio.BufferUnderflowException;
-import java.util.AbstractMap;
-import java.util.EnumSet;
-import java.util.SortedSet;
-import java.util.TreeSet;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.config.ConfigException;
 import org.slf4j.Logger;
@@ -36,6 +31,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -49,10 +45,15 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -63,6 +64,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BinaryOperator;
@@ -73,9 +76,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 
 public final class Utils {
 
@@ -1309,5 +1309,11 @@ public final class Utils {
     @SuppressWarnings("unchecked")
     public static <S> Iterator<S> covariantCast(Iterator<? extends S> iterator) {
         return (Iterator<S>) iterator;
+    }
+
+    public static <K, V> Map<K, V> initializeMap(Collection<K> keys, Supplier<V> valueSupplier) {
+        Map<K, V> res = new HashMap<>();
+        keys.forEach(key -> res.put(key, valueSupplier.get()));
+        return res;
     }
 }
