@@ -1395,6 +1395,38 @@ class GroupCoordinatorTest {
   }
 
   @Test
+  def testLeaderElectBeforeResign(): Unit = {
+    // When election in the next leader epoch is received before resignation in the last leader epoch
+    val partitionId = 2
+    val oldEpoch = 2
+    val newEpoch = oldEpoch + 1
+
+    val tp = new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, partitionId)
+    EasyMock.reset(replicaManager)
+    EasyMock.expect(replicaManager.getLog(tp)).andReturn(None).times(2)
+    EasyMock.replay(replicaManager)
+
+    // Initial state
+    groupCoordinator.onElection(partitionId, oldEpoch)
+    TestUtils.waitUntilTrue(() => !groupCoordinator.groupManager.isPartitionLoading(partitionId), "expected partition to have loaded")
+    assertTrue(groupCoordinator.groupManager.isPartitionOwned(partitionId))
+
+    // Race condition
+    groupCoordinator.onElection(partitionId, newEpoch)
+    TestUtils.waitUntilTrue(() => !groupCoordinator.groupManager.isPartitionLoading(partitionId), "expected partition to have loaded")
+    assertTrue(groupCoordinator.groupManager.isPartitionOwned(partitionId))
+
+    groupCoordinator.onResignation(partitionId, Some(oldEpoch))
+    assertTrue(groupCoordinator.groupManager.isPartitionOwned(partitionId))
+
+    // But we can still resign when the epoch is correct
+    groupCoordinator.onResignation(partitionId, Some(newEpoch))
+    TestUtils.waitUntilTrue(() => !groupCoordinator.groupManager.isPartitionOwned(partitionId), "expected partition to nolonger be owned")
+
+    EasyMock.verify(replicaManager)
+  }
+
+  @Test
   def testLeaderRejoinBeforeFinalRebalanceTimeoutWithLongSessionTimeout(): Unit = {
     groupStuckInRebalanceTimeoutDueToNonjoinedStaticMember()
 

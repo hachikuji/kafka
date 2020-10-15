@@ -87,6 +87,8 @@ class GroupCoordinator(val brokerId: Int,
 
   private val isActive = new AtomicBoolean(false)
 
+  val epochForPartitionId = mutable.Map[Int, Int]()
+
   def offsetsTopicConfigs: Properties = {
     val props = new Properties
     props.put(LogConfig.CleanupPolicyProp, LogConfig.Compact)
@@ -905,9 +907,16 @@ class GroupCoordinator(val brokerId: Int,
    *
    * @param offsetTopicPartitionId The partition we are now leading
    */
-  def onElection(offsetTopicPartitionId: Int): Unit = {
-    info(s"Elected as the group coordinator for partition $offsetTopicPartitionId")
-    groupManager.scheduleLoadGroupAndOffsets(offsetTopicPartitionId, onGroupLoaded)
+  def onElection(offsetTopicPartitionId: Int, coordinatorEpoch: Int): Unit = {
+    val currentEpoch = epochForPartitionId.get(offsetTopicPartitionId)
+    if (currentEpoch.forall(currentEpoch => coordinatorEpoch > currentEpoch)) {
+      info(s"Elected as the group coordinator for partition $offsetTopicPartitionId in epoch $coordinatorEpoch")
+      groupManager.scheduleLoadGroupAndOffsets(offsetTopicPartitionId, onGroupLoaded)
+      epochForPartitionId.put(offsetTopicPartitionId, coordinatorEpoch)
+    } else {
+      warn(s"Ignored election as group coordinator for partition $offsetTopicPartitionId " +
+        s"in epoch $coordinatorEpoch since current epoch is $currentEpoch")
+    }
   }
 
   /**
@@ -915,9 +924,16 @@ class GroupCoordinator(val brokerId: Int,
    *
    * @param offsetTopicPartitionId The partition we are no longer leading
    */
-  def onResignation(offsetTopicPartitionId: Int): Unit = {
-    info(s"Resigned as the group coordinator for partition $offsetTopicPartitionId")
-    groupManager.removeGroupsForPartition(offsetTopicPartitionId, onGroupUnloaded)
+  def onResignation(offsetTopicPartitionId: Int, coordinatorEpoch: Option[Int]): Unit = {
+    val currentEpoch = epochForPartitionId.get(offsetTopicPartitionId)
+    if (currentEpoch.forall(currentEpoch => currentEpoch <= coordinatorEpoch.getOrElse(Int.MaxValue))) {
+      info(s"Resigned as the group coordinator for partition $offsetTopicPartitionId in epoch $coordinatorEpoch")
+      groupManager.removeGroupsForPartition(offsetTopicPartitionId, onGroupUnloaded)
+      epochForPartitionId.remove(offsetTopicPartitionId)
+    } else {
+      warn(s"Ignored resignation as group coordinator for partition $offsetTopicPartitionId " +
+        s"in epoch $coordinatorEpoch since current epoch is $currentEpoch")
+    }
   }
 
   private def setAndPropagateAssignment(group: GroupMetadata, assignment: Map[String, Array[Byte]]): Unit = {

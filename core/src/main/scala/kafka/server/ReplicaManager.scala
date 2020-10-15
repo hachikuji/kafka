@@ -351,7 +351,8 @@ class ReplicaManager(val config: KafkaConfig,
                    controllerId: Int,
                    controllerEpoch: Int,
                    brokerEpoch: Long,
-                   partitionStates: Map[TopicPartition, StopReplicaPartitionState]
+                   partitionStates: Map[TopicPartition, StopReplicaPartitionState],
+                   onStopReplica: (Errors, Map[TopicPartition, Errors]) => Unit = (_, _) => {}
                   ): (mutable.Map[TopicPartition, Errors], Errors) = {
     replicaStateChangeLock synchronized {
       stateChangeLogger.info(s"Handling StopReplica request correlationId $correlationId from controller " +
@@ -364,7 +365,7 @@ class ReplicaManager(val config: KafkaConfig,
         }
 
       val responseMap = new collection.mutable.HashMap[TopicPartition, Errors]
-      if (controllerEpoch < this.controllerEpoch) {
+      val result = if (controllerEpoch < this.controllerEpoch) {
         stateChangeLogger.warn(s"Ignoring StopReplica request from " +
           s"controller $controllerId with correlation id $correlationId " +
           s"since its controller epoch $controllerEpoch is old. " +
@@ -441,6 +442,8 @@ class ReplicaManager(val config: KafkaConfig,
         }
         (responseMap, Errors.NONE)
       }
+      onStopReplica(result._2, result._1)
+      result
     }
   }
 
