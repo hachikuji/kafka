@@ -125,7 +125,7 @@ class BrokerMetadataListener(
   }
 
   // For testing, it is useful to be able to drain all events synchronously
-  def drain(): Unit = {
+  private[metadata] def drain(): Unit = {
     while (!queue.isEmpty) {
       thread.doWork()
     }
