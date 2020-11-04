@@ -218,6 +218,7 @@ class TestRaftServer(
     val expirationTimer = new SystemTimer("raft-expiration-executor")
     val expirationService = new TimingWheelExpirationService(expirationTimer)
     val serde = new ByteArraySerde
+    val metrics = new Metrics()
 
     new KafkaRaftClient(
       raftConfig,
@@ -226,6 +227,7 @@ class TestRaftServer(
       metadataLog,
       quorumState,
       time,
+      metrics,
       expirationService,
       logContext
     )
@@ -312,7 +314,7 @@ class TestRaftServer(
       eventQueue.offer(HandleClaim(epoch))
     }
 
-    override def handleResign(): Unit = {
+    override def handleResign(epoch: Int): Unit = {
       eventQueue.offer(HandleResign)
     }
 

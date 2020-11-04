@@ -581,7 +581,6 @@ public final class QuorumController implements Controller {
         this.curClaimEpoch = -1L;
         this.lastCommittedOffset = -1L;
         this.writeOffset = -1L;
-        this.logManager.initialize();
         this.logManager.register(metaLogListener);
     }
 
@@ -663,7 +662,7 @@ public final class QuorumController implements Controller {
     public CompletableFuture<RegistrationReply>
             registerBroker(BrokerRegistrationRequestData request) {
         return appendWriteEvent("registerBroker", () ->
-            clusterControl.registerBroker(request, writeOffset));
+            clusterControl.registerBroker(request, writeOffset + 1));
     }
 
     @Override

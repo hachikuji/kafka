@@ -17,21 +17,22 @@
 
 package kafka.testkit;
 
-import kafka.metrics.KafkaMetricsReporter;
-import kafka.server.KafkaConfig;
+import kafka.server.KafkaConfig$;
+import kafka.server.Kip500Controller;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.utils.ThreadUtils;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.test.TestUtils;
+import scala.collection.JavaConverters;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
@@ -41,17 +42,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-
-import kafka.server.KafkaConfig$;
-import kafka.server.Kip500Controller;
-import kafka.tools.StorageTool;
-import org.apache.kafka.common.Node;
-import org.apache.kafka.common.utils.ThreadUtils;
-import org.apache.kafka.common.utils.Time;
-import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.test.TestUtils;
-import scala.collection.JavaConverters;
-import scala.compat.java8.OptionConverters;
 
 @SuppressWarnings("deprecation") // Needed for Scala 2.12 compatibility
 public class KafkaClusterTestKit implements AutoCloseable {
@@ -126,24 +116,24 @@ public class KafkaClusterTestKit implements AutoCloseable {
                         "CONTROLLER://localhost:0");
                     props.put(KafkaConfig$.MODULE$.ControllerListenerNamesProp(),
                         "CONTROLLER");
-                    // Note: we can't accurately set controller.connect yet, since we don't
-                    // yet know what ports each controller will pick.  Set it to an
-                    // empty string for now as a placeholder.
-                    props.put(KafkaConfig$.MODULE$.ControllerConnectProp(), "");
-                    KafkaConfig config = new KafkaConfig(props, false,
-                        OptionConverters.toScala(Optional.empty()));
-                    Kip500Controller controller = new Kip500Controller(config, time,
-                        OptionConverters.toScala(Optional.of(String.format("controller%d_", node.id()))),
-                        JavaConverters.asScalaBuffer(new ArrayList<KafkaMetricsReporter>()).toSeq(),
-                        connectFutureManager.future);
-                    controllers.put(node.id(), controller);
-                    controller.socketServerFirstBoundPortFuture().whenComplete((port, e) -> {
-                        if (e != null) {
-                            connectFutureManager.fail(e);
-                        } else {
-                            connectFutureManager.registerPort(node.id(), port);
-                        }
-                    });
+//                    // Note: we can't accurately set controller.connect yet, since we don't
+//                    // yet know what ports each controller will pick.  Set it to an
+//                    // empty string for now as a placeholder.
+//                    props.put(KafkaConfig$.MODULE$.ControllerConnectProp(), "");
+//                    KafkaConfig config = new KafkaConfig(props, false,
+//                        OptionConverters.toScala(Optional.empty()));
+//                    Kip500Controller controller = new Kip500Controller(config, time,
+//                        OptionConverters.toScala(Optional.of(String.format("controller%d_", node.id()))),
+//                        JavaConverters.asScalaBuffer(new ArrayList<KafkaMetricsReporter>()).toSeq(),
+//                        connectFutureManager.future);
+//                    controllers.put(node.id(), controller);
+//                    controller.socketServerFirstBoundPortFuture().whenComplete((port, e) -> {
+//                        if (e != null) {
+//                            connectFutureManager.fail(e);
+//                        } else {
+//                            connectFutureManager.registerPort(node.id(), port);
+//                        }
+//                    });
                 }
             } catch (Exception e) {
                 if (executorService != null) {
@@ -183,38 +173,38 @@ public class KafkaClusterTestKit implements AutoCloseable {
     }
 
     public void format() throws Exception {
-        List<Future<?>> futures = new ArrayList<>();
-        try {
-            for (Map.Entry<Integer, Kip500Controller> entry : controllers.entrySet()) {
-                int nodeId = entry.getKey();
-                Kip500Controller controller = entry.getValue();
-                futures.add(executorService.submit(() -> {
-                    try (ByteArrayOutputStream stream = new ByteArrayOutputStream()) {
-                        try (PrintStream out = new PrintStream(stream)) {
-                            StorageTool.formatCommand(out,
-                                JavaConverters.asScalaBuffer(Collections.singletonList(
-                                    controller.config().metadataLogDir())).toSeq(),
-                                nodes.clusterId().toString(),
-                                false);
-                        } finally {
-                            for (String line : stream.toString().split(String.format("%n"))) {
-                                controller.info(() -> line);
-                            }
-                        }
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                }));
-            }
-            for (Future<?> future: futures) {
-                future.get();
-            }
-        } catch (Exception e) {
-            for (Future<?> future: futures) {
-                future.cancel(true);
-            }
-            throw e;
-        }
+//        List<Future<?>> futures = new ArrayList<>();
+//        try {
+//            for (Map.Entry<Integer, Kip500Controller> entry : controllers.entrySet()) {
+//                int nodeId = entry.getKey();
+//                Kip500Controller controller = entry.getValue();
+//                futures.add(executorService.submit(() -> {
+//                    try (ByteArrayOutputStream stream = new ByteArrayOutputStream()) {
+//                        try (PrintStream out = new PrintStream(stream)) {
+//                            StorageTool.formatCommand(out,
+//                                JavaConverters.asScalaBuffer(Collections.singletonList(
+//                                    controller.config().metadataLogDir())).toSeq(),
+//                                nodes.clusterId().toString(),
+//                                false);
+//                        } finally {
+//                            for (String line : stream.toString().split(String.format("%n"))) {
+//                                controller.info(() -> line);
+//                            }
+//                        }
+//                    } catch (IOException e) {
+//                        throw new RuntimeException(e);
+//                    }
+//                }));
+//            }
+//            for (Future<?> future: futures) {
+//                future.get();
+//            }
+//        } catch (Exception e) {
+//            for (Future<?> future: futures) {
+//                future.cancel(true);
+//            }
+//            throw e;
+//        }
     }
 
     public void startup() throws ExecutionException, InterruptedException {

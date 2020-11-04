@@ -153,6 +153,7 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
         ReplicatedLog log,
         QuorumState quorum,
         Time time,
+        Metrics metrics,
         ExpirationService expirationService,
         LogContext logContext
     ) {
@@ -162,7 +163,7 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
             quorum,
             new BatchMemoryPool(5, MAX_BATCH_SIZE),
             time,
-            new Metrics(time),
+            metrics,
             expirationService,
             raftConfig.quorumVoterConnections(),
             raftConfig.electionBackoffMaxMs(),
@@ -302,9 +303,9 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
         }
     }
 
-    private void fireHandleResign() {
+    private void fireHandleResign(int epoch) {
         for (ListenerContext listenerContext : listenerContexts) {
-            listenerContext.fireHandleResign();
+            listenerContext.fireHandleResign(epoch);
         }
     }
 
@@ -332,6 +333,7 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
 
     @Override
     public void register(Listener<T> listener) {
+        logger.debug("Registering listener {}", listener);
         pendingListeners.add(listener);
         channel.wakeup();
     }
@@ -423,7 +425,7 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
 
     private void maybeResignLeadership() {
         if (quorum.isLeader()) {
-            fireHandleResign();
+            fireHandleResign(quorum.epoch());
         }
 
         if (accumulator != null) {
@@ -568,7 +570,7 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
             throw new IllegalStateException("Unexpected quorum state " + quorum);
         }
 
-        logger.info("Vote request {} is {}", request, voteGranted ? "granted" : "rejected");
+        logger.debug("Vote request {} is {}", request, voteGranted ? "granted" : "rejected");
         return buildVoteResponse(Errors.NONE, voteGranted);
     }
 
@@ -1741,6 +1743,7 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
         while (!pendingListeners.isEmpty()) {
             Listener<T> listener = pendingListeners.poll();
             listenerContexts.add(new ListenerContext(listener));
+            logger.debug("Completed registration of {}", listener);
         }
 
         // Check listener progress to see if reads are expected
@@ -1826,11 +1829,17 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
 
     @Override
     public CompletableFuture<Void> shutdown(int timeoutMs) {
-        logger.info("Beginning graceful shutdown");
         CompletableFuture<Void> shutdownComplete = new CompletableFuture<>();
-        shutdown.set(new GracefulShutdown(timeoutMs, shutdownComplete));
-        channel.wakeup();
-        return shutdownComplete;
+        if (shutdown.compareAndSet(null, new GracefulShutdown(timeoutMs, shutdownComplete))) {
+            logger.info("Beginning graceful shutdown");
+            channel.wakeup();
+        }
+        return shutdown.get().completeFuture;
+    }
+
+    @Override
+    public LeaderAndEpoch leaderAndEpoch() {
+        return quorum.leaderAndEpoch();
     }
 
     @Override
@@ -1974,13 +1983,18 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
             // state machine has seen the full committed state before it becomes
             // leader and begins writing to the log.
             if (epoch > claimedEpoch && lastAckedOffset() >= epochStartOffset) {
+                logger.info("Listener {} claims epoch {} with start offset {}",
+                    listener, epoch, epochStartOffset);
+
                 claimedEpoch = epoch;
                 listener.handleClaim(epoch);
             }
         }
 
-        void fireHandleResign() {
-            listener.handleResign();
+        void fireHandleResign(int epoch) {
+            if (claimedEpoch == epoch) {
+                listener.handleResign(epoch);
+            }
         }
 
         public synchronized void onClose(BatchReader<T> reader) {

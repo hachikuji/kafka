@@ -180,8 +180,7 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
     // Wait for broker registration
     // Note: We want to deliberately block here since the rest of the broker startup process
     //       is dependent on the registration succeeding first
-    // TODO: Maybe set a lower timeout?
-    Await.result(promise.future, Duration(config.registrationLeaseTimeoutMs.longValue(), MILLISECONDS))
+    Await.result(promise.future, Duration(60, SECONDS))
 
     // Set last successful heartbeat as now; successful registration is technically a heartbeat
     _lastSuccessfulHeartbeatTime = time.nanoseconds

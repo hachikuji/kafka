@@ -18,8 +18,10 @@
 package kafka.server
 
 import kafka.network.RequestChannel
+import kafka.raft.RaftManager
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.Logging
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.acl.AclOperation.{CLUSTER_ACTION, DESCRIBE}
 import org.apache.kafka.common.errors.ApiException
 import org.apache.kafka.common.internals.FatalExitError
@@ -32,7 +34,6 @@ import org.apache.kafka.common.resource.Resource
 import org.apache.kafka.common.resource.Resource.CLUSTER_NAME
 import org.apache.kafka.common.resource.ResourceType.CLUSTER
 import org.apache.kafka.common.utils.Time
-import org.apache.kafka.common.{Node, TopicPartition}
 import org.apache.kafka.controller.ClusterControlManager.{HeartbeatReply, RegistrationReply}
 import org.apache.kafka.controller.{Controller, LeaderAndIsr}
 import org.apache.kafka.metadata.{FeatureManager, VersionRange}
@@ -53,13 +54,14 @@ class ControllerApis(val requestChannel: RequestChannel,
                      val time: Time,
                      val supportedFeatures: Map[String, VersionRange],
                      val controller: Controller,
+                     val raftManager: RaftManager,
                      val config: KafkaConfig,
-                     val metaProperties: MetaProperties,
-                     val controllerNodes: Seq[Node]) extends ApiRequestHandler with Logging {
+                     val metaProperties: MetaProperties) extends ApiRequestHandler with Logging {
 
   val apisUtils = new ApisUtils(requestChannel, authorizer, quotas, time)
 
   val supportedApiKeys = Set(
+    ApiKeys.FETCH,
     ApiKeys.METADATA,
     //ApiKeys.SASL_HANDSHAKE
     ApiKeys.API_VERSIONS,
@@ -84,10 +86,10 @@ class ControllerApis(val requestChannel: RequestChannel,
     //ApiKeys.ALTER_CLIENT_QUOTAS
     //ApiKeys.DESCRIBE_USER_SCRAM_CREDENTIALS
     //ApiKeys.ALTER_USER_SCRAM_CREDENTIALS
-    //ApiKeys.VOTE
-    //ApiKeys.BEGIN_QUORUM_EPOCH
-    //ApiKeys.END_QUORUM_EPOCH
-    //ApiKeys.DESCRIBE_QUORUM
+    ApiKeys.VOTE,
+    ApiKeys.BEGIN_QUORUM_EPOCH,
+    ApiKeys.END_QUORUM_EPOCH,
+    ApiKeys.DESCRIBE_QUORUM,
     ApiKeys.ALTER_ISR,
     //ApiKeys.UPDATE_FEATURES
     ApiKeys.BROKER_REGISTRATION,
@@ -97,6 +99,18 @@ class ControllerApis(val requestChannel: RequestChannel,
   override def handle(request: RequestChannel.Request): Unit = {
     try {
       request.header.apiKey match {
+        case ApiKeys.FETCH
+          | ApiKeys.BEGIN_QUORUM_EPOCH
+          | ApiKeys.END_QUORUM_EPOCH
+          | ApiKeys.VOTE
+          | ApiKeys.DESCRIBE_QUORUM =>
+
+          // TODO: More granular authorization for Raft APIs?
+          apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+          raftManager.handleRequest(request.body[AbstractRequest], response => {
+            apisUtils.sendResponseExemptThrottle(request, response)
+          })
+
         case ApiKeys.METADATA => handleMetadataRequest(request)
         case ApiKeys.API_VERSIONS => handleApiVersionsRequest(request)
         case ApiKeys.ALTER_ISR => handleAlterIsrRequest(request)
@@ -165,11 +179,12 @@ class ControllerApis(val requestChannel: RequestChannel,
     def createResponseCallback(requestThrottleMs: Int): MetadataResponse = {
       val metadataResponseData = new MetadataResponseData()
       metadataResponseData.setThrottleTimeMs(requestThrottleMs)
-      controllerNodes.foreach {
-        node =>
-          metadataResponseData.brokers().add(
-            new MetadataResponseBroker().setHost(node.host()).
-              setNodeId(node.id()).setPort(node.port()).setRack(node.rack()))
+      raftManager.voterNodes.foreach { node =>
+        metadataResponseData.brokers().add(new MetadataResponseBroker()
+          .setHost(node.host)
+          .setNodeId(node.id)
+          .setPort(node.port)
+          .setRack(node.rack))
       }
       metadataResponseData.setClusterId(metaProperties.clusterId.toString)
       if (controller.curClaimEpoch() > 0) {
