@@ -175,7 +175,7 @@ class BrokerMetadataListener(
         case logEvent: MetadataLogEvent =>
           if (logEvent.lastOffset < _currentMetadataOffset + logEvent.apiMessages.size) {
             throw new IllegalStateException(s"Non-monotonic offset found in $logEvent. Our " +
-              s"current offset is $_currentMetadataOffset.")
+              s"current offset is ${_currentMetadataOffset}.")
           }
 
           process(logEvent)
