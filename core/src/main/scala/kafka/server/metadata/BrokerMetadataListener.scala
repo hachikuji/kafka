@@ -18,7 +18,7 @@
 package kafka.server.metadata
 
 import java.util
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
 
 import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.TransactionCoordinator
@@ -35,6 +35,7 @@ object BrokerMetadataListener {
   val EventQueueTimeMetricName = "EventQueueTimeMs"
   val EventQueueSizeMetricName = "EventQueueSize"
   val ErrorCountMetricName = "ErrorCount"
+  val DefaultEventQueueTimeoutMs = 300000
 
   def defaultProcessors(kafkaConfig: KafkaConfig,
                         clusterId: String,
@@ -104,6 +105,7 @@ class BrokerMetadataListener(
   config: KafkaConfig,
   time: Time,
   processors: List[BrokerMetadataProcessor],
+  eventQueueTimeoutMs: Long = BrokerMetadataListener.DefaultEventQueueTimeoutMs
 ) extends MetaLogManager.Listener with KafkaMetricsGroup  {
 
   if (processors.isEmpty) {
@@ -131,6 +133,11 @@ class BrokerMetadataListener(
     }
   }
 
+  // For testing, in cases where we want to block synchronously while we wait for an event
+  private[metadata] def poll(): Unit = {
+    thread.doWork()
+  }
+
   def close(): Unit = {
     try {
       thread.initiateShutdown()
@@ -149,7 +156,7 @@ class BrokerMetadataListener(
 
   def put(event: BrokerMetadataEvent): QueuedEvent = {
     val queuedEvent = new QueuedEvent(event, time.milliseconds())
-    queue.offer(queuedEvent)
+    queue.put(queuedEvent)
     queuedEvent
   }
 
@@ -163,7 +170,14 @@ class BrokerMetadataListener(
     }
 
     override def doWork(): Unit = {
-      val dequeued = queue.poll()
+      val dequeued = queue.poll(eventQueueTimeoutMs, TimeUnit.MILLISECONDS)
+      if (dequeued == null) {
+        // Clear the histogram after a timeout without any activity. This
+        // ensures that the histogram does not continue to report stale telemetry.
+        eventQueueTimeHist.clear()
+        return
+      }
+
       val currentTimeMs = time.milliseconds()
       eventQueueTimeHist.update(math.max(0, currentTimeMs - dequeued.enqueueTimeMs))
 

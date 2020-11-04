@@ -20,11 +20,12 @@ package kafka.server.metadata
 import com.yammer.metrics.core.{Gauge, Histogram, MetricName}
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server.KafkaConfig
+import kafka.utils.TestUtils
 import org.apache.kafka.common.metadata.BrokerRecord
 import org.apache.kafka.common.protocol.ApiMessage
 import org.apache.kafka.common.utils.MockTime
 import org.junit.Assert.{assertEquals, assertTrue, fail}
-import org.junit.Test
+import org.junit.{After, Test}
 import org.mockito.Mockito.mock
 import org.scalatest.Assertions.intercept
 
@@ -51,6 +52,11 @@ class BrokerMetadataListenerTest {
   }
 
   val expectedInitialMetadataOffset = -1
+
+  @After
+  def clearMetrics(): Unit = {
+    TestUtils.clearYammerMetrics()
+  }
 
   @Test(expected = classOf[IllegalArgumentException])
   def testEmptyBrokerMetadataProcessors(): Unit = {
@@ -176,6 +182,24 @@ class BrokerMetadataListenerTest {
     assertEquals(2, histogram.count)
     assertEquals(0, histogram.min, 0.01)
     assertEquals(500, histogram.max, 0.01)
+  }
+
+  @Test
+  def testEventQueueHistogramResetAfterTimeout(): Unit = {
+    val time = new MockTime()
+    val brokerMetadataProcessor = new MockMetadataProcessor
+
+    val listener = new BrokerMetadataListener(mock(classOf[KafkaConfig]), time, List(brokerMetadataProcessor),
+      eventQueueTimeoutMs = 50)
+    val histogram = queueTimeHistogram()
+
+    val metadataLogEvent = MetadataLogEvent(List[ApiMessage](new BrokerRecord()).asJava, 1)
+    listener.put(metadataLogEvent)
+    listener.drain()
+    assertEquals(1, histogram.count())
+
+    listener.poll()
+    assertEquals(0, histogram.count())
   }
 
   private class MockMetadataProcessor extends BrokerMetadataProcessor {
