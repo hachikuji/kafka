@@ -128,7 +128,8 @@ class Kip500Server(
     Some(new Kip500Controller(
       metaProps,
       config,
-      raftManager,
+      raftManager.metaLogManager,
+      Some(raftManager),
       time,
       metrics,
       threadNamePrefix,

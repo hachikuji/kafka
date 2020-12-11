@@ -73,11 +73,12 @@ class ControllerApisTest {
       time,
       supportedFeatures,
       controller,
-      raftManager,
+      Some(raftManager),
       new KafkaConfig(new Properties()),
 
       // FIXME: Would make more sense to set controllerId here
-      MetaProperties(Uuid.fromString("JgxuGe9URy-E-ceaL04lEw"), brokerId = Some(brokerId))
+      MetaProperties(Uuid.fromString("JgxuGe9URy-E-ceaL04lEw"), brokerId = Some(brokerId)),
+      Seq.empty
     )
   }
 

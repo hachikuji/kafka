@@ -36,6 +36,7 @@ import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Endpoint}
 import org.apache.kafka.controller.{Controller, QuorumController}
 import org.apache.kafka.metadata.VersionRange
+import org.apache.kafka.metalog.MetaLogManager
 import org.apache.kafka.server.authorizer.{Authorizer, AuthorizerServerInfo}
 
 import scala.jdk.CollectionConverters._
@@ -51,7 +52,8 @@ private[kafka] case class ControllerAuthorizerInfo(clusterResource: ClusterResou
 class Kip500Controller(
   val metaProperties: MetaProperties,
   val config: KafkaConfig,
-  val raftManager: RaftManager,
+  val metaLogManager: MetaLogManager,
+  val raftManager: Option[RaftManager],
   val time: Time,
   val metrics: Metrics,
   val threadNamePrefix: Option[String],
@@ -147,9 +149,11 @@ class Kip500Controller(
         setTime(time).
         setConfigDefs(configDefs).
         setThreadNamePrefix(threadNamePrefixAsString).
-        setLogManager(raftManager.metaLogManager).
+        setLogManager(metaLogManager).
         build()
       quotaManagers = QuotaFactory.instantiate(config, metrics, time, threadNamePrefix.getOrElse(""))
+      val controllerNodes =
+        KafkaConfig.controllerConnectStringsToNodes(controllerConnectFuture.get())
       controllerApis = new ControllerApis(socketServer.dataPlaneRequestChannel,
         authorizer,
         quotaManagers,
@@ -158,7 +162,8 @@ class Kip500Controller(
         controller,
         raftManager,
         config,
-        metaProperties)
+        metaProperties,
+        controllerNodes.toSeq)
       controllerApisHandlerPool = new KafkaRequestHandlerPool(config.controllerId,
         socketServer.dataPlaneRequestChannel,
         controllerApis,

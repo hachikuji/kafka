@@ -21,9 +21,9 @@ import kafka.network.RequestChannel
 import kafka.raft.RaftManager
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.Logging
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{Node, TopicPartition}
 import org.apache.kafka.common.acl.AclOperation.{CLUSTER_ACTION, DESCRIBE}
-import org.apache.kafka.common.errors.ApiException
+import org.apache.kafka.common.errors.{ApiException, UnsupportedVersionException}
 import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.message.ApiVersionsResponseData.{ApiVersionsResponseKey, FinalizedFeatureKey, SupportedFeatureKey}
 import org.apache.kafka.common.message.MetadataResponseData.MetadataResponseBroker
@@ -55,13 +55,14 @@ class ControllerApis(val requestChannel: RequestChannel,
                      val time: Time,
                      val supportedFeatures: Map[String, VersionRange],
                      val controller: Controller,
-                     val raftManager: RaftManager,
+                     val raftManager: Option[RaftManager],
                      val config: KafkaConfig,
-                     val metaProperties: MetaProperties) extends ApiRequestHandler with Logging {
+                     val metaProperties: MetaProperties,
+                     val controllerNodes: Seq[Node]) extends ApiRequestHandler with Logging {
 
   val apisUtils = new ApisUtils(requestChannel, authorizer, quotas, time)
 
-  val supportedApiKeys = Set(
+  var supportedApiKeys = Set(
     ApiKeys.FETCH,
     ApiKeys.METADATA,
     //ApiKeys.SASL_HANDSHAKE
@@ -87,15 +88,20 @@ class ControllerApis(val requestChannel: RequestChannel,
     //ApiKeys.ALTER_CLIENT_QUOTAS
     //ApiKeys.DESCRIBE_USER_SCRAM_CREDENTIALS
     //ApiKeys.ALTER_USER_SCRAM_CREDENTIALS
-    ApiKeys.VOTE,
-    ApiKeys.BEGIN_QUORUM_EPOCH,
-    ApiKeys.END_QUORUM_EPOCH,
-    ApiKeys.DESCRIBE_QUORUM,
-    ApiKeys.ALTER_ISR,
     //ApiKeys.UPDATE_FEATURES
     ApiKeys.BROKER_REGISTRATION,
     ApiKeys.BROKER_HEARTBEAT
   )
+
+  if (raftManager.isDefined) {
+    supportedApiKeys ++= Set(
+      ApiKeys.VOTE,
+      ApiKeys.BEGIN_QUORUM_EPOCH,
+      ApiKeys.END_QUORUM_EPOCH,
+      ApiKeys.DESCRIBE_QUORUM,
+      ApiKeys.ALTER_ISR
+    )
+  }
 
   override def handle(request: RequestChannel.Request): Unit = {
     try {
@@ -148,6 +154,10 @@ class ControllerApis(val requestChannel: RequestChannel,
     request: RequestChannel.Request,
     buildResponse: ApiMessage => AbstractResponse
   ): Unit = {
+    val raftManager = this.raftManager.getOrElse(
+      throw new UnsupportedVersionException(s"Api ${request.header.apiKey} is not available")
+    )
+
     val requestBody = request.body[AbstractRequest]
     val future = raftManager.handleRequest(request.header, requestBody.data)
 
@@ -213,7 +223,7 @@ class ControllerApis(val requestChannel: RequestChannel,
     def createResponseCallback(requestThrottleMs: Int): MetadataResponse = {
       val metadataResponseData = new MetadataResponseData()
       metadataResponseData.setThrottleTimeMs(requestThrottleMs)
-      raftManager.voterNodes.foreach { node =>
+      controllerNodes.foreach { node =>
         metadataResponseData.brokers().add(new MetadataResponseBroker()
           .setHost(node.host)
           .setNodeId(node.id)
