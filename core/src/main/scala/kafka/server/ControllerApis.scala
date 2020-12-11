@@ -27,8 +27,9 @@ import org.apache.kafka.common.errors.ApiException
 import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.message.ApiVersionsResponseData.{ApiVersionsResponseKey, FinalizedFeatureKey, SupportedFeatureKey}
 import org.apache.kafka.common.message.MetadataResponseData.MetadataResponseBroker
-import org.apache.kafka.common.message.{ApiVersionsResponseData, BrokerHeartbeatResponseData, BrokerRegistrationResponseData, MetadataResponseData}
-import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.message.{ApiVersionsResponseData, BeginQuorumEpochResponseData, BrokerHeartbeatResponseData, BrokerRegistrationResponseData, DescribeQuorumResponseData, EndQuorumEpochResponseData, FetchResponseData, MetadataResponseData, VoteResponseData}
+import org.apache.kafka.common.protocol.{ApiKeys, ApiMessage, Errors}
+import org.apache.kafka.common.record.BaseRecords
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.resource.Resource
 import org.apache.kafka.common.resource.Resource.CLUSTER_NAME
@@ -99,18 +100,11 @@ class ControllerApis(val requestChannel: RequestChannel,
   override def handle(request: RequestChannel.Request): Unit = {
     try {
       request.header.apiKey match {
-        case ApiKeys.FETCH
-          | ApiKeys.BEGIN_QUORUM_EPOCH
-          | ApiKeys.END_QUORUM_EPOCH
-          | ApiKeys.VOTE
-          | ApiKeys.DESCRIBE_QUORUM =>
-
-          // TODO: More granular authorization for Raft APIs?
-          apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
-          raftManager.handleRequest(request.body[AbstractRequest], response => {
-            apisUtils.sendResponseExemptThrottle(request, response)
-          })
-
+        case ApiKeys.FETCH => handleFetch(request)
+        case ApiKeys.BEGIN_QUORUM_EPOCH => handleBeginQuorumEpoch(request)
+        case ApiKeys.END_QUORUM_EPOCH => handleEndQuorumEpoch(request)
+        case ApiKeys.VOTE => handleVote(request)
+        case ApiKeys.DESCRIBE_QUORUM => handleDescribeQuorum(request)
         case ApiKeys.METADATA => handleMetadataRequest(request)
         case ApiKeys.API_VERSIONS => handleApiVersionsRequest(request)
         case ApiKeys.ALTER_ISR => handleAlterIsrRequest(request)
@@ -122,9 +116,49 @@ class ControllerApis(val requestChannel: RequestChannel,
     } catch {
       case e: FatalExitError => throw e
       case e: Throwable => apisUtils.handleError(request, e)
-    } finally {
-
     }
+  }
+
+  private def handleVote(request: RequestChannel.Request): Unit = {
+    apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    handleRaftRequest(request, response => new VoteResponse(response.asInstanceOf[VoteResponseData]))
+  }
+
+  private def handleBeginQuorumEpoch(request: RequestChannel.Request): Unit = {
+    apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    handleRaftRequest(request, response => new BeginQuorumEpochResponse(response.asInstanceOf[BeginQuorumEpochResponseData]))
+  }
+
+  private def handleEndQuorumEpoch(request: RequestChannel.Request): Unit = {
+    apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    handleRaftRequest(request, response => new EndQuorumEpochResponse(response.asInstanceOf[EndQuorumEpochResponseData]))
+  }
+
+  private def handleFetch(request: RequestChannel.Request): Unit = {
+    apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    handleRaftRequest(request, response => new FetchResponse[BaseRecords](response.asInstanceOf[FetchResponseData]))
+  }
+
+  private def handleDescribeQuorum(request: RequestChannel.Request): Unit = {
+    apisUtils.authorizeClusterOperation(request, DESCRIBE)
+    handleRaftRequest(request, response => new DescribeQuorumResponse(response.asInstanceOf[DescribeQuorumResponseData]))
+  }
+
+  private def handleRaftRequest(
+    request: RequestChannel.Request,
+    buildResponse: ApiMessage => AbstractResponse
+  ): Unit = {
+    val requestBody = request.body[AbstractRequest]
+    val future = raftManager.handleRequest(request.header, requestBody.data)
+
+    future.whenComplete((responseData, exception) => {
+      val response = if (exception != null) {
+        requestBody.getErrorResponse(exception)
+      } else {
+        buildResponse(responseData)
+      }
+      apisUtils.sendResponseExemptThrottle(request, response)
+    })
   }
 
   def handleApiVersionsRequest(request: RequestChannel.Request): Unit = {

@@ -212,7 +212,7 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
                                       config: KafkaConfig,
                                       time: Time,
                                       threadName: String)
-  extends InterBrokerSendThread(threadName, networkClient, time, isInterruptible = false) {
+  extends InterBrokerSendThread(threadName, networkClient, config.controllerSocketTimeoutMs, time, isInterruptible = false) {
 
   val sendableRequests = new mutable.ListBuffer[BrokerToControllerQueueItem]()
 
@@ -230,9 +230,7 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
   private var waitForControllerRetries = 0L
   private var curController: Option[Node] = None
 
-  override def requestTimeoutMs: Int = config.controllerSocketTimeoutMs
-
-  override def generateRequests(): (Iterable[RequestAndCompletionHandler], Long) = synchronized {
+  def generateRequests(): (Iterable[RequestAndCompletionHandler], Long) = synchronized {
     if (sendableRequests.isEmpty) {
       waitForControllerRetries = 0
       (Seq(), Long.MaxValue)
@@ -258,6 +256,12 @@ class BrokerToControllerRequestThread(networkClient: KafkaClient,
         (requestsToSend, Long.MaxValue)
       }
     }
+  }
+
+  override def doWork(): Unit = {
+    val (requests, backoffMs) = generateRequests()
+    requests.foreach(super.sendRequest)
+    super.poll(backoffMs)
   }
 
   private def maybeRetryRequest(

@@ -19,6 +19,7 @@ package kafka.raft
 import java.io.File
 import java.nio.file.Files
 import java.util.Random
+import java.util.concurrent.CompletableFuture
 
 import kafka.log.{Log, LogConfig, LogManager}
 import kafka.raft.RaftManager.RaftIoThread
@@ -29,14 +30,14 @@ import kafka.utils.{KafkaScheduler, Logging, ShutdownableThread}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.{ChannelBuilders, NetworkReceive, Selectable, Selector}
-import org.apache.kafka.common.protocol.ApiMessageAndVersion
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse}
+import org.apache.kafka.common.protocol.{ApiMessage, ApiMessageAndVersion}
+import org.apache.kafka.common.requests.RequestHeader
 import org.apache.kafka.common.security.JaasContext
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.common.{Node, TopicPartition}
 import org.apache.kafka.metalog.{MetaLogListener, MetaLogManager}
 import org.apache.kafka.raft.metadata.{MetaLogRaftShim, MetadataRecordSerde}
-import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, QuorumState, RaftConfig}
+import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, QuorumState, RaftConfig, RaftRequest}
 
 import scala.jdk.CollectionConverters._
 
@@ -123,6 +124,7 @@ class RaftManager(
   def metaLogManager: MetaLogManager = metaLogShim
 
   def startup(): Unit = {
+    netChannel.start()
     raftClient.initialize()
     raftIoThread.start()
   }
@@ -139,10 +141,14 @@ class RaftManager(
   }
 
   def handleRequest(
-    request: AbstractRequest,
-    onResponseReceived: AbstractResponse => Unit
-  ): Unit = {
-    netChannel.postInboundRequest(request, onResponseReceived)
+    header: RequestHeader,
+    request: ApiMessage
+  ): CompletableFuture[ApiMessage] = {
+    val inboundRequest = new RaftRequest.Inbound(header.correlationId, request)
+    raftClient.handle(inboundRequest)
+    inboundRequest.completion.thenApply { response =>
+      response.data
+    }
   }
 
   private def buildIdString: String = {
@@ -189,9 +195,7 @@ class RaftManager(
 
   private def buildNetworkChannel(): KafkaNetworkChannel = {
     val netClient = buildNetworkClient()
-    val clientId = s"raft-$idString"
-    new KafkaNetworkChannel(time, netClient, clientId,
-      raftConfig.retryBackoffMs, raftConfig.requestTimeoutMs)
+    new KafkaNetworkChannel(time, netClient, raftConfig.requestTimeoutMs)
   }
 
   private def createDataDir(): File = {

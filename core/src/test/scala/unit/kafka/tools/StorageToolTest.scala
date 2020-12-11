@@ -21,10 +21,11 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.util
-import java.util.{Properties, UUID}
+import java.util.Properties
 
 import kafka.server.{KafkaConfig, MetaProperties}
 import kafka.utils.TestUtils
+import org.apache.kafka.common.Uuid
 import org.apache.kafka.common.utils.Utils
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -163,7 +164,7 @@ Found problem:
     val tempDir = TestUtils.tempDir()
     val clusterId = "26c36907-4158-4a35-919d-6534229f5241"
     try {
-      val metaProperties = MetaProperties(clusterId = UUID.fromString(clusterId), brokerId = None, controllerId = None)
+      val metaProperties = MetaProperties(clusterId = Uuid.fromString(clusterId), brokerId = None, controllerId = None)
       val stream = new ByteArrayOutputStream()
       assertEquals(0, StorageTool.
         formatCommand(new PrintStream(stream), Seq(tempDir.toString), metaProperties, false))
@@ -195,7 +196,7 @@ Found problem:
     val tempDir = TestUtils.tempDir()
     val clusterId = "invalid"
     try {
-      val metaProperties = MetaProperties(clusterId = UUID.fromString(clusterId), brokerId = None, controllerId = None)
+      val metaProperties = MetaProperties(clusterId = Uuid.fromString(clusterId), brokerId = None, controllerId = None)
       assertEquals(1, StorageTool.
         formatCommand(new PrintStream(new ByteArrayOutputStream()), Seq(tempDir.toString), metaProperties, false))
     } catch {
