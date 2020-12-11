@@ -174,8 +174,8 @@ class Kip500Server(
 
   def shutdown(): Unit = {
     broker.foreach(_.shutdown())
-    controller.foreach(_.shutdown())
     raftManager.shutdown()
+    controller.foreach(_.shutdown())
   }
 
   def awaitShutdown(): Unit = {
