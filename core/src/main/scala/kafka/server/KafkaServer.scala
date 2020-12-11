@@ -179,17 +179,8 @@ class Kip500Server(
   }
 
   def awaitShutdown(): Unit = {
-    awaitQuietly("broker", () => broker.foreach(_.awaitShutdown()))
-    awaitQuietly("controller",  () => controller.foreach(_.awaitShutdown()))
-  }
-
-  private def awaitQuietly(component: String, fn: () => Unit): Unit = {
-    try {
-      fn()
-    } catch {
-      case t: Throwable =>
-        error(s"Unexpected error while awaiting shutdown of $component", t)
-    }
+    broker.foreach(_.awaitShutdown())
+    controller.foreach(_.awaitShutdown())
   }
 
 }
