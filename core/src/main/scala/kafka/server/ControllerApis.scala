@@ -63,7 +63,6 @@ class ControllerApis(val requestChannel: RequestChannel,
   val apisUtils = new ApisUtils(requestChannel, authorizer, quotas, time)
 
   var supportedApiKeys = Set(
-    ApiKeys.FETCH,
     ApiKeys.METADATA,
     //ApiKeys.SASL_HANDSHAKE
     ApiKeys.API_VERSIONS,
@@ -89,17 +88,18 @@ class ControllerApis(val requestChannel: RequestChannel,
     //ApiKeys.DESCRIBE_USER_SCRAM_CREDENTIALS
     //ApiKeys.ALTER_USER_SCRAM_CREDENTIALS
     //ApiKeys.UPDATE_FEATURES
+    ApiKeys.ALTER_ISR,
     ApiKeys.BROKER_REGISTRATION,
     ApiKeys.BROKER_HEARTBEAT
   )
 
   if (raftManager.isDefined) {
     supportedApiKeys ++= Set(
+      ApiKeys.FETCH,
       ApiKeys.VOTE,
       ApiKeys.BEGIN_QUORUM_EPOCH,
       ApiKeys.END_QUORUM_EPOCH,
       ApiKeys.DESCRIBE_QUORUM,
-      ApiKeys.ALTER_ISR
     )
   }
 
