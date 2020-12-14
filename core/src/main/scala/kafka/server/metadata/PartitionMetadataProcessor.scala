@@ -38,6 +38,7 @@ import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.LeaderAndIsrRequest
 import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.common.utils.LogContext
 import org.apache.kafka.common.{Node, TopicPartition, Uuid}
 
 import scala.collection.mutable.ArrayBuffer
@@ -107,8 +108,9 @@ class PartitionMetadataProcessor(kafkaConfig: KafkaConfig,
                                  txnCoordinator: TransactionCoordinator,
                                  configHandlers: Map[ConfigResource.Type, ConfigHandler]) extends BrokerMetadataProcessor
   with ConfigRepository with Logging {
-  // used only for onLeadershipChange()
-  private val apisUtils = new ApisUtils(null, None, null, null, Some(groupCoordinator), Some(txnCoordinator))
+  // used only for onLeadershipChange() (TODO: factor out?)
+  private val apisUtils = new ApisUtils(new LogContext(""),
+    null, None, null, null, Some(groupCoordinator), Some(txnCoordinator))
 
   // visible for testing
   private[metadata] var brokerEpoch: Long = -1
@@ -666,13 +668,15 @@ class PartitionMetadataProcessor(kafkaConfig: KafkaConfig,
         // TODO: ignore offline replicas until we support the JBOD disk failure use case
       )
       val brokerId = kafkaConfig.brokerId
-      if (partition.removingReplicas().contains(brokerId)) {
+      if (partition.removingReplicas != null &&partition.removingReplicas.contains(brokerId)) {
+        // TODO: Not sure that this makes sense... a removing replica is still a replica
+
         // add it to the map so that we will stop the replica and delete the log directory later
         val tp = new TopicPartition(topicName, partitionId)
         mgr.topicPartitionsNeedingStopReplica(tp) = LeaderAndIsr.EpochDuringDelete
         // cancel any request to become leader or follower that may have already appeared in this batch
         mgr.topicPartitionsNeedingLeaderFollowerChanges.remove(tp)
-      } else if (partition.addingReplicas().contains(brokerId)) {
+      } else if (partition.addingReplicas != null && partition.addingReplicas().contains(brokerId)) {
         // schedule a change to leader or follower as required, being sure to keep any "isNew" status
         // and remembering all the added and deleted replicas
         // in case we are seeing this partition multiple times in the same batch

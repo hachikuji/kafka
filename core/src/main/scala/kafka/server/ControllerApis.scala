@@ -17,6 +17,8 @@
 
 package kafka.server
 
+import java.util.Collections
+
 import kafka.network.RequestChannel
 import kafka.raft.RaftManager
 import kafka.server.QuotaFactory.QuotaManagers
@@ -34,7 +36,7 @@ import org.apache.kafka.common.requests._
 import org.apache.kafka.common.resource.Resource
 import org.apache.kafka.common.resource.Resource.CLUSTER_NAME
 import org.apache.kafka.common.resource.ResourceType.CLUSTER
-import org.apache.kafka.common.utils.Time
+import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.controller.ClusterControlManager.{HeartbeatReply, RegistrationReply}
 import org.apache.kafka.controller.{Controller, LeaderAndIsr}
 import org.apache.kafka.metadata.{FeatureManager, VersionRange}
@@ -60,14 +62,15 @@ class ControllerApis(val requestChannel: RequestChannel,
                      val metaProperties: MetaProperties,
                      val controllerNodes: Seq[Node]) extends ApiRequestHandler with Logging {
 
-  val apisUtils = new ApisUtils(requestChannel, authorizer, quotas, time)
+  val apisUtils = new ApisUtils(new LogContext(s"[ControllerApis id=${config.controllerId}] "),
+    requestChannel, authorizer, quotas, time)
 
   var supportedApiKeys = Set(
     ApiKeys.FETCH,
     ApiKeys.METADATA,
     //ApiKeys.SASL_HANDSHAKE
     ApiKeys.API_VERSIONS,
-    //ApiKeys.CREATE_TOPICS,
+    ApiKeys.CREATE_TOPICS,
     //ApiKeys.DELETE_TOPICS,
     //ApiKeys.DESCRIBE_ACLS,
     //ApiKeys.CREATE_ACLS,
@@ -98,11 +101,44 @@ class ControllerApis(val requestChannel: RequestChannel,
     ApiKeys.BROKER_HEARTBEAT,
   )
 
+  private def maybeHandleInvalidEnvelope(
+    envelope: RequestChannel.Request,
+    forwardedApiKey: ApiKeys
+  ): Boolean = {
+    def sendEnvelopeError(error: Errors): Unit = {
+      apisUtils.sendErrorResponseMaybeThrottle(envelope, error.exception)
+    }
+
+    if (!config.metadataQuorumEnabled || !envelope.context.fromPrivilegedListener) {
+      // If the designated forwarding request is not coming from a privileged listener, or
+      // forwarding is not enabled yet, we would not handle the request.
+      requestChannel.closeConnection(envelope, Collections.emptyMap())
+      true
+    } else if (!apisUtils.authorize(envelope.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME)) {
+      // Forwarding request must have CLUSTER_ACTION authorization to reduce the risk of impersonation.
+      sendEnvelopeError(Errors.CLUSTER_AUTHORIZATION_FAILED)
+      true
+    } else if (!forwardedApiKey.forwardable) {
+      sendEnvelopeError(Errors.INVALID_REQUEST)
+      true
+    } else {
+      false
+    }
+  }
+
   override def handle(request: RequestChannel.Request): Unit = {
     try {
+      val handled = request.envelope.exists(envelope => {
+        maybeHandleInvalidEnvelope(envelope, request.header.apiKey)
+      })
+
+      if (handled)
+        return
+
       request.header.apiKey match {
         case ApiKeys.FETCH => handleFetch(request)
         case ApiKeys.METADATA => handleMetadataRequest(request)
+        case ApiKeys.CREATE_TOPICS => handleCreateTopics(request)
         case ApiKeys.API_VERSIONS => handleApiVersionsRequest(request)
         case ApiKeys.VOTE => handleVote(request)
         case ApiKeys.BEGIN_QUORUM_EPOCH => handleBeginQuorumEpoch(request)
@@ -157,6 +193,24 @@ class ControllerApis(val requestChannel: RequestChannel,
     }
     apisUtils.sendResponseMaybeThrottle(request,
       requestThrottleMs => createResponseCallback(requestThrottleMs))
+  }
+
+  def handleCreateTopics(request: RequestChannel.Request): Unit = {
+    // TODO: Proper create topic authz
+    apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    val createTopicRequest = request.body[CreateTopicsRequest]
+    val future = controller.createTopics(createTopicRequest.data)
+
+    future.whenComplete((responseData, exception) => {
+      val response = if (exception != null) {
+        createTopicRequest.getErrorResponse(exception)
+      } else {
+        new CreateTopicsResponse(responseData)
+      }
+
+      info(s"Response returned from controller: $response")
+      apisUtils.sendResponseExemptThrottle(request, response)
+    })
   }
 
   def handleApiVersionsRequest(request: RequestChannel.Request): Unit = {
@@ -243,9 +297,22 @@ class ControllerApis(val requestChannel: RequestChannel,
       }
 
       controller.alterIsr(
-        alterIsrRequest.data().brokerId(),
-        alterIsrRequest.data().brokerEpoch(),
-        isrsToAlter.asJava)
+        alterIsrRequest.data.brokerId,
+        alterIsrRequest.data.brokerEpoch,
+        isrsToAlter.asJava
+      )
+
+//      future.whenComplete((responseData, exception) => {
+//        val response = if (exception != null) {
+//          alterIsrRequest.getErrorResponse(exception)
+//        } else {
+//
+//
+//          new AlterIsrResponse(responseData)
+//        }
+//        apisUtils.sendResponseExemptThrottle(request, response)
+//      })
+
     }
   }
 

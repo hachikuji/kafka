@@ -115,6 +115,7 @@ object RequestChannel extends Logging {
     def buildResponseSend(abstractResponse: AbstractResponse): Send = {
       envelope match {
         case Some(request) =>
+          info(s"Building envelope response $abstractResponse")
           val responseBytes = context.buildResponseEnvelopePayload(abstractResponse)
           val envelopeResponse = new EnvelopeResponse(responseBytes, Errors.NONE)
           request.context.buildResponseSend(envelopeResponse)

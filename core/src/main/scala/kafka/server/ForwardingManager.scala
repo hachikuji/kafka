@@ -35,6 +35,8 @@ class ForwardingManager(channelManager: BrokerToControllerChannelManager,
 
   def forwardRequest(request: RequestChannel.Request,
                      responseCallback: AbstractResponse => Unit): Unit = {
+    info(s"Forwarding request $request to controller")
+
     val principalSerde = request.context.principalSerde.asScala.getOrElse(
       throw new IllegalArgumentException(s"Cannot deserialize principal from request $request " +
         "since there is no serde defined")
