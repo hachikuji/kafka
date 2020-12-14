@@ -17,13 +17,10 @@
 
 package kafka.server
 
-import java.util.Collections
-
 import kafka.network.RequestChannel
 import kafka.raft.RaftManager
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.Logging
-import org.apache.kafka.common.{Node, TopicPartition}
 import org.apache.kafka.common.acl.AclOperation.{CLUSTER_ACTION, DESCRIBE}
 import org.apache.kafka.common.errors.ApiException
 import org.apache.kafka.common.internals.FatalExitError
@@ -37,6 +34,7 @@ import org.apache.kafka.common.resource.Resource
 import org.apache.kafka.common.resource.Resource.CLUSTER_NAME
 import org.apache.kafka.common.resource.ResourceType.CLUSTER
 import org.apache.kafka.common.utils.{LogContext, Time}
+import org.apache.kafka.common.{Node, TopicPartition}
 import org.apache.kafka.controller.ClusterControlManager.{HeartbeatReply, RegistrationReply}
 import org.apache.kafka.controller.{Controller, LeaderAndIsr}
 import org.apache.kafka.metadata.{FeatureManager, VersionRange}
@@ -109,12 +107,7 @@ class ControllerApis(val requestChannel: RequestChannel,
       apisUtils.sendErrorResponseMaybeThrottle(envelope, error.exception)
     }
 
-    if (!config.metadataQuorumEnabled || !envelope.context.fromPrivilegedListener) {
-      // If the designated forwarding request is not coming from a privileged listener, or
-      // forwarding is not enabled yet, we would not handle the request.
-      requestChannel.closeConnection(envelope, Collections.emptyMap())
-      true
-    } else if (!apisUtils.authorize(envelope.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME)) {
+    if (!apisUtils.authorize(envelope.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME)) {
       // Forwarding request must have CLUSTER_ACTION authorization to reduce the risk of impersonation.
       sendEnvelopeError(Errors.CLUSTER_AUTHORIZATION_FAILED)
       true

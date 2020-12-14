@@ -668,65 +668,27 @@ class PartitionMetadataProcessor(kafkaConfig: KafkaConfig,
         // TODO: ignore offline replicas until we support the JBOD disk failure use case
       )
       val brokerId = kafkaConfig.brokerId
-      if (partition.removingReplicas != null &&partition.removingReplicas.contains(brokerId)) {
-        // TODO: Not sure that this makes sense... a removing replica is still a replica
+      val isLeaderOrFollower = partition.leader == brokerId || partition.replicas.contains(brokerId)
 
-        // add it to the map so that we will stop the replica and delete the log directory later
-        val tp = new TopicPartition(topicName, partitionId)
-        mgr.topicPartitionsNeedingStopReplica(tp) = LeaderAndIsr.EpochDuringDelete
-        // cancel any request to become leader or follower that may have already appeared in this batch
-        mgr.topicPartitionsNeedingLeaderFollowerChanges.remove(tp)
-      } else if (partition.addingReplicas != null && partition.addingReplicas().contains(brokerId)) {
-        // schedule a change to leader or follower as required, being sure to keep any "isNew" status
-        // and remembering all the added and deleted replicas
-        // in case we are seeing this partition multiple times in the same batch
-        val tp = new TopicPartition(topicName, partitionId)
-        val currentStateChangeRequest = mgr.topicPartitionsNeedingLeaderFollowerChanges.get(tp)
-        // default is to be considered a new partition for this broker, so it's new unless it already isn't
+      if (isLeaderOrFollower) {
+        val topicPartition = new TopicPartition(topicName, partitionId)
+        val currentStateChangeRequest = mgr.topicPartitionsNeedingLeaderFollowerChanges.get(topicPartition)
         val isNewPartition = currentStateChangeRequest.isEmpty || currentStateChangeRequest.get.isNew
-        val replicasAlreadyAddedInThisBatch: util.List[Integer] =
-          if (currentStateChangeRequest.isDefined) {
-            currentStateChangeRequest.get.addingReplicas()
-          } else {
-            Collections.emptyList()
-          }
-        val replicasAlreadyRemovedInThisBatch: util.List[Integer] = {
-          if (currentStateChangeRequest.isDefined) {
-            currentStateChangeRequest.get.removingReplicas()
-          } else {
-            Collections.emptyList()
-          }
-        }
-        val allReplicasAddedInThisBatch = if (replicasAlreadyRemovedInThisBatch.isEmpty) {
-          partition.addingReplicas()
-        } else {
-          val retval = new util.ArrayList[Integer](partition.addingReplicas())
-          retval.removeAll(replicasAlreadyRemovedInThisBatch)
-          retval
-        }
-        val allReplicasRemovedInThisBatch =
-          if (replicasAlreadyAddedInThisBatch.isEmpty) {
-            partition.removingReplicas()
-          } else {
-            val retval = new util.ArrayList[Integer](partition.removingReplicas())
-            retval.removeAll(replicasAlreadyAddedInThisBatch)
-            retval
-          }
         val controllerEpoch = replicaManager.controllerEpoch // can't go backwards, so use the current one
-        mgr.topicPartitionsNeedingLeaderFollowerChanges(tp) =
+        mgr.topicPartitionsNeedingLeaderFollowerChanges(topicPartition) =
           new LeaderAndIsrPartitionState()
-            .setAddingReplicas(allReplicasAddedInThisBatch)
+            .setAddingReplicas(Option(partition.addingReplicas).getOrElse(Collections.emptyList[Integer]))
             .setControllerEpoch(controllerEpoch)
             .setIsNew(isNewPartition)
-            .setIsr(partition.isr())
-            .setLeader(partition.leader())
-            .setLeaderEpoch(partition.leaderEpoch())
+            .setIsr(partition.isr)
+            .setLeader(partition.leader)
+            .setLeaderEpoch(partition.leaderEpoch)
             .setPartitionIndex(partitionId)
-            .setRemovingReplicas(allReplicasRemovedInThisBatch)
-            .setReplicas(partition.replicas())
+            .setRemovingReplicas(Option(partition.removingReplicas).getOrElse(Collections.emptyList[Integer]))
+            .setReplicas(partition.replicas)
             .setTopicName(topicName)
         // cancel any request to remove the local replica that may have already appeared in this batch
-        mgr.topicPartitionsNeedingStopReplica.remove(tp)
+        mgr.topicPartitionsNeedingStopReplica.remove(topicPartition)
       }
     }
   }
