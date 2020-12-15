@@ -164,7 +164,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   private def isForwardingEnabled(request: RequestChannel.Request): Boolean = {
-    config.metadataQuorumEnabled && request.context.principalSerde.isPresent
+    (config.processRoles.nonEmpty || config.metadataQuorumEnabled) && request.context.principalSerde.isPresent
   }
 
   private def maybeForward(
@@ -1367,13 +1367,22 @@ class KafkaApis(val requestChannel: RequestChannel,
     trace("Sending topic metadata %s and brokers %s for correlation id %d to client %s".format(completeTopicMetadata.mkString(","),
       brokers.mkString(","), request.header.correlationId, request.header.clientId))
 
+    val controllerId = if (config.processRoles.nonEmpty) {
+      // FIXME: When running in KIP-500 mode, we currently use the local brokerId as the controller
+      //  so that the AdminClient will send controller-bound requests to this broker This is a
+      //  temporary workaround until the AdminClient supports the assumption of forwarding.
+      config.brokerId
+    } else {
+      metadataCache.getControllerId.getOrElse(MetadataResponse.NO_CONTROLLER_ID)
+    }
+
     apisUtils.sendResponseMaybeThrottle(request, requestThrottleMs =>
        MetadataResponse.prepareResponse(
          requestVersion,
          requestThrottleMs,
          brokers.flatMap(_.getNode(request.context.listenerName)).asJava,
          clusterId,
-         config.brokerId,
+         controllerId,
          completeTopicMetadata.asJava,
          clusterAuthorizedOperations
       ))
