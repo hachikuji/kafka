@@ -132,7 +132,7 @@ public class ReplicationControlManager {
             if (topicErrors.containsKey(topic.name())) continue;
             ApiError error = createTopic(topic, records);
             if (error.isFailure()) {
-                topicErrors.put(topic.name(), topicErrors.get(topic.name()));
+                topicErrors.put(topic.name(), error);
             }
         }
 
