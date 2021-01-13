@@ -60,7 +60,7 @@ object KafkaMetricsReporterTest {
 }
 
 class KafkaMetricsReporterTest extends ZooKeeperTestHarness {
-  var server: KafkaServerStartable = null
+  var server: KafkaProcessStartable = null
   var config: KafkaConfig = null
 
   @Before
@@ -71,7 +71,7 @@ class KafkaMetricsReporterTest extends ZooKeeperTestHarness {
     props.setProperty(KafkaConfig.BrokerIdGenerationEnableProp, "true")
     props.setProperty(KafkaConfig.BrokerIdProp, "-1")
     config = KafkaConfig.fromProps(props)
-    server = KafkaServerStartable.fromProps(props, threadNamePrefix = Option(this.getClass.getName))
+    server = KafkaProcessStartable.fromProps(props, threadNamePrefix = Option(this.getClass.getName))
     server.startup()
   }
 

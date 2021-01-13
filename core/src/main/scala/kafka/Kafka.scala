@@ -20,7 +20,7 @@ package kafka
 import java.util.Properties
 
 import joptsimple.OptionParser
-import kafka.server.KafkaServerStartable
+import kafka.server.KafkaProcessStartable
 import kafka.utils.Implicits._
 import kafka.utils.{CommandLineUtils, Exit, Logging}
 import org.apache.kafka.common.utils.{Java, LoggingSignalHandler, OperatingSystem, Utils}
@@ -66,7 +66,7 @@ object Kafka extends Logging {
   def main(args: Array[String]): Unit = {
     try {
       val serverProps = getPropsFromArgs(args)
-      val kafkaServerStartable = KafkaServerStartable.fromProps(serverProps)
+      val kafkaServerStartable = KafkaProcessStartable.fromProps(serverProps)
 
       try {
         if (!OperatingSystem.IS_WINDOWS && !Java.isIbmJdk)
