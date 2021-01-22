@@ -51,8 +51,9 @@ public final class FileRawSnapshotReader implements RawSnapshotReader {
         return Utils.covariantCast(fileRecords.batchIterator());
     }
 
-    public UnalignedRecords read(long position, int size) throws IOException {
-        return UnalignedFileRecords.readableRecords(fileRecords.channel(), position, size);
+    @Override
+    public UnalignedRecords read(long position, int size) {
+        return fileRecords.sliceUnaligned(Math.toIntExact(position), size);
     }
 
     @Override

@@ -34,6 +34,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 
 /**
  * A {@link Records} implementation backed by a file. An optional start and end position can be applied to this
@@ -134,6 +135,31 @@ public class FileRecords extends AbstractRecords implements Closeable {
      * @return A sliced wrapper on this message set limited based on the given position and size
      */
     public FileRecords slice(int position, int size) throws IOException {
+        SliceRange range = sliceRange(position, size);
+        return new FileRecords(file, channel, range.start, range.end, true);
+    }
+
+    public UnalignedFileRecords sliceUnaligned(int position, int size) {
+        SliceRange range = sliceRange(position, size);
+        return new UnalignedFileRecords(channel, range.start, range.size());
+    }
+
+    // TODO: Move this or come up with something nicer
+    private static final class SliceRange {
+        public final int start;
+        public final int end;
+
+        private SliceRange(int start, int end) {
+            this.start = start;
+            this.end = end;
+        }
+
+        int size() {
+            return end - start;
+        }
+    }
+
+    private SliceRange sliceRange(int position, int size) {
         // Cache current size in case concurrent write changes it
         int currentSizeInBytes = sizeInBytes();
 
@@ -144,11 +170,13 @@ public class FileRecords extends AbstractRecords implements Closeable {
         if (size < 0)
             throw new IllegalArgumentException("Invalid size: " + size + " in read from " + this);
 
-        int end = this.start + position + size;
+        int sliceStart = this.start + position;
+        int sliceEnd = sliceStart + size;
         // handle integer overflow or if end is beyond the end of the file
-        if (end < 0 || end > start + currentSizeInBytes)
-            end = start + currentSizeInBytes;
-        return new FileRecords(file, channel, this.start + position, end, true);
+        if (sliceEnd < 0 || sliceEnd > start + currentSizeInBytes)
+            sliceEnd = start + currentSizeInBytes;
+
+        return new SliceRange(sliceStart, sliceEnd);
     }
 
     /**

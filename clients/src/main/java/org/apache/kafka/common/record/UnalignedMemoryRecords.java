@@ -16,6 +16,9 @@
  */
 package org.apache.kafka.common.record;
 
+import org.apache.kafka.common.network.TransferableChannel;
+
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
@@ -26,8 +29,8 @@ public class UnalignedMemoryRecords implements UnalignedRecords {
 
     private final ByteBuffer buffer;
 
-    private UnalignedMemoryRecords(ByteBuffer buffer) {
-        this.buffer = buffer;
+    public UnalignedMemoryRecords(ByteBuffer buffer) {
+        this.buffer = Objects.requireNonNull(buffer);
     }
 
     public ByteBuffer buffer() {
@@ -39,9 +42,20 @@ public class UnalignedMemoryRecords implements UnalignedRecords {
         return buffer.remaining();
     }
 
-    public static UnalignedMemoryRecords readableRecords(ByteBuffer buffer) {
-        Objects.requireNonNull(buffer, "buffer should not be null");
-        return new UnalignedMemoryRecords(buffer);
-    }
+    @Override
+    public long writeTo(TransferableChannel channel, long position, int length) throws IOException {
+        // TODO: Copied from MemoryRecords. Factor to Util?
 
+        if (position > Integer.MAX_VALUE)
+            throw new IllegalArgumentException("position should not be greater than Integer.MAX_VALUE: " + position);
+        if (position + length > buffer.limit())
+            throw new IllegalArgumentException("position+length should not be greater than buffer.limit(), position: "
+                + position + ", length: " + length + ", buffer.limit(): " + buffer.limit());
+
+        int pos = (int) position;
+        ByteBuffer dup = buffer.duplicate();
+        dup.position(pos);
+        dup.limit(pos + length);
+        return channel.write(dup);
+    }
 }

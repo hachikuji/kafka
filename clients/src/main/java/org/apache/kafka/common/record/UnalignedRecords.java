@@ -16,14 +16,33 @@
  */
 package org.apache.kafka.common.record;
 
+import org.apache.kafka.common.network.TransferableChannel;
+
+import java.io.IOException;
+
 /**
  * Represents a record set which is not necessarily offset-aligned, and is
  * only used when fetching raft snapshot
  */
 public interface UnalignedRecords extends BaseRecords {
 
+    long writeTo(TransferableChannel channel, long previouslyWritten, int remaining) throws IOException;
+
     @Override
     default RecordsSend<? extends BaseRecords> toSend() {
-        throw new IllegalStateException("Trying to get RecordsSend from unaligned records");
+        return new UnalignedRecordsSend<>(this, Integer.MAX_VALUE);
     }
+
+    class UnalignedRecordsSend<T extends UnalignedRecords> extends RecordsSend<T> {
+
+        public UnalignedRecordsSend(T records, int maxBytes) {
+            super(records, maxBytes);
+        }
+
+        @Override
+        protected long writeTo(TransferableChannel channel, long previouslyWritten, int remaining) throws IOException {
+            return records().writeTo(channel, previouslyWritten, remaining);
+        }
+    }
+
 }

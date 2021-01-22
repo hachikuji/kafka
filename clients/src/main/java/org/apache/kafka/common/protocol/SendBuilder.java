@@ -142,9 +142,6 @@ public class SendBuilder implements Writable {
         } else if (records instanceof UnalignedMemoryRecords) {
             flushPendingBuffer();
             addBuffer(((UnalignedMemoryRecords) records).buffer());
-        } else if (records instanceof UnalignedFileRecords) {
-            flushPendingSend();
-            addSend(((UnalignedFileRecords) records).toFileChannelSend());
         } else {
             flushPendingSend();
             addSend(records.toSend());
