@@ -63,7 +63,7 @@ public class OffsetFetchResponse extends AbstractResponse {
     private static final List<Errors> PARTITION_ERRORS = Arrays.asList(
         Errors.UNKNOWN_TOPIC_OR_PARTITION, Errors.TOPIC_AUTHORIZATION_FAILED);
 
-    public final OffsetFetchResponseData data;
+    private final OffsetFetchResponseData data;
     private final Errors error;
 
     public static final class PartitionData {

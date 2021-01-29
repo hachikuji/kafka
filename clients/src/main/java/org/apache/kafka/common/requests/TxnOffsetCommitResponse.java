@@ -47,7 +47,7 @@ import java.util.Map;
  */
 public class TxnOffsetCommitResponse extends AbstractResponse {
 
-    public final TxnOffsetCommitResponseData data;
+    private final TxnOffsetCommitResponseData data;
 
     public TxnOffsetCommitResponse(TxnOffsetCommitResponseData data) {
         super(ApiKeys.TXN_OFFSET_COMMIT);

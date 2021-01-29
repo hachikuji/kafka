@@ -16,28 +16,30 @@
  */
 package kafka.raft
 
-import kafka.log.{Log, LogConfig, LogManager}
-import kafka.raft.KafkaRaftManager.RaftIoThread
-import kafka.server.Server.ControllerRole
-import kafka.server.{BrokerTopicStats, KafkaBroker, KafkaConfig, LogDirFailureChannel, MetaProperties}
-import kafka.utils.timer.SystemTimer
-import kafka.utils.{KafkaScheduler, Logging, ShutdownableThread}
-import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient}
-import org.apache.kafka.common.metrics.Metrics
-import org.apache.kafka.common.network.{ChannelBuilders, NetworkReceive, Selectable, Selector}
-import org.apache.kafka.common.protocol.{ApiMessage, ApiMessageAndVersion}
-import org.apache.kafka.common.requests.RequestHeader
-import org.apache.kafka.common.security.JaasContext
-import org.apache.kafka.common.utils.{LogContext, Time}
-import org.apache.kafka.common.{Node, TopicPartition}
-import org.apache.kafka.metalog.{MetaLogListener, MetaLogManager}
-import org.apache.kafka.raft.metadata.{MetaLogRaftShim, MetadataRecordSerde}
-import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, RaftConfig, RaftRequest}
-
 import java.io.File
 import java.nio.file.Files
 import java.util
+import java.util.OptionalInt
 import java.util.concurrent.CompletableFuture
+
+import kafka.log.{Log, LogConfig, LogManager}
+import kafka.raft.KafkaRaftManager.RaftIoThread
+import kafka.server.KafkaRaftServer.ControllerRole
+import kafka.server.{BrokerTopicStats, KafkaConfig, LogDirFailureChannel}
+import kafka.utils.timer.SystemTimer
+import kafka.utils.{KafkaScheduler, Logging, ShutdownableThread}
+import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient}
+import org.apache.kafka.common.{Node, TopicPartition}
+import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.network.{ChannelBuilders, NetworkReceive, Selectable, Selector}
+import org.apache.kafka.common.protocol.ApiMessage
+import org.apache.kafka.common.requests.RequestHeader
+import org.apache.kafka.common.security.JaasContext
+import org.apache.kafka.common.utils.{LogContext, Time}
+import org.apache.kafka.metalog.{MetaLogListener, MetaLogManager}
+import org.apache.kafka.raft.metadata.MetaLogRaftShim
+import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, RaftClient, RaftConfig, RaftRequest, RecordSerde}
+
 import scala.jdk.CollectionConverters._
 
 object KafkaRaftManager {
@@ -68,7 +70,7 @@ object KafkaRaftManager {
     }
 
     override def isRunning: Boolean = {
-      client.isRunning
+      client.isRunning && !isThreadFailed
     }
   }
 
@@ -80,20 +82,32 @@ object KafkaRaftManager {
   }
 }
 
-trait RaftManager {
-  def handleRequest(header: RequestHeader,
-                    data: ApiMessage): CompletableFuture[ApiMessage]
+trait RaftManager[T] {
+  def handleRequest(
+    header: RequestHeader,
+    request: ApiMessage,
+    createdTimeMs: Long
+  ): CompletableFuture[ApiMessage]
+
+  def register(
+    listener: RaftClient.Listener[T]
+  ): Unit
+
+  def scheduleAppend(
+    epoch: Int,
+    records: Seq[T]
+  ): Option[Long]
 }
 
-class KafkaRaftManager(
-  metaProperties: MetaProperties,
-  metadataPartition: TopicPartition,
+class KafkaRaftManager[T](
   config: KafkaConfig,
+  recordSerde: RecordSerde[T],
+  topicPartition: TopicPartition,
   time: Time,
   metrics: Metrics,
   val controllerQuorumVotersFuture: CompletableFuture[util.List[String]],
   shutdownTimeoutMs: Int = 5000
-) extends RaftManager with Logging {
+) extends RaftManager[T] with Logging {
 
   private val raftConfig: RaftConfig = new RaftConfig(config)
   private val nodeId = if (config.processRoles.contains(ControllerRole)) {
@@ -101,9 +115,7 @@ class KafkaRaftManager(
   } else {
     config.brokerId
   }
-  private val idString = buildIdString
-
-  private val logContext = new LogContext(s"[RaftManager $idString] ")
+  private val logContext = new LogContext(s"[RaftManager $nodeId] ")
   this.logIdent = logContext.logPrefix()
 
   private val scheduler = new KafkaScheduler(threads = 1)
@@ -137,12 +149,14 @@ class KafkaRaftManager(
     for (voterAddressEntry <- voterAddresses.entrySet.asScala) {
       netChannel.updateEndpoint(voterAddressEntry.getKey, voterAddressEntry.getValue)
     }
+
     netChannel.start()
     raftIoThread.start()
   }
 
   def shutdown(): Unit = {
     raftIoThread.shutdown()
+    raftClient.close()
     scheduler.shutdown()
     netChannel.close()
     metadataLog.close()
@@ -152,46 +166,60 @@ class KafkaRaftManager(
     metaLogShim.register(listener)
   }
 
+  override def register(
+    listener: RaftClient.Listener[T]
+  ): Unit = {
+    raftClient.register(listener)
+  }
+
+  override def scheduleAppend(
+    epoch: Int,
+    records: Seq[T]
+  ): Option[Long] = {
+    val offset: java.lang.Long = raftClient.scheduleAppend(epoch, records.asJava)
+    if (offset == null) {
+      None
+    } else {
+      Some(Long.unbox(offset))
+    }
+  }
+
   override def handleRequest(
     header: RequestHeader,
-    request: ApiMessage
+    request: ApiMessage,
+    createdTimeMs: Long
   ): CompletableFuture[ApiMessage] = {
-    val inboundRequest = new RaftRequest.Inbound(header.correlationId, request)
+    val inboundRequest = new RaftRequest.Inbound(
+      header.correlationId,
+      request,
+      createdTimeMs
+    )
+
     raftClient.handle(inboundRequest)
+
     inboundRequest.completion.thenApply { response =>
       response.data
     }
   }
 
-  private def buildIdString: String = {
-    val idString = new StringBuilder
-    metaProperties.brokerId.foreach { brokerId =>
-      idString.append(s"broker=$brokerId")
-    }
-    metaProperties.controllerId.foreach { controllerId =>
-      if (idString.nonEmpty) idString.append(",")
-      idString.append(s"controller=$controllerId")
-    }
-    idString.toString
-  }
-
-  private def buildRaftClient(): KafkaRaftClient[ApiMessageAndVersion] = {
-
+  private def buildRaftClient(): KafkaRaftClient[T] = {
     val expirationTimer = new SystemTimer("raft-expiration-executor")
     val expirationService = new TimingWheelExpirationService(expirationTimer)
+    val quorumStateStore = new FileBasedStateStore(new File(dataDir, "quorum-state"))
 
     val client = new KafkaRaftClient(
-      new MetadataRecordSerde,
+      recordSerde,
       netChannel,
       metadataLog,
-      new FileBasedStateStore(new File(dataDir, "quorum-state")),
+      quorumStateStore,
       time,
       metrics,
       expirationService,
       logContext,
-      nodeId,
+      OptionalInt.of(nodeId),
       raftConfig
     )
+
     client.initialize()
     client
   }
@@ -203,13 +231,12 @@ class KafkaRaftManager(
 
   private def createDataDir(): File = {
     val baseLogDir = config.metadataLogDir
-    val logDirName = Log.logDirName(metadataPartition)
+    val logDirName = Log.logDirName(topicPartition)
     KafkaRaftManager.createLogDirectory(new File(baseLogDir), logDirName)
   }
 
   private def buildMetadataLog(): KafkaMetadataLog = {
-
-    val defaultProps = KafkaBroker.copyKafkaConfigToLog(config)
+    val defaultProps = LogConfig.extractLogConfigMap(config)
     LogConfig.validateValues(defaultProps)
     val defaultLogConfig = LogConfig(defaultProps)
 
@@ -225,7 +252,7 @@ class KafkaRaftManager(
       producerIdExpirationCheckIntervalMs = LogManager.ProducerIdExpirationCheckIntervalMs,
       logDirFailureChannel = new LogDirFailureChannel(5)
     )
-    new KafkaMetadataLog(log, metadataPartition)
+    new KafkaMetadataLog(log, topicPartition)
   }
 
   private def buildNetworkClient(): NetworkClient = {
@@ -255,7 +282,7 @@ class KafkaRaftManager(
       logContext
     )
 
-    val clientId = s"$idString-raft-client"
+    val clientId = s"raft-client-$nodeId"
     val maxInflightRequestsPerConnection = 1
     val reconnectBackoffMs = 50
     val reconnectBackoffMsMs = 500

@@ -728,7 +728,8 @@ public class IntegrationTestUtils {
                 return finalAccumData.equals(finalExpected);
 
             };
-            final String conditionDetails = "Did not receive all " + expectedRecords + " records from topic " + topic;
+            final String conditionDetails = "Did not receive all " + expectedRecords + " records from topic " +
+                topic + " (got " + accumData + ")";
             TestUtils.waitForCondition(valuesRead, waitTime, conditionDetails);
         }
         return accumData;
@@ -1161,7 +1162,7 @@ public class IntegrationTestUtils {
     }
 
     private static boolean continueConsuming(final int messagesConsumed, final int maxMessages) {
-        return maxMessages <= 0 || messagesConsumed < maxMessages;
+        return maxMessages > 0 && messagesConsumed < maxMessages;
     }
 
     /**

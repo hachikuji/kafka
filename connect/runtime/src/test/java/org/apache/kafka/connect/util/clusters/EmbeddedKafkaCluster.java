@@ -46,12 +46,11 @@ import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.metadata.BrokerState;
-import org.junit.rules.ExternalResource;
-import org.junit.rules.TemporaryFolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -80,7 +79,7 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZE
  * Setup an embedded Kafka cluster with specified number of brokers and specified broker properties. To be used for
  * integration tests.
  */
-public class EmbeddedKafkaCluster extends ExternalResource {
+public class EmbeddedKafkaCluster {
 
     private static final Logger log = LoggerFactory.getLogger(EmbeddedKafkaCluster.class);
 
@@ -105,16 +104,6 @@ public class EmbeddedKafkaCluster extends ExternalResource {
         this.brokerConfig = brokerConfig;
     }
 
-    @Override
-    protected void before() {
-        start();
-    }
-
-    @Override
-    protected void after() {
-        stop();
-    }
-
     /**
      * Starts the Kafka cluster alone using the ports that were assigned during initialization of
      * the harness.
@@ -125,7 +114,7 @@ public class EmbeddedKafkaCluster extends ExternalResource {
         start(currentBrokerPorts, currentBrokerLogDirs);
     }
 
-    private void start() {
+    public void start() {
         // pick a random port
         zookeeper = new EmbeddedZookeeper();
         Arrays.fill(currentBrokerPorts, 0);
@@ -160,6 +149,11 @@ public class EmbeddedKafkaCluster extends ExternalResource {
         producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers());
         producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
         producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
+        if (sslEnabled()) {
+            producerProps.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, brokerConfig.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
+            producerProps.put(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, brokerConfig.get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG));
+            producerProps.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SSL");
+        }
         producer = new KafkaProducer<>(producerProps);
     }
 
@@ -167,7 +161,7 @@ public class EmbeddedKafkaCluster extends ExternalResource {
         stop(false, false);
     }
 
-    private void stop() {
+    public void stop() {
         stop(true, true);
     }
 
@@ -223,10 +217,8 @@ public class EmbeddedKafkaCluster extends ExternalResource {
     }
 
     private String createLogDir() {
-        TemporaryFolder tmpFolder = new TemporaryFolder();
         try {
-            tmpFolder.create();
-            return tmpFolder.newFolder().getAbsolutePath();
+            return Files.createTempDirectory(getClass().getSimpleName()).toString();
         } catch (IOException e) {
             log.error("Unable to create temporary log directory", e);
             throw new ConnectException("Unable to create temporary log directory", e);
@@ -276,6 +268,11 @@ public class EmbeddedKafkaCluster extends ExternalResource {
             // Broker failed to respond.
             return false;
         }
+    }
+    
+    public boolean sslEnabled() {
+        final String listeners = brokerConfig.getProperty(KafkaConfig$.MODULE$.ListenersProp());
+        return listeners != null && listeners.contains("SSL");
     }
 
     /**
@@ -443,7 +440,11 @@ public class EmbeddedKafkaCluster extends ExternalResource {
         putIfAbsent(props, AUTO_OFFSET_RESET_CONFIG, "earliest");
         putIfAbsent(props, KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer");
         putIfAbsent(props, VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer");
-
+        if (sslEnabled()) {
+            putIfAbsent(props, SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, brokerConfig.get(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG));
+            putIfAbsent(props, SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, brokerConfig.get(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG));
+            putIfAbsent(props, CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SSL");
+        }
         KafkaConsumer<byte[], byte[]> consumer;
         try {
             consumer = new KafkaConsumer<>(props);

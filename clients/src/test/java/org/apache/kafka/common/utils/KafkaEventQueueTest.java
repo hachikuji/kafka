@@ -18,9 +18,8 @@
 package org.apache.kafka.common.utils;
 
 import org.apache.kafka.common.errors.TimeoutException;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.Timeout;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.util.Arrays;
 import java.util.List;
@@ -31,13 +30,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+@Timeout(20)
 public class KafkaEventQueueTest {
-    @Rule
-    final public Timeout globalTimeout = Timeout.seconds(20);
 
     private static class FutureEvent<T> implements EventQueue.Event {
         private final CompletableFuture<T> future;

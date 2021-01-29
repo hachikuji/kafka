@@ -22,7 +22,7 @@ import java.nio.file.{Files, NoSuchFileException}
 import java.util.Properties
 
 import kafka.common.InconsistentBrokerMetadataException
-import kafka.server.Server.{BrokerRole, ControllerRole, ProcessRole}
+import kafka.server.KafkaRaftServer.{BrokerRole, ControllerRole, ProcessRole}
 import kafka.server.RawMetaProperties._
 import kafka.utils._
 import org.apache.kafka.common.Uuid

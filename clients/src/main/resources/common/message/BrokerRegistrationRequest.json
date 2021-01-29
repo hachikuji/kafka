@@ -14,7 +14,7 @@
 // limitations under the License.
 
 {
-  "apiKey": 59,
+  "apiKey": 61,
   "type": "request",
   "name": "BrokerRegistrationRequest",
   "validVersions": "0",

@@ -78,6 +78,7 @@ public class CreateTopicsRequest extends AbstractRequest {
         this.data = data;
     }
 
+    @Override
     public CreateTopicsRequestData data() {
         return data;
     }

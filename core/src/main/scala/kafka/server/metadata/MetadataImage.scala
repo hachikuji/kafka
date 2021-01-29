@@ -99,7 +99,7 @@ case class MetadataImage(partitions: MetadataPartitions,
                          controllerId: Option[Int],
                          brokers: MetadataBrokers) {
   def this() = {
-    this(new MetadataPartitions(Collections.emptyMap(), Collections.emptyMap()),
+    this(MetadataPartitions(Collections.emptyMap(), Collections.emptyMap()),
       None,
       new MetadataBrokers(Collections.emptyList(), new util.HashMap[Integer, MetadataBroker]()))
   }

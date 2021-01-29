@@ -116,7 +116,7 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
             case FETCH:
                 return FetchResponse.parse(responseBuffer, version);
             case LIST_OFFSETS:
-                return ListOffsetResponse.parse(responseBuffer, version);
+                return ListOffsetsResponse.parse(responseBuffer, version);
             case METADATA:
                 return MetadataResponse.parse(responseBuffer, version);
             case OFFSET_COMMIT:
@@ -229,6 +229,10 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return UpdateFeaturesResponse.parse(responseBuffer, version);
             case ENVELOPE:
                 return EnvelopeResponse.parse(responseBuffer, version);
+            case FETCH_SNAPSHOT:
+                return FetchSnapshotResponse.parse(responseBuffer, version);
+            case DESCRIBE_CLUSTER:
+                return DescribeClusterResponse.parse(responseBuffer, version);
             case BROKER_REGISTRATION:
                 return BrokerRegistrationResponse.parse(responseBuffer, version);
             case BROKER_HEARTBEAT:

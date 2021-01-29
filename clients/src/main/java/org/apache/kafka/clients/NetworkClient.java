@@ -23,7 +23,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.DisconnectException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
-import org.apache.kafka.common.message.ApiVersionsResponseData.ApiVersionsResponseKey;
+import org.apache.kafka.common.message.ApiVersionsResponseData.ApiVersion;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.network.ChannelState;
 import org.apache.kafka.common.network.NetworkSend;
@@ -893,10 +893,10 @@ public class NetworkClient implements KafkaClient {
     private void handleApiVersionsResponse(List<ClientResponse> responses,
                                            InFlightRequest req, long now, ApiVersionsResponse apiVersionsResponse) {
         final String node = req.destination;
-        if (apiVersionsResponse.data.errorCode() != Errors.NONE.code()) {
-            if (req.request.version() == 0 || apiVersionsResponse.data.errorCode() != Errors.UNSUPPORTED_VERSION.code()) {
+        if (apiVersionsResponse.data().errorCode() != Errors.NONE.code()) {
+            if (req.request.version() == 0 || apiVersionsResponse.data().errorCode() != Errors.UNSUPPORTED_VERSION.code()) {
                 log.warn("Received error {} from node {} when making an ApiVersionsRequest with correlation id {}. Disconnecting.",
-                        Errors.forCode(apiVersionsResponse.data.errorCode()), node, req.header.correlationId());
+                        Errors.forCode(apiVersionsResponse.data().errorCode()), node, req.header.correlationId());
                 this.selector.close(node);
                 processDisconnection(responses, node, now, ChannelState.LOCAL_CLOSE);
             } else {
@@ -904,8 +904,8 @@ public class NetworkClient implements KafkaClient {
                 // the ApiVersionsRequest when an UNSUPPORTED_VERSION error is returned.
                 // If not provided, the client falls back to version 0.
                 short maxApiVersion = 0;
-                if (apiVersionsResponse.data.apiKeys().size() > 0) {
-                    ApiVersionsResponseKey apiVersion = apiVersionsResponse.data.apiKeys().find(ApiKeys.API_VERSIONS.id);
+                if (apiVersionsResponse.data().apiKeys().size() > 0) {
+                    ApiVersion apiVersion = apiVersionsResponse.data().apiKeys().find(ApiKeys.API_VERSIONS.id);
                     if (apiVersion != null) {
                         maxApiVersion = apiVersion.maxVersion();
                     }
@@ -914,10 +914,12 @@ public class NetworkClient implements KafkaClient {
             }
             return;
         }
-        NodeApiVersions nodeVersionInfo = new NodeApiVersions(apiVersionsResponse.data.apiKeys());
+        NodeApiVersions nodeVersionInfo = new NodeApiVersions(apiVersionsResponse.data().apiKeys());
         apiVersions.update(node, nodeVersionInfo);
         this.connectionStates.ready(node);
-        log.debug("Recorded API versions for node {}: {}", node, nodeVersionInfo);
+        log.debug("Node {} has finalized features epoch: {}, finalized features: {}, supported features: {}, API versions: {}.",
+                node, apiVersionsResponse.data().finalizedFeaturesEpoch(), apiVersionsResponse.data().finalizedFeatures(),
+                apiVersionsResponse.data().supportedFeatures(), nodeVersionInfo);
     }
 
     /**
@@ -1169,7 +1171,7 @@ public class NetworkClient implements KafkaClient {
                 this.requestVersion = requestVersion;
                 this.isPartialUpdate = isPartialUpdate;
             }
-        };
+        }
 
     }
 

@@ -17,17 +17,17 @@
 
 package kafka.admin
 
-import java.util.Properties
-
 import kafka.api.KAFKA_2_7_IV0
 import kafka.server.{BaseRequestTest, KafkaConfig, KafkaServer}
 import kafka.utils.TestUtils
 import kafka.utils.TestUtils.waitUntilTrue
 import org.apache.kafka.common.feature.{Features, SupportedVersionRange}
 import org.apache.kafka.common.utils.Utils
-import org.junit.Assert.{assertEquals, assertTrue}
-import org.junit.Test
-import org.scalatest.Assertions.intercept
+
+import java.util.Properties
+
+import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue, assertThrows}
+import org.junit.jupiter.api.Test
 
 class FeatureCommandTest extends BaseRequestTest {
   override def brokerCount: Int = 3
@@ -218,9 +218,7 @@ class FeatureCommandTest extends BaseRequestTest {
                       Utils.mkEntry("feature_3", new SupportedVersionRange(1, 3))))
       featureApis.setSupportedFeatures(targetFeaturesWithIncompatibilities)
       val output = TestUtils.grabConsoleOutput({
-        val exception = intercept[UpdateFeaturesException] {
-          featureApis.upgradeAllFeatures()
-        }
+        val exception = assertThrows(classOf[UpdateFeaturesException], () => featureApis.upgradeAllFeatures())
         assertEquals("2 feature updates failed!", exception.getMessage)
       })
       val expected =

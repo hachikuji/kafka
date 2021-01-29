@@ -17,21 +17,22 @@
 
 package kafka.server
 
-import kafka.api.{ApiVersion, ApiVersionValidator, KAFKA_0_10_0_IV1, KAFKA_2_1_IV0, KAFKA_2_7_IV0}
+import kafka.api.{ApiVersion, ApiVersionValidator, KAFKA_0_10_0_IV1, KAFKA_2_1_IV0, KAFKA_2_7_IV0, KAFKA_2_8_IV0}
 import kafka.cluster.EndPoint
 import kafka.coordinator.group.OffsetConfig
 import kafka.coordinator.transaction.{TransactionLog, TransactionStateManager}
+import kafka.log.LogConfig
 import kafka.message.{BrokerCompressionCodec, CompressionCodec, ZStdCompressionCodec}
 import kafka.security.authorizer.AuthorizerUtils
-import kafka.server.Server.{BrokerRole, ControllerRole, ProcessRole}
+import kafka.server.KafkaRaftServer.{BrokerRole, ControllerRole, ProcessRole}
 import kafka.utils.CoreUtils
 import kafka.utils.Implicits._
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.Reconfigurable
+import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfigResource, SaslConfigs, SecurityConfig, SslClientAuth, SslConfigs, TopicConfig}
 import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList}
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs
 import org.apache.kafka.common.config.types.Password
-import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, SaslConfigs, SecurityConfig, SslClientAuth, SslConfigs, TopicConfig}
 import org.apache.kafka.common.metrics.Sensor
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.record.{LegacyRecord, Records, TimestampType}
@@ -1024,7 +1025,7 @@ object KafkaConfig {
     new ConfigDef()
 
       /** ********* Zookeeper Configuration ***********/
-      .define(ZkConnectProp, STRING, "", HIGH, ZkConnectDoc)
+      .define(ZkConnectProp, STRING, null, HIGH, ZkConnectDoc)
       .define(ZkSessionTimeoutMsProp, INT, Defaults.ZkSessionTimeoutMs, HIGH, ZkSessionTimeoutMsDoc)
       .define(ZkConnectionTimeoutMsProp, INT, null, HIGH, ZkConnectionTimeoutMsDoc)
       .define(ZkSyncTimeMsProp, INT, Defaults.ZkSyncTimeMs, LOW, ZkSyncTimeMsDoc)
@@ -1354,6 +1355,16 @@ object KafkaConfig {
     // If we can't determine the config entry type, treat it as a sensitive config to be safe
     configType.isEmpty || configType.contains(ConfigDef.Type.PASSWORD)
   }
+
+  def loggableValue(resourceType: ConfigResource.Type, name: String, value: String): String = {
+    val maybeSensitive = resourceType match {
+      case ConfigResource.Type.BROKER => KafkaConfig.maybeSensitive(KafkaConfig.configType(name))
+      case ConfigResource.Type.TOPIC => KafkaConfig.maybeSensitive(LogConfig.configType(name))
+      case ConfigResource.Type.BROKER_LOGGER => false
+      case _ => true
+    }
+    if (maybeSensitive) Password.HIDDEN else value
+  }
 }
 
 class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigOverride: Option[DynamicBrokerConfig])
@@ -1487,6 +1498,26 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val maxReservedBrokerId: Int = getInt(KafkaConfig.MaxReservedBrokerIdProp)
   var brokerId: Int = getInt(KafkaConfig.BrokerIdProp)
   val controllerId: Int = getInt(KafkaConfig.ControllerIdProp)
+  val processRoles = parseProcessRoles()
+
+  def requiresZookeeper: Boolean = processRoles.isEmpty
+
+  private def parseProcessRoles(): Set[ProcessRole] = {
+    val roles = getList(KafkaConfig.ProcessRolesProp).asScala.map {
+      case "broker" => BrokerRole
+      case "controller" => ControllerRole
+      case role => throw new ConfigException(s"Unknown process role '$role'" +
+        " (only 'broker' and 'controller' are allowed roles)")
+    }
+
+    val distinctRoles: Set[ProcessRole] = roles.toSet
+
+    if (distinctRoles.size != roles.size) {
+      throw new ConfigException(s"Duplicate role names found in `${KafkaConfig.ProcessRolesProp}`: $roles")
+    }
+
+    distinctRoles
+  }
 
   def numNetworkThreads = getInt(KafkaConfig.NumNetworkThreadsProp)
   def backgroundThreads = getInt(KafkaConfig.BackgroundThreadsProp)
@@ -1497,19 +1528,10 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   val requestTimeoutMs = getInt(KafkaConfig.RequestTimeoutMsProp)
   val connectionSetupTimeoutMs = getLong(KafkaConfig.ConnectionSetupTimeoutMsProp)
   val connectionSetupTimeoutMaxMs = getLong(KafkaConfig.ConnectionSetupTimeoutMaxMsProp)
-  val processRoles = parseProcessRoles()
   val quorumControlPlaneEnabled = processRoles.nonEmpty
   val initialRegistrationTimeoutMs = getInt(KafkaConfig.InitialBrokerRegistrationTimeoutMs)
   val brokerHeartbeatIntervalMs = getInt(KafkaConfig.BrokerHeartbeatIntervalMsProp)
   val brokerSessionTimeoutMs = getInt(KafkaConfig.BrokerSessionTimeoutMsProp)
-
-  private def parseProcessRoles(): List[ProcessRole] = {
-    getList(KafkaConfig.ProcessRolesProp).asScala.map {
-      case "broker" => BrokerRole
-      case "controller" => ControllerRole
-      case role => throw new ConfigException(s"Unknown process role $role")
-    }.toList
-  }
 
   def metadataLogDir: String = {
     Option(getString(KafkaConfig.MetadataLogDirProp)) match {
@@ -1844,6 +1866,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
     }
   }
 
+  def usesTopicId: Boolean =
+    interBrokerProtocolVersion >= KAFKA_2_8_IV0
+
   validateValues()
 
   private def validateValues(): Unit = {
@@ -1863,7 +1888,7 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
 
     val advertisedListenerNames = advertisedListeners.map(_.listenerName).toSet
     val listenerNames = listeners.map(_.listenerName).toSet
-    if (processRoles.isEmpty || processRoles.contains("broker")) {
+    if (processRoles.isEmpty || processRoles.contains(BrokerRole)) {
       require(advertisedListenerNames.contains(interBrokerListenerName),
         s"${KafkaConfig.InterBrokerListenerNameProp} must be a listener name defined in ${KafkaConfig.AdvertisedListenersProp}. " +
           s"The valid options based on currently configured listeners are ${advertisedListenerNames.map(_.value).mkString(",")}")
@@ -1913,9 +1938,9 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
         s" ${KafkaConfig.ConnectionsMaxIdleMsProp}=$connectionsMaxIdleMs to prevent failed" +
         s" authentication responses from timing out")
 
-    if (processRoles.isEmpty) {
+    if (requiresZookeeper) {
       if (zkConnect == null) {
-        throw new ConfigException("Missing required configuration \"zookeeper.connect\" which has no default value.")
+        throw new ConfigException(s"Missing required configuration '${KafkaConfig.ZkConnectProp}' which has no default value.")
       }
       // validate controller.listener.name config
       if (controlPlaneListenerName.isDefined) {

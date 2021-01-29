@@ -29,17 +29,18 @@ public interface RaftMessageQueue {
      * Block for the arrival of a new message.
      *
      * @param timeoutMs timeout in milliseconds to wait for a new event
-     * @return the event or null if the timeout was reached
+     * @return the event or null if either the timeout was reached or there was
+     *     a call to {@link #wakeup()} before any events became available
      */
     RaftMessage poll(long timeoutMs);
 
     /**
-     * Offer a new message to the queue.
+     * Add a new message to the queue.
      *
      * @param message the message to deliver
      * @throws IllegalStateException if the queue cannot accept the message
      */
-    void offer(RaftMessage message);
+    void add(RaftMessage message);
 
     /**
      * Check whether there are pending messages awaiting delivery.

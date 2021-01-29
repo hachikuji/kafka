@@ -20,47 +20,46 @@ import java.util.concurrent.CompletableFuture
 
 import kafka.metrics.{KafkaMetricsReporter, KafkaYammerMetrics}
 import kafka.raft.KafkaRaftManager
-import kafka.server.Server.{BrokerRole, ControllerRole}
-import kafka.utils.{Logging, Mx4jLoader}
+import kafka.server.KafkaRaftServer.{BrokerRole, ControllerRole}
+import kafka.utils.{CoreUtils, Logging, Mx4jLoader, VerifiableProperties}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter}
 import org.apache.kafka.common.utils.{AppInfoParser, Time}
-import org.apache.kafka.raft.RaftConfig
+import org.apache.kafka.raft.metadata.MetadataRecordSerde
 
-import scala.jdk.CollectionConverters._
-
+/**
+ * This class implements the KIP-500 server which relies on a self-managed
+ * Raft quorum for maintaining cluster metadata. It is responsible for
+ * constructing the controller and/or broker based on the `process.roles`
+ * configuration and for managing their basic lifecycle (startup and shutdown).
+ *
+ * Note that this server is a work in progress and relies on stubbed
+ * implementations of the controller [[ControllerServer]] and broker
+ * [[BrokerServer]].
+ */
 class KafkaRaftServer(
   config: KafkaConfig,
   time: Time,
-  threadNamePrefix: Option[String],
-  kafkaMetricsReporters: Seq[KafkaMetricsReporter]
+  threadNamePrefix: Option[String]
 ) extends Server with Logging {
 
-  private val roles = config.processRoles
-
-  if (roles.distinct.length != roles.size) {
-    throw new ConfigException(s"Duplicate role names found in roles config $roles")
-  }
-
-  if (config.quorumVoters == null || config.quorumVoters.isEmpty) {
-    throw new ConfigException(s"You must specify a value for ${RaftConfig.QUORUM_VOTERS_CONFIG}")
-  }
+  KafkaMetricsReporter.startReporters(VerifiableProperties(config.originals))
+  KafkaYammerMetrics.INSTANCE.configure(config.originals)
 
   private val (metaProps, offlineDirs) = loadMetaProperties()
   private val metrics = configureMetrics(metaProps)
-
-  AppInfoParser.registerAppInfo(KafkaBroker.metricsPrefix,
-    config.controllerId.toString, metrics, time.milliseconds())
-  KafkaBroker.notifyClusterListeners(metaProps.clusterId.toString,
-    kafkaMetricsReporters ++ metrics.reporters.asScala)
-
-  private val metadataPartition = new TopicPartition(Server.metadataTopicName, 0)
   private val controllerQuorumVotersFuture = CompletableFuture.completedFuture(config.quorumVoters)
-  private val raftManager = new KafkaRaftManager(metaProps, metadataPartition, config, time, metrics,
-    controllerQuorumVotersFuture)
 
-  val broker: Option[BrokerServer] = if (roles.contains(BrokerRole)) {
+  private val raftManager = new KafkaRaftManager(
+    config,
+    new MetadataRecordSerde,
+    KafkaRaftServer.MetadataPartition,
+    time,
+    metrics,
+    controllerQuorumVotersFuture
+  )
+
+  private val broker: Option[BrokerServer] = if (config.processRoles.contains(BrokerRole)) {
     Some(new BrokerServer(
       config,
       metaProps,
@@ -76,7 +75,7 @@ class KafkaRaftServer(
     None
   }
 
-  val controller: Option[ControllerServer] = if (roles.contains(ControllerRole)) {
+  private val controller: Option[ControllerServer] = if (config.processRoles.contains(ControllerRole)) {
     Some(new ControllerServer(
       metaProps,
       config,
@@ -85,21 +84,20 @@ class KafkaRaftServer(
       time,
       metrics,
       threadNamePrefix,
-      CompletableFuture.completedFuture(config.quorumVoters)
+      controllerQuorumVotersFuture
     ))
   } else {
     None
   }
 
   private def configureMetrics(metaProps: MetaProperties): Metrics = {
-    KafkaYammerMetrics.INSTANCE.configure(config.originals)
     val jmxReporter = new JmxReporter()
     jmxReporter.configure(config.originals)
 
     val reporters = new java.util.ArrayList[MetricsReporter]
     reporters.add(jmxReporter)
 
-    val metricConfig = KafkaBroker.metricConfig(config)
+    val metricConfig = Server.buildMetricsConfig(config)
     val metricsContext = KafkaBroker.createKafkaMetricsContext(metaProps, config)
 
     new Metrics(metricConfig, reporters, time, true, metricsContext)
@@ -115,24 +113,28 @@ class KafkaRaftServer(
         s"loaded from ${config.metadataLogDir}")
     }
 
-    (MetaProperties.parse(rawMetaProperties, roles.toSet), offlineDirs.toSeq)
+    (MetaProperties.parse(rawMetaProperties, config.processRoles), offlineDirs.toSeq)
   }
 
-  def startup(): Unit = {
+
+  override def startup(): Unit = {
     Mx4jLoader.maybeLoad()
     raftManager.startup()
     controller.foreach(_.startup())
     broker.foreach(_.startup())
+    AppInfoParser.registerAppInfo(Server.MetricsPrefix, config.brokerId.toString, metrics, time.milliseconds())
     info(KafkaBroker.STARTED_MESSAGE)
   }
 
-  def shutdown(): Unit = {
+  override def shutdown(): Unit = {
     broker.foreach(_.shutdown())
     raftManager.shutdown()
     controller.foreach(_.shutdown())
+    CoreUtils.swallow(AppInfoParser.unregisterAppInfo(Server.MetricsPrefix, config.brokerId.toString, metrics), this)
+
   }
 
-  def awaitShutdown(): Unit = {
+  override def awaitShutdown(): Unit = {
     broker.foreach(_.awaitShutdown())
     controller.foreach(_.awaitShutdown())
   }
@@ -142,4 +144,8 @@ class KafkaRaftServer(
 object KafkaRaftServer {
   val MetadataTopic = "@metadata"
   val MetadataPartition = new TopicPartition(MetadataTopic, 0)
+
+  sealed trait ProcessRole
+  case object BrokerRole extends ProcessRole
+  case object ControllerRole extends ProcessRole
 }

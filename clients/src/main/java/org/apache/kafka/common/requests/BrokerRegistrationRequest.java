@@ -19,8 +19,8 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.message.BrokerRegistrationRequestData;
 import org.apache.kafka.common.message.BrokerRegistrationResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
 
@@ -52,11 +52,6 @@ public class BrokerRegistrationRequest extends AbstractRequest {
         this.data = data;
     }
 
-    public BrokerRegistrationRequest(Struct struct, short version) {
-        super(ApiKeys.BROKER_REGISTRATION, version);
-        this.data = new BrokerRegistrationRequestData(struct, version);
-    }
-
     @Override
     public BrokerRegistrationRequestData data() {
         return data;
@@ -71,6 +66,7 @@ public class BrokerRegistrationRequest extends AbstractRequest {
     }
 
     public static BrokerRegistrationRequest parse(ByteBuffer buffer, short version) {
-        return new BrokerRegistrationRequest(ApiKeys.BROKER_REGISTRATION.parseRequest(version, buffer), version);
+        return new BrokerRegistrationRequest(new BrokerRegistrationRequestData(
+            new ByteBufferAccessor(buffer), version), version);
     }
 }

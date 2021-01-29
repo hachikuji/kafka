@@ -16,11 +16,11 @@ package kafka.server
 import org.apache.kafka.common.Uuid
 import java.io.File
 
-import kafka.server.Server.BrokerRole
+import kafka.server.KafkaRaftServer.BrokerRole
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.test.TestUtils
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
 class BrokerMetadataCheckpointTest {
   @Test

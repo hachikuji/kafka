@@ -71,13 +71,6 @@ object KafkaBroker {
     logProps
   }
 
-  private[server] def metricConfig(kafkaConfig: KafkaConfig): MetricConfig = {
-    new MetricConfig()
-      .samples(kafkaConfig.metricNumSamples)
-      .recordLevel(Sensor.RecordingLevel.forName(kafkaConfig.metricRecordingLevel))
-      .timeWindow(kafkaConfig.metricSampleWindowMs, TimeUnit.MILLISECONDS)
-  }
-
   //properties for MetricsContext
   val metricsPrefix: String = "kafka.server"
   private val KAFKA_CLUSTER_ID: String = "kafka.cluster.id"

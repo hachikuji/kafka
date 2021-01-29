@@ -19,8 +19,8 @@ package org.apache.kafka.common.requests;
 import org.apache.kafka.common.message.DecommissionBrokerRequestData;
 import org.apache.kafka.common.message.DecommissionBrokerResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.Errors;
-import org.apache.kafka.common.protocol.types.Struct;
 
 import java.nio.ByteBuffer;
 
@@ -47,11 +47,6 @@ public class DecommissionBrokerRequest extends AbstractRequest {
         this.data = data;
     }
 
-    public DecommissionBrokerRequest(Struct struct, short version) {
-        super(ApiKeys.DECOMMISSION_BROKER, version);
-        this.data = new DecommissionBrokerRequestData(struct, version);
-    }
-
     @Override
     public DecommissionBrokerRequestData data() {
         return data;
@@ -66,6 +61,7 @@ public class DecommissionBrokerRequest extends AbstractRequest {
     }
 
     public static DecommissionBrokerRequest parse(ByteBuffer buffer, short version) {
-        return new DecommissionBrokerRequest(ApiKeys.DECOMMISSION_BROKER.parseRequest(version, buffer), version);
+        return new DecommissionBrokerRequest(new DecommissionBrokerRequestData(
+            new ByteBufferAccessor(buffer), version), version);
     }
 }

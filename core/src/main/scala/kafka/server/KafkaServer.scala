@@ -19,7 +19,6 @@ package kafka.server
 
 import java.io.{File, IOException}
 import java.net.{InetAddress, SocketTimeoutException}
-import java.util
 import java.util.concurrent._
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicReference}
 
@@ -37,9 +36,9 @@ import kafka.server.metadata.ZkConfigRepository
 import kafka.utils._
 import kafka.zk.{AdminZkClient, BrokerInfo, KafkaZkClient}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
-import org.apache.kafka.common.internals.Topic
+import org.apache.kafka.common.internals.{ClusterResourceListeners, Topic}
 import org.apache.kafka.common.message.ControlledShutdownRequestData
-import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter}
+import org.apache.kafka.common.metrics.{Metrics, MetricsReporter}
 import org.apache.kafka.common.network.{ChannelBuilders, ListenerName, NetworkReceive, Selectable, Selector}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledShutdownResponse}
@@ -47,7 +46,7 @@ import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
-import org.apache.kafka.common.{Endpoint, Node}
+import org.apache.kafka.common.{ClusterResource, Endpoint, Node}
 import org.apache.kafka.metadata.BrokerState
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.zookeeper.client.ZKClientConfig
@@ -56,6 +55,7 @@ import scala.collection.{Map, Seq}
 import scala.jdk.CollectionConverters._
 
 object KafkaServer {
+
   def zkClientConfigFromKafkaConfig(config: KafkaConfig, forceZkSslClientEnable: Boolean = false) =
     if (!config.zkSslClientEnable && !forceZkSslClientEnable)
       None
@@ -86,19 +86,18 @@ class KafkaServer(
   val config: KafkaConfig,
   time: Time = Time.SYSTEM,
   threadNamePrefix: Option[String] = None,
-  kafkaMetricsReporters: Seq[KafkaMetricsReporter] = List()
+  enableForwarding: Boolean = false
 ) extends KafkaBroker with Server {
-  import KafkaBroker._
 
   private val startupComplete = new AtomicBoolean(false)
   private val isShuttingDown = new AtomicBoolean(false)
   private val isStartingUp = new AtomicBoolean(false)
 
   private var shutdownLatch = new CountDownLatch(1)
-
-
   private var logContext: LogContext = null
 
+  private val kafkaMetricsReporters: Seq[KafkaMetricsReporter] =
+    KafkaMetricsReporter.startReporters(VerifiableProperties(config.originals))
   var kafkaYammerMetrics: KafkaYammerMetrics = null
   var metrics: Metrics = null
 
@@ -130,9 +129,9 @@ class KafkaServer(
 
   var kafkaController: KafkaController = null
 
-  var forwardingChannelManager: BrokerToControllerChannelManager = null
+  var forwardingManager: Option[ForwardingManager] = None
 
-  var alterIsrChannelManager: BrokerToControllerChannelManager = null
+  var alterIsrManager: AlterIsrManager = null
 
   var kafkaScheduler: KafkaScheduler = null
 
@@ -170,7 +169,7 @@ class KafkaServer(
    * Start up API for bringing up a single instance of the Kafka server.
    * Instantiates the LogManager, the SocketServer and the request handlers - KafkaRequestHandlers
    */
-  def startup(): Unit = {
+  override def startup(): Unit = {
     try {
       info("starting")
 
@@ -223,22 +222,13 @@ class KafkaServer(
         /* create and configure metrics */
         kafkaYammerMetrics = KafkaYammerMetrics.INSTANCE
         kafkaYammerMetrics.configure(config.originals)
-
-        val jmxReporter = new JmxReporter()
-        jmxReporter.configure(config.originals)
-
-        val reporters = new util.ArrayList[MetricsReporter]
-        reporters.add(jmxReporter)
-
-        val metricConfig = KafkaBroker.metricConfig(config)
-        val metricsContext = KafkaBroker.createKafkaMetricsContext(_clusterId, config)
-        metrics = new Metrics(metricConfig, reporters, time, true, metricsContext)
+        metrics = Server.initializeMetrics(config, time, clusterId)
 
         /* register broker metrics */
         _brokerTopicStats = new BrokerTopicStats
 
         quotaManagers = QuotaFactory.instantiate(config, metrics, time, threadNamePrefix.getOrElse(""))
-        notifyClusterListeners(_clusterId, kafkaMetricsReporters ++ metrics.reporters.asScala)
+        notifyClusterListeners(kafkaMetricsReporters ++ metrics.reporters.asScala)
 
         logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
@@ -258,20 +248,30 @@ class KafkaServer(
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
         //
-        // Note that we allow the use of disabled APIs when experimental support for
-        // the internal metadata quorum has been enabled
+        // Note that we allow the use of KIP-500 controller APIs when forwarding is enabled
+        // so that the Envelope request is exposed. This is only used in testing currently.
         socketServer = new SocketServer(config, metrics, time, credentialProvider,
-          allowDisabledApis = true)
+          allowControllerOnlyApis = enableForwarding)
         socketServer.startup(startProcessingRequests = false)
 
         /* start replica manager */
-        val controllerNodeProvider = new MetadataCacheControllerNodeProvider(
-          metadataCache, config.interBrokerListenerName)
-        alterIsrChannelManager = BrokerToControllerChannelManager(controllerNodeProvider,
-          time, metrics, config, 60000, "alterisr", threadNamePrefix)
+        alterIsrManager = if (config.interBrokerProtocolVersion.isAlterIsrSupported) {
+          AlterIsrManager(
+            config = config,
+            metadataCache = metadataCache,
+            scheduler = kafkaScheduler,
+            time = time,
+            metrics = metrics,
+            threadNamePrefix = threadNamePrefix,
+            brokerEpochSupplier = () => kafkaController.brokerEpoch
+          )
+        } else {
+          AlterIsrManager(kafkaScheduler, time, zkClient)
+        }
+        alterIsrManager.start()
+
         replicaManager = createReplicaManager(isShuttingDown)
         replicaManager.startup()
-        alterIsrChannelManager.start()
 
         val brokerInfo = createBrokerInfo
         val brokerEpoch = zkClient.registerBroker(brokerInfo)
@@ -287,13 +287,16 @@ class KafkaServer(
         kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, brokerFeatures, featureCache, threadNamePrefix)
         kafkaController.startup()
 
-        var forwardingManager: ForwardingManager = null
-        /* start forwarding manager */
-        forwardingChannelManager = BrokerToControllerChannelManager(controllerNodeProvider,
-          time, metrics, config, 60000, "forwarding", threadNamePrefix)
-        forwardingChannelManager.start()
-        forwardingManager = new ForwardingManager(forwardingChannelManager, time,
-          config.requestTimeoutMs.longValue(), logContext)
+        if (enableForwarding) {
+          this.forwardingManager = Some(ForwardingManager(
+            config,
+            metadataCache,
+            time,
+            metrics,
+            threadNamePrefix
+          ))
+          forwardingManager.foreach(_.start())
+        }
 
         adminManager = new ZkAdminManager(config, metrics, metadataCache, zkClient)
 
@@ -370,7 +373,7 @@ class KafkaServer(
         shutdownLatch = new CountDownLatch(1)
         startupComplete.set(true)
         isStartingUp.set(false)
-        AppInfoParser.registerAppInfo(metricsPrefix, config.brokerId.toString, metrics, time.milliseconds())
+        AppInfoParser.registerAppInfo(Server.MetricsPrefix, config.brokerId.toString, metrics, time.milliseconds())
         info(KafkaBroker.STARTED_MESSAGE)
       }
     }
@@ -383,12 +386,24 @@ class KafkaServer(
     }
   }
 
+  private[server] def notifyClusterListeners(clusterListeners: Seq[AnyRef]): Unit = {
+    val clusterResourceListeners = new ClusterResourceListeners
+    clusterResourceListeners.maybeAddAll(clusterListeners.asJava)
+    clusterResourceListeners.onUpdate(new ClusterResource(clusterId))
+  }
+
+  private[server] def notifyMetricsReporters(metricsReporters: Seq[AnyRef]): Unit = {
+    val metricsContext = Server.createKafkaMetricsContext(clusterId, config)
+    metricsReporters.foreach {
+      case x: MetricsReporter => x.contextChange(metricsContext)
+      case _ => //do nothing
+    }
+  }
+
   protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {
-    val alterIsrManager = new AlterIsrManagerImpl(alterIsrChannelManager, kafkaScheduler,
-      time, config.brokerId, () => kafkaController.brokerEpoch)
-    new ReplicaManager(config, metrics, time, Some(zkClient), kafkaScheduler, logManager,
-      isShuttingDown, quotaManagers, brokerTopicStats, metadataCache, logDirFailureChannel,
-      alterIsrManager, new ZkConfigRepository(new AdminZkClient(zkClient)), None)
+    new ReplicaManager(config, metrics, time, Some(zkClient), kafkaScheduler, logManager, isShuttingDown, quotaManagers,
+      brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager,
+      new ZkConfigRepository(new AdminZkClient(zkClient)), None)
   }
 
   private def initZkClient(time: Time): Unit = {
@@ -620,7 +635,7 @@ class KafkaServer(
    * Shutdown API for shutting down a single instance of the Kafka server.
    * Shuts down the LogManager, the SocketServer and the log cleaner scheduler thread
    */
-  def shutdown(): Unit = {
+  override def shutdown(): Unit = {
     try {
       info("shutting down")
 
@@ -667,11 +682,11 @@ class KafkaServer(
         if (replicaManager != null)
           CoreUtils.swallow(replicaManager.shutdown(), this)
 
-        if (alterIsrChannelManager != null)
-          CoreUtils.swallow(alterIsrChannelManager.shutdown(), this)
+        if (alterIsrManager != null)
+          CoreUtils.swallow(alterIsrManager.shutdown(), this)
 
-        if (forwardingChannelManager != null)
-          CoreUtils.swallow(forwardingChannelManager.shutdown(), this)
+        if (forwardingManager != null)
+          CoreUtils.swallow(forwardingManager.foreach(_.shutdown()), this)
 
         if (logManager != null)
           CoreUtils.swallow(logManager.shutdown(), this)
@@ -705,7 +720,7 @@ class KafkaServer(
 
         startupComplete.set(false)
         isShuttingDown.set(false)
-        CoreUtils.swallow(AppInfoParser.unregisterAppInfo(metricsPrefix, config.brokerId.toString, metrics), this)
+        CoreUtils.swallow(AppInfoParser.unregisterAppInfo(Server.MetricsPrefix, config.brokerId.toString, metrics), this)
         shutdownLatch.countDown()
         info("shut down completed")
       }
@@ -722,6 +737,8 @@ class KafkaServer(
    * After calling shutdown(), use this API to wait until the shutdown is complete
    */
   override def awaitShutdown(): Unit = shutdownLatch.await()
+
+  def getLogManager: LogManager = logManager
 
   override def boundPort(listenerName: ListenerName): Int = socketServer.boundPort(listenerName)
 

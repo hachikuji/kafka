@@ -18,12 +18,15 @@
 package kafka.server
 
 import org.apache.kafka.common.protocol.Errors
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
 import scala.jdk.CollectionConverters._
 
 class CreateTopicsRequestWithForwardingTest extends AbstractCreateTopicsRequestTest {
+
+  override def enableForwarding: Boolean = true
+
   @Test
   def testForwardToController(): Unit = {
     val req = topicsReq(Seq(topicReq("topic1")))

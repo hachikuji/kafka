@@ -17,7 +17,6 @@
 package org.apache.kafka.raft;
 
 import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.common.Node;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
@@ -29,7 +28,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class RaftConfig {
 
@@ -108,49 +106,6 @@ public class RaftConfig {
         this.appendLingerMs = appendLingerMs;
     }
 
-    public static Map<Integer, InetSocketAddress> parseVoterConnections(List<String> voterEntries) {
-        Map<Integer, InetSocketAddress> voterMap = new HashMap<>();
-        for (String voterMapEntry : voterEntries) {
-            String[] idAndAddress = voterMapEntry.split("@");
-            if (idAndAddress.length != 2) {
-                throw new ConfigException("Invalid configuration value for " + QUORUM_VOTERS_CONFIG
-                    + ". Each entry should be in the form `{id}@{host}:{port}`.");
-            }
-
-            Integer voterId = parseVoterId(idAndAddress[0]);
-            String host = Utils.getHost(idAndAddress[1]);
-            if (host == null) {
-                throw new ConfigException("Failed to parse host name from entry " + voterMapEntry
-                    + " for the configuration " + QUORUM_VOTERS_CONFIG
-                    + ". Each entry should be in the form `{id}@{host}:{port}`.");
-            }
-
-            Integer port = Utils.getPort(idAndAddress[1]);
-            if (port == null) {
-                throw new ConfigException("Failed to parse host port from entry " + voterMapEntry
-                    + " for the configuration " + QUORUM_VOTERS_CONFIG
-                    + ". Each entry should be in the form `{id}@{host}:{port}`.");
-            }
-
-
-            if (voterMap.containsKey(voterId)) {
-                throw new ConfigException("Found duplicate id " + voterId
-                    + " contained in the configuration " + QUORUM_VOTERS_CONFIG + ".");
-            }
-
-            voterMap.put(voterId, new InetSocketAddress(host, port));
-        }
-
-        return voterMap;
-    }
-
-    public static List<Node> quorumVoterStringsToNodes(List<String> voters) {
-        return parseVoterConnections(voters).entrySet().stream()
-            .map(connection -> new Node(connection.getKey(), connection.getValue().getHostName(),
-                connection.getValue().getPort()))
-            .collect(Collectors.toList());
-    }
-
     public int requestTimeoutMs() {
         return requestTimeoutMs;
     }
@@ -189,6 +144,36 @@ public class RaftConfig {
         } catch (NumberFormatException e) {
             throw new ConfigException("Failed to parse voter ID as an integer from " + idString);
         }
+    }
+
+    public static Map<Integer, InetSocketAddress> parseVoterConnections(List<String> voterEntries) {
+        Map<Integer, InetSocketAddress> voterMap = new HashMap<>();
+        for (String voterMapEntry : voterEntries) {
+            String[] idAndAddress = voterMapEntry.split("@");
+            if (idAndAddress.length != 2) {
+                throw new ConfigException("Invalid configuration value for " + QUORUM_VOTERS_CONFIG
+                    + ". Each entry should be in the form `{id}@{host}:{port}`.");
+            }
+
+            Integer voterId = parseVoterId(idAndAddress[0]);
+            String host = Utils.getHost(idAndAddress[1]);
+            if (host == null) {
+                throw new ConfigException("Failed to parse host name from entry " + voterMapEntry
+                    + " for the configuration " + QUORUM_VOTERS_CONFIG
+                    + ". Each entry should be in the form `{id}@{host}:{port}`.");
+            }
+
+            Integer port = Utils.getPort(idAndAddress[1]);
+            if (port == null) {
+                throw new ConfigException("Failed to parse host port from entry " + voterMapEntry
+                    + " for the configuration " + QUORUM_VOTERS_CONFIG
+                    + ". Each entry should be in the form `{id}@{host}:{port}`.");
+            }
+
+            voterMap.put(voterId, new InetSocketAddress(host, port));
+        }
+
+        return voterMap;
     }
 
     public static class ControllerQuorumVotersValidator implements ConfigDef.Validator {

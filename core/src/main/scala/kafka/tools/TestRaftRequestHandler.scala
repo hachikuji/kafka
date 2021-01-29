@@ -18,15 +18,16 @@
 package kafka.tools
 
 import kafka.network.RequestChannel
+import kafka.network.RequestConvertToJson
+import kafka.raft.RaftManager
 import kafka.server.ApiRequestHandler
 import kafka.utils.Logging
 import org.apache.kafka.common.internals.FatalExitError
-import org.apache.kafka.common.message.{BeginQuorumEpochResponseData, EndQuorumEpochResponseData, FetchResponseData, VoteResponseData}
+import org.apache.kafka.common.message.{BeginQuorumEpochResponseData, EndQuorumEpochResponseData, FetchResponseData, FetchSnapshotResponseData, VoteResponseData}
 import org.apache.kafka.common.protocol.{ApiKeys, ApiMessage, Errors}
 import org.apache.kafka.common.record.BaseRecords
-import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, BeginQuorumEpochResponse, EndQuorumEpochResponse, FetchResponse, VoteResponse}
+import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, BeginQuorumEpochResponse, EndQuorumEpochResponse, FetchResponse, FetchSnapshotResponse, VoteResponse}
 import org.apache.kafka.common.utils.Time
-import org.apache.kafka.raft.{KafkaRaftClient, RaftRequest}
 
 import scala.jdk.CollectionConverters._
 
@@ -34,7 +35,7 @@ import scala.jdk.CollectionConverters._
  * Simple request handler implementation for use by [[TestRaftServer]].
  */
 class TestRaftRequestHandler(
-  raftClient: KafkaRaftClient[_],
+  raftManager: RaftManager[_],
   requestChannel: RequestChannel,
   time: Time,
 ) extends ApiRequestHandler with Logging {
@@ -48,7 +49,7 @@ class TestRaftRequestHandler(
         case ApiKeys.BEGIN_QUORUM_EPOCH => handleBeginQuorumEpoch(request)
         case ApiKeys.END_QUORUM_EPOCH => handleEndQuorumEpoch(request)
         case ApiKeys.FETCH => handleFetch(request)
-
+        case ApiKeys.FETCH_SNAPSHOT => handleFetchSnapshot(request)
         case _ => throw new IllegalArgumentException(s"Unsupported api key: ${request.header.apiKey}")
       }
     } catch {
@@ -77,26 +78,30 @@ class TestRaftRequestHandler(
     handle(request, response => new FetchResponse[BaseRecords](response.asInstanceOf[FetchResponseData]))
   }
 
+  private def handleFetchSnapshot(request: RequestChannel.Request): Unit = {
+    handle(request, response => new FetchSnapshotResponse(response.asInstanceOf[FetchSnapshotResponseData]))
+  }
+
   private def handle(
     request: RequestChannel.Request,
     buildResponse: ApiMessage => AbstractResponse
   ): Unit = {
     val requestBody = request.body[AbstractRequest]
-    val inboundRequest = new RaftRequest.Inbound(
-      request.header.correlationId,
-      requestBody.data
+
+    val future = raftManager.handleRequest(
+      request.header,
+      requestBody.data,
+      time.milliseconds()
     )
 
-    inboundRequest.completion.whenComplete((response, exception) => {
+    future.whenComplete((response, exception) => {
       val res = if (exception != null) {
         requestBody.getErrorResponse(exception)
       } else {
-        buildResponse(response.data)
+        buildResponse(response)
       }
       sendResponse(request, Some(res))
     })
-
-    raftClient.handle(inboundRequest)
   }
 
   private def handleError(request: RequestChannel.Request, err: Throwable): Unit = {
@@ -131,7 +136,7 @@ class TestRaftRequestHandler(
       case Some(response) =>
         val responseSend = request.context.buildResponseSend(response)
         val responseString =
-          if (RequestChannel.isRequestLoggingEnabled) Some(response.toString)
+          if (RequestChannel.isRequestLoggingEnabled) Some(RequestConvertToJson.response(response, request.context.apiVersion))
           else None
         new RequestChannel.SendResponse(request, responseSend, responseString, None)
       case None =>

@@ -21,21 +21,21 @@ import java.util
 import java.util.Collections
 import java.util.concurrent.locks.ReentrantLock
 
-import scala.collection.{Seq, Set, mutable}
-import scala.jdk.CollectionConverters._
 import kafka.api._
 import kafka.controller.StateChangeLogger
+import kafka.server.metadata.{MetadataBroker, MetadataImage, MetadataImageBuilder, MetadataPartition}
 import kafka.utils.CoreUtils._
 import kafka.utils.Logging
-import kafka.server.metadata.{MetadataBroker, MetadataImage, MetadataImageBuilder, MetadataPartition}
 import org.apache.kafka.common.internals.Topic
+import org.apache.kafka.common.message.MetadataResponseData.{MetadataResponsePartition, MetadataResponseTopic}
 import org.apache.kafka.common.message.UpdateMetadataRequestData.{UpdateMetadataBroker, UpdateMetadataPartitionState}
-import org.apache.kafka.common.{Cluster, Node, PartitionInfo, TopicPartition}
-import org.apache.kafka.common.message.MetadataResponseData.MetadataResponseTopic
-import org.apache.kafka.common.message.MetadataResponseData.MetadataResponsePartition
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{MetadataResponse, UpdateMetadataRequest}
+import org.apache.kafka.common.{Cluster, Node, PartitionInfo, TopicPartition, Uuid}
+
+import scala.collection.{Seq, Set, mutable}
+import scala.jdk.CollectionConverters._
 
 
 object MetadataCache {
@@ -194,6 +194,7 @@ class MetadataCache(val brokerId: Int) extends Logging {
         new MetadataResponseTopic()
           .setErrorCode(Errors.NONE.code)
           .setName(topic)
+          .setTopicId(Uuid.ZERO_UUID) // FIXME
           .setIsInternal(Topic.isInternal(topic))
           .setPartitions(partitionMetadata.toBuffer.asJava)
       }
@@ -282,7 +283,7 @@ class MetadataCache(val brokerId: Int) extends Logging {
     }
 
     def node(id: Integer): Node = {
-      Some(nodes.get(id)).getOrElse(Node.noNode())
+      Some(nodes.get(id)).getOrElse(new Node(id, "", -1))
     }
 
     val partitionInfos = new util.ArrayList[PartitionInfo]
@@ -292,9 +293,9 @@ class MetadataCache(val brokerId: Int) extends Logging {
       case partition =>
         partitionInfos.add(new PartitionInfo(partition.topicName,
           partition.partitionIndex, node(partition.leaderId),
-          partition.replicas.asScala.map(node(_)).toArray,
-          partition.isr.asScala.map(node(_)).toArray,
-          partition.offlineReplicas.asScala.map(node(_)).toArray))
+          partition.replicas.asScala.map(node).toArray,
+          partition.isr.asScala.map(node).toArray,
+          partition.offlineReplicas.asScala.map(node).toArray))
         if (Topic.isInternal(partition.topicName)) {
           internalTopics.add(partition.topicName)
         }
@@ -372,6 +373,7 @@ class MetadataCache(val brokerId: Int) extends Logging {
           builder.partitionsBuilder().set(newPartition)
           numAdded = numAdded + 1
         }
+
       }
       stateChangeLogger.info(s"Add ${numAdded} partitions and deleted ${numDeleted} " +
         "partitions to the metadata cache in response to UpdateMetadata request sent by " +
@@ -392,4 +394,5 @@ class MetadataCache(val brokerId: Int) extends Logging {
   def setImage(newImage: MetadataImage) = inLock(lock) {
     _currentImage = newImage
   }
+
 }

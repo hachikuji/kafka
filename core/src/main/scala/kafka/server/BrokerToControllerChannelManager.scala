@@ -17,7 +17,8 @@
 
 package kafka.server
 
-import java.util.Collections
+import java.util.concurrent.LinkedBlockingDeque
+import java.util.concurrent.atomic.AtomicReference
 
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
 import kafka.utils.Logging
@@ -28,68 +29,47 @@ import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.AbstractRequest
 import org.apache.kafka.common.security.JaasContext
-import org.apache.kafka.common.utils.{ExponentialBackoff, LogContext, Time}
-import org.apache.kafka.metalog.MetaLogManager
+import org.apache.kafka.common.utils.{LogContext, Time}
 
-import scala.collection.{Seq, mutable}
 import scala.jdk.CollectionConverters._
 
-
-trait ControllerNodeProvider {
-  def controllerNode(): Option[Node]
-}
-
 /**
- * Finds the controller node by looking in the MetadataCache.
- * This provider is used when we are in legacy mode.
+ * This class manages the connection between a broker and the controller. It runs a single
+ * [[BrokerToControllerRequestThread]] which uses the broker's metadata cache as its own metadata to find
+ * and connect to the controller. The channel is async and runs the network connection in the background.
+ * The maximum number of in-flight requests are set to one to ensure orderly response from the controller, therefore
+ * care must be taken to not block on outstanding requests for too long.
  */
-class MetadataCacheControllerNodeProvider(val metadataCache: kafka.server.MetadataCache,
-                                          val listenerName: ListenerName) extends ControllerNodeProvider {
-  override def controllerNode(): Option[Node] = {
-    val image = metadataCache.currentImage()
-    image.controllerId.flatMap {
-      case id => image.brokers.getAlive(id).flatMap {
-        case broker => broker.endpoints.get(listenerName.value())
-      }
-    }
+class BrokerToControllerChannelManager(
+  metadataCache: kafka.server.MetadataCache,
+  time: Time,
+  metrics: Metrics,
+  config: KafkaConfig,
+  channelName: String,
+  threadNamePrefix: Option[String],
+  retryTimeoutMs: Long
+) extends Logging {
+  private val logContext = new LogContext(s"[broker-${config.brokerId}-to-controller] ")
+  private val manualMetadataUpdater = new ManualMetadataUpdater()
+  private val apiVersions = new ApiVersions()
+  private val currentNodeApiVersions = NodeApiVersions.create()
+  private val requestThread = newRequestThread
+
+  def start(): Unit = {
+    requestThread.start()
   }
-}
 
-/**
- * Finds the controller node by checking the metadata log manager.
- * This provider is used when we are in KIP-500 mode.
- */
-class RaftControllerNodeProvider(val metaLogManager: MetaLogManager,
-                                 controllerQuorumVoterNodes: Seq[Node]) extends ControllerNodeProvider with Logging {
-  val idToNode = controllerQuorumVoterNodes.map(node => node.id() -> node).toMap
-
-  override def controllerNode(): Option[Node] = {
-    val leader = metaLogManager.leader()
-    if (leader == null) {
-      None
-    } else if (leader.nodeId() < 0) {
-      None
-    } else {
-      idToNode.get(leader.nodeId())
-    }
+  def shutdown(): Unit = {
+    requestThread.shutdown()
+    requestThread.awaitShutdown()
+    info(s"Broker to controller channel manager for $channelName shutdown")
   }
-}
 
-object BrokerToControllerChannelManager {
-  def apply(controllerNodeProvider: ControllerNodeProvider,
-            time: Time,
-            metrics: Metrics,
-            config: KafkaConfig,
-            maxExponentialBackoff: Long,
-            managerName: String,
-            threadNamePrefix: Option[String]): BrokerToControllerChannelManager = {
-    val logContext = new LogContext(s"[broker-${config.brokerId}-to-controller-$managerName] ")
-    val manualMetadataUpdater = new ManualMetadataUpdater()
+  private[server] def newRequestThread = {
+    val brokerToControllerListenerName = config.controlPlaneListenerName.getOrElse(config.interBrokerListenerName)
+    val brokerToControllerSecurityProtocol = config.controlPlaneSecurityProtocol.getOrElse(config.interBrokerSecurityProtocol)
+
     val networkClient = {
-      val brokerToControllerListenerName =
-        config.controlPlaneListenerName.getOrElse(config.interBrokerListenerName)
-      val brokerToControllerSecurityProtocol =
-        config.controlPlaneSecurityProtocol.getOrElse(config.interBrokerSecurityProtocol)
       val channelBuilder = ChannelBuilders.clientChannelBuilder(
         brokerToControllerSecurityProtocol,
         JaasContext.Type.SERVER,
@@ -105,7 +85,7 @@ object BrokerToControllerChannelManager {
         Selector.NO_IDLE_TIMEOUT_MS,
         metrics,
         time,
-        s"${managerName}BrokerToControllerChannel",
+        channelName,
         Map("BrokerId" -> config.brokerId.toString).asJava,
         false,
         channelBuilder,
@@ -116,8 +96,8 @@ object BrokerToControllerChannelManager {
         manualMetadataUpdater,
         config.brokerId.toString,
         1,
-        10,
-        4000,
+        50,
+        50,
         Selectable.USE_DEFAULT_BUFFER_SIZE,
         Selectable.USE_DEFAULT_BUFFER_SIZE,
         config.requestTimeoutMs,
@@ -125,90 +105,56 @@ object BrokerToControllerChannelManager {
         config.connectionSetupTimeoutMaxMs,
         ClientDnsLookup.USE_ALL_DNS_IPS,
         time,
-        false,
-        new ApiVersions,
+        true,
+        apiVersions,
         logContext
       )
     }
-    new BrokerToControllerChannelManager(networkClient,
-      manualMetadataUpdater,
-      controllerNodeProvider,
-      time,
-      maxExponentialBackoff,
-      config,
-      managerName,
-      threadNamePrefix)
-  }
-}
-
-/**
- * This class manages the connection between a broker and the controller. It runs a single
- * {@link BrokerToControllerRequestThread} which uses the broker's metadata cache as its own metadata to find
- * and connect to the controller. The channel is async and runs the network connection in the background.
- * The maximum number of in-flight requests are set to one to ensure orderly response from the controller, therefore
- * care must be taken to not block on outstanding requests for too long.
- */
-class BrokerToControllerChannelManager(kafkaClient: KafkaClient,
-                                       metadataUpdater: ManualMetadataUpdater,
-                                       controllerNodeProvider: ControllerNodeProvider,
-                                       time: Time,
-                                       maxExponentialBackoff: Long,
-                                       config: KafkaConfig,
-                                       managerName: String,
-                                       threadNamePrefix: Option[String]) extends Logging {
-  private val requestThread = {
     val threadName = threadNamePrefix match {
-      case None => s"broker-${config.brokerId}-to-controller-${managerName}-sender"
-      case Some(name) => s"${name.replace('_', '-').replace(' ', '-')}to-controller-${managerName}-sender"
+      case None => s"broker-${config.brokerId}-to-controller-send-thread"
+      case Some(name) => s"$name:broker-${config.brokerId}-to-controller-send-thread"
     }
-    new BrokerToControllerRequestThread(kafkaClient,
-      metadataUpdater,
-      controllerNodeProvider,
-      time,
-      maxExponentialBackoff,
+
+    new BrokerToControllerRequestThread(
+      networkClient,
+      manualMetadataUpdater,
+      metadataCache,
       config,
-      threadName)
+      brokerToControllerListenerName,
+      time,
+      threadName,
+      retryTimeoutMs
+    )
   }
-
-  def start(): Unit = {
-    requestThread.start()
-  }
-
-  def shutdown(): Unit = {
-    requestThread.shutdown()
-    requestThread.awaitShutdown()
-  }
-
 
   /**
    * Send request to the controller.
    *
    * @param request         The request to be sent.
    * @param callback        Request completion callback.
-   * @param retryDeadlineMs The retry deadline which will only be checked after receiving a response.
-   *                        This means that in the worst case, the total timeout would be twice of
-   *                        the configured timeout.
    */
-  def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
-                  callback: ControllerRequestCompletionHandler,
-                  retryDeadlineMs: Long): Unit = {
-    requestThread.sendRequest(request, callback, retryDeadlineMs)
+  def sendRequest(
+    request: AbstractRequest.Builder[_ <: AbstractRequest],
+    callback: ControllerRequestCompletionHandler
+  ): Unit = {
+    requestThread.enqueue(BrokerToControllerQueueItem(
+      time.milliseconds(),
+      request,
+      callback
+    ))
   }
 
-  def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
-                  callback: RequestCompletionHandler): Unit = {
-    val completionHandler = new ControllerRequestCompletionHandler {
-      override def onTimeout(): Unit = throw new IllegalStateException()
-
-      override def onComplete(response: ClientResponse): Unit = callback.onComplete(response)
-    }
-
-    sendRequest(request, completionHandler, retryDeadlineMs = Long.MaxValue)
-  }
-
+  def controllerApiVersions(): Option[NodeApiVersions] =
+    requestThread.activeControllerAddress().flatMap(
+      activeController => if (activeController.id() == config.brokerId)
+        Some(currentNodeApiVersions)
+      else
+        Option(apiVersions.get(activeController.idString()))
+  )
 }
 
 abstract class ControllerRequestCompletionHandler extends RequestCompletionHandler {
+
   /**
    * Fire when the request transmission time passes the caller defined deadline on the channel queue.
    * It covers the total waiting time including retries which might be the result of individual request timeout.
@@ -217,101 +163,102 @@ abstract class ControllerRequestCompletionHandler extends RequestCompletionHandl
 }
 
 case class BrokerToControllerQueueItem(
+  createdTimeMs: Long,
   request: AbstractRequest.Builder[_ <: AbstractRequest],
-  callback: ControllerRequestCompletionHandler,
-  deadlineMs: Long
+  callback: ControllerRequestCompletionHandler
 )
 
+class BrokerToControllerRequestThread(
+  networkClient: KafkaClient,
+  metadataUpdater: ManualMetadataUpdater,
+  metadataCache: kafka.server.MetadataCache,
+  config: KafkaConfig,
+  listenerName: ListenerName,
+  time: Time,
+  threadName: String,
+  retryTimeoutMs: Long
+) extends InterBrokerSendThread(threadName, networkClient, config.controllerSocketTimeoutMs, time, isInterruptible = false) {
 
-class BrokerToControllerRequestThread(val networkClient: KafkaClient,
-                                      val metadataUpdater: ManualMetadataUpdater,
-                                      val controllerNodeProvider: ControllerNodeProvider,
-                                      val time: Time,
-                                      maxExponentialBackoff: Long,
-                                      config: KafkaConfig,
-                                      threadName: String)
-  extends InterBrokerSendThread(threadName, networkClient, config.controllerSocketTimeoutMs, time, isInterruptible = false) {
+  private val requestQueue = new LinkedBlockingDeque[BrokerToControllerQueueItem]()
+  private val activeController = new AtomicReference[Node](null)
 
-  val sendableRequests = new mutable.ListBuffer[BrokerToControllerQueueItem]()
-
-  def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
-                  callback: ControllerRequestCompletionHandler,
-                  deadlineMs: Long): Unit =
-    sendRequest(BrokerToControllerQueueItem(request, callback, deadlineMs))
-
-  def sendRequest(request: BrokerToControllerQueueItem): Unit = synchronized {
-    sendableRequests += request
-    networkClient.wakeup()
+  def activeControllerAddress(): Option[Node] = {
+    Option(activeController.get())
   }
 
-  private val exponentialBackoff = new ExponentialBackoff(100, 2, maxExponentialBackoff, 0.1)
-  private var waitForControllerRetries = 0L
-  private var curController: Option[Node] = None
+  private def updateControllerAddress(newActiveController: Node): Unit = {
+    activeController.set(newActiveController)
+  }
 
-  def generateRequests(): (Iterable[RequestAndCompletionHandler], Long) = synchronized {
-    if (sendableRequests.isEmpty) {
-      waitForControllerRetries = 0
-      trace(s"there are no sendable requests right now.")
-      (Seq(), Long.MaxValue)
-    } else {
-      val nextController: Option[Node] = controllerNodeProvider.controllerNode()
-      if (nextController.isEmpty) {
-        curController = None
-        val waitMs = exponentialBackoff.backoff(waitForControllerRetries)
-        waitForControllerRetries = waitForControllerRetries + 1
-        debug(s"waiting ${waitMs} to discover the controller node.")
-        (Seq(), waitMs)
+  def enqueue(request: BrokerToControllerQueueItem): Unit = {
+    requestQueue.add(request)
+    if (activeControllerAddress().isDefined) {
+      wakeup()
+    }
+  }
+
+  def queueSize: Int = {
+    requestQueue.size
+  }
+
+  override def generateRequests(): Iterable[RequestAndCompletionHandler] = {
+    val currentTimeMs = time.milliseconds()
+    val requestIter = requestQueue.iterator()
+    while (requestIter.hasNext) {
+      val request = requestIter.next
+      if (currentTimeMs - request.createdTimeMs >= retryTimeoutMs) {
+        requestIter.remove()
+        request.callback.onTimeout()
       } else {
-        waitForControllerRetries = 0
-        if (curController.isEmpty || curController.get != nextController.get) {
-          curController = nextController
-          metadataUpdater.setNodes(Collections.singletonList(curController.get))
-          info(s"Controller node is now ${curController.get}")
+        val controllerAddress = activeControllerAddress()
+        if (controllerAddress.isDefined) {
+          requestIter.remove()
+          return Some(RequestAndCompletionHandler(
+            time.milliseconds(),
+            controllerAddress.get,
+            request.request,
+            handleResponse(request)
+          ))
         }
-        val requestsToSend = sendableRequests.map {
-          request => RequestAndCompletionHandler(curController.get,
-              request.request, handleResponse(curController.get, request))
-        }
-        sendableRequests.clear()
-        if (isDebugEnabled) {
-          debug(s"sending request(s): " +
-            requestsToSend.map(r => r.request).mkString(", ") + ".")
-        }
-        (requestsToSend, Long.MaxValue)
       }
+    }
+    None
+  }
+
+  private[server] def handleResponse(request: BrokerToControllerQueueItem)(response: ClientResponse): Unit = {
+    if (response.wasDisconnected()) {
+      updateControllerAddress(null)
+      requestQueue.putFirst(request)
+    } else if (response.responseBody().errorCounts().containsKey(Errors.NOT_CONTROLLER)) {
+      // just close the controller connection and wait for metadata cache update in doWork
+      activeControllerAddress().foreach { controllerAddress => {
+        networkClient.disconnect(controllerAddress.idString)
+        updateControllerAddress(null)
+      }}
+
+      requestQueue.putFirst(request)
+    } else {
+      request.callback.onComplete(response)
     }
   }
 
   override def doWork(): Unit = {
-    val (requests, backoffMs) = generateRequests()
-    requests.foreach(super.sendRequest)
-    super.poll(backoffMs)
-  }
-
-  private def maybeRetryRequest(
-    request: BrokerToControllerQueueItem,
-  ): Unit = {
-    if (time.milliseconds() > request.deadlineMs) {
-      request.callback.onTimeout()
+    if (activeControllerAddress().isDefined) {
+      super.pollOnce(Long.MaxValue)
     } else {
-      sendRequest(request)
-    }
-  }
-
-  private[server] def handleResponse(controller: Node, request: BrokerToControllerQueueItem)(response: ClientResponse): Unit = {
-    if (response.authenticationException() != null || response.versionMismatch() != null) {
-      request.callback.onComplete(response)
-    } else if (response.wasDisconnected()) {
-      debug(s"Unable to send control request to node ${controller.id()}: disconnected.")
-      maybeRetryRequest(request)
-    } else if (response.responseBody().errorCounts().containsKey(Errors.NOT_CONTROLLER)) {
-      debug(s"Unable to send control request to node ${controller.id()}: received NOT_CONTROLLER response.")
-      // Disconnect the current connection.  This will trigger exponential backoff behavior so that
-      // we don't sit in a tight loop and try to send messages to the ex-controller.
-      networkClient.close(controller.idString())
-      maybeRetryRequest(request)
-    } else {
-      request.callback.onComplete(response)
+      debug("Controller isn't cached, looking for local metadata changes")
+      val controllerOpt = metadataCache.getControllerId.flatMap(metadataCache.getAliveBroker)
+      controllerOpt match {
+        case Some(controller) =>
+          info(s"Recorded new controller, from now on will use broker $controller")
+          val controllerNode = controller.node(listenerName)
+          updateControllerAddress(controllerNode)
+          metadataUpdater.setNodes(Seq(controllerNode).asJava)
+        case None =>
+          // need to backoff to avoid tight loops
+          debug("No controller defined in metadata cache, retrying after backoff")
+          super.pollOnce(maxTimeoutMs = 100)
+      }
     }
   }
 }
