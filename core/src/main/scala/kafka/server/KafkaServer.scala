@@ -154,7 +154,7 @@ class KafkaServer(
 
   val featureCache: FinalizedFeatureCache = new FinalizedFeatureCache(brokerFeatures)
 
-  def clusterId(): String = _clusterId
+  override def clusterId: String = _clusterId
 
   // Visible for testing
   private[kafka] def zkClient = _zkClient
@@ -222,7 +222,7 @@ class KafkaServer(
         /* create and configure metrics */
         kafkaYammerMetrics = KafkaYammerMetrics.INSTANCE
         kafkaYammerMetrics.configure(config.originals)
-        metrics = Server.initializeMetrics(config, time, clusterId)
+        metrics = Server.initializeMetrics(config, time, _clusterId)
 
         /* register broker metrics */
         _brokerTopicStats = new BrokerTopicStats
@@ -254,11 +254,14 @@ class KafkaServer(
           allowControllerOnlyApis = enableForwarding)
         socketServer.startup(startProcessingRequests = false)
 
+        val controllerNodeProvider = new MetadataCacheControllerNodeProvider(
+          metadataCache, config.interBrokerListenerName)
+
         /* start replica manager */
         alterIsrManager = if (config.interBrokerProtocolVersion.isAlterIsrSupported) {
           AlterIsrManager(
             config = config,
-            metadataCache = metadataCache,
+            controllerNodeProvider = controllerNodeProvider,
             scheduler = kafkaScheduler,
             time = time,
             metrics = metrics,
@@ -289,8 +292,8 @@ class KafkaServer(
 
         if (enableForwarding) {
           this.forwardingManager = Some(ForwardingManager(
+            controllerNodeProvider,
             config,
-            metadataCache,
             time,
             metrics,
             threadNamePrefix
@@ -389,11 +392,11 @@ class KafkaServer(
   private[server] def notifyClusterListeners(clusterListeners: Seq[AnyRef]): Unit = {
     val clusterResourceListeners = new ClusterResourceListeners
     clusterResourceListeners.maybeAddAll(clusterListeners.asJava)
-    clusterResourceListeners.onUpdate(new ClusterResource(clusterId))
+    clusterResourceListeners.onUpdate(new ClusterResource(_clusterId))
   }
 
   private[server] def notifyMetricsReporters(metricsReporters: Seq[AnyRef]): Unit = {
-    val metricsContext = Server.createKafkaMetricsContext(clusterId, config)
+    val metricsContext = Server.createKafkaMetricsContext(_clusterId, config)
     metricsReporters.foreach {
       case x: MetricsReporter => x.contextChange(metricsContext)
       case _ => //do nothing

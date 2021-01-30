@@ -30,10 +30,11 @@ import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.raft.RaftConfig
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
-
 import java.net.InetSocketAddress
 import java.util
 import java.util.Properties
+
+import org.junit.jupiter.api.function.Executable
 
 class KafkaConfigTest {
 
@@ -980,8 +981,9 @@ class KafkaConfigTest {
     values.foreach((value) => {
       val props = validRequiredProps
       props.setProperty(name, value.toString)
-      assertThrows(classOf[Exception], () => KafkaConfig.fromProps(props),
-        s"error handling property $name")
+      val fromProps: Executable = () => KafkaConfig.fromProps(props)
+
+      assertThrows(classOf[Exception], fromProps, s"error handling property $name")
     })
   }
 

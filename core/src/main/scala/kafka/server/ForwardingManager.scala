@@ -25,7 +25,7 @@ import org.apache.kafka.clients.{ClientResponse, NodeApiVersions}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{AbstractRequest, AbstractResponse, EnvelopeRequest, EnvelopeResponse, RequestHeader}
-import org.apache.kafka.common.utils.{LogContext, Time}
+import org.apache.kafka.common.utils.Time
 
 import scala.compat.java8.OptionConverters._
 import scala.concurrent.TimeoutException
@@ -46,14 +46,14 @@ trait ForwardingManager {
 object ForwardingManager {
 
   def apply(
+    controllerNodeProvider: ControllerNodeProvider,
     config: KafkaConfig,
-    metadataCache: MetadataCache,
     time: Time,
     metrics: Metrics,
     threadNamePrefix: Option[String]
   ): ForwardingManager = {
     val channelManager = new BrokerToControllerChannelManager(
-      metadataCache = metadataCache,
+      controllerNodeProvider,
       time = time,
       metrics = metrics,
       config = config,
@@ -66,7 +66,7 @@ object ForwardingManager {
 }
 
 class ForwardingManagerImpl(
-  channelManager: BrokerToControllerChannelManager
+  val channelManager: BrokerToControllerChannelManager
 ) extends ForwardingManager with Logging {
 
   override def start(): Unit = {

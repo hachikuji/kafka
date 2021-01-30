@@ -20,12 +20,9 @@ package kafka.server
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 
-import kafka.cluster.{Broker, EndPoint}
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.{ClientResponse, ManualMetadataUpdater, Metadata, MockClient}
 import org.apache.kafka.common.Node
-import org.apache.kafka.common.feature.Features
-import org.apache.kafka.common.feature.Features.emptySupportedFeatures
 import org.apache.kafka.common.message.MetadataRequestData
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.Errors
@@ -44,13 +41,13 @@ class BrokerToControllerRequestThreadTest {
     val config = new KafkaConfig(TestUtils.createBrokerConfig(1, "localhost:2181"))
     val metadata = mock(classOf[Metadata])
     val mockClient = new MockClient(time, metadata)
-    val metadataCache = mock(classOf[MetadataCache])
+    val controllerNodeProvider = mock(classOf[ControllerNodeProvider])
     val listenerName = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT)
 
-    when(metadataCache.getControllerId).thenReturn(None)
+    when(controllerNodeProvider.controllerNode()).thenReturn(None)
 
     val retryTimeoutMs = 30000
-    val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(), metadataCache,
+    val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(), controllerNodeProvider,
       config, listenerName, time, "", retryTimeoutMs)
 
     val completionHandler = new TestRequestCompletionHandler(None)
@@ -80,17 +77,14 @@ class BrokerToControllerRequestThreadTest {
     val metadata = mock(classOf[Metadata])
     val mockClient = new MockClient(time, metadata)
 
-    val metadataCache = mock(classOf[MetadataCache])
+    val controllerNodeProvider = mock(classOf[ControllerNodeProvider])
     val listenerName = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT)
-    val activeController = new Broker(controllerId,
-      Seq(new EndPoint("host", 1234, listenerName, SecurityProtocol.PLAINTEXT)), None, emptySupportedFeatures)
+    val activeController = new Node(controllerId, "host", 1234)
 
-    when(metadataCache.getControllerId).thenReturn(Some(controllerId))
-    when(metadataCache.getAliveBrokers).thenReturn(Seq(activeController))
-    when(metadataCache.getAliveBroker(controllerId)).thenReturn(Some(activeController))
+    when(controllerNodeProvider.controllerNode()).thenReturn(Some(activeController))
 
     val expectedResponse = RequestTestUtils.metadataUpdateWith(2, Collections.singletonMap("a", 2))
-    val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(), metadataCache,
+    val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(), controllerNodeProvider,
       config, listenerName, time, "", retryTimeoutMs = Long.MaxValue)
     mockClient.prepareResponse(expectedResponse)
 
@@ -124,22 +118,16 @@ class BrokerToControllerRequestThreadTest {
     val metadata = mock(classOf[Metadata])
     val mockClient = new MockClient(time, metadata)
 
-    val metadataCache = mock(classOf[MetadataCache])
+    val controllerNodeProvider = mock(classOf[ControllerNodeProvider])
     val listenerName = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT)
-    val oldController = new Broker(oldControllerId,
-      Seq(new EndPoint("host1", 1234, listenerName, SecurityProtocol.PLAINTEXT)), None, Features.emptySupportedFeatures)
-    val oldControllerNode = oldController.node(listenerName)
-    val newController = new Broker(newControllerId,
-      Seq(new EndPoint("host2", 1234, listenerName, SecurityProtocol.PLAINTEXT)), None, Features.emptySupportedFeatures)
+    val oldController = new Node(oldControllerId, "host1", 1234)
+    val newController = new Node(newControllerId, "host2", 1234)
 
-    when(metadataCache.getControllerId).thenReturn(Some(oldControllerId), Some(newControllerId))
-    when(metadataCache.getAliveBroker(oldControllerId)).thenReturn(Some(oldController))
-    when(metadataCache.getAliveBroker(newControllerId)).thenReturn(Some(newController))
-    when(metadataCache.getAliveBrokers).thenReturn(Seq(oldController, newController))
+    when(controllerNodeProvider.controllerNode()).thenReturn(Some(oldController), Some(newController))
 
     val expectedResponse = RequestTestUtils.metadataUpdateWith(3, Collections.singletonMap("a", 2))
     val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(),
-      metadataCache, config, listenerName, time, "", retryTimeoutMs = Long.MaxValue)
+      controllerNodeProvider, config, listenerName, time, "", retryTimeoutMs = Long.MaxValue)
 
     val completionHandler = new TestRequestCompletionHandler(Some(expectedResponse))
     val queueItem = BrokerToControllerQueueItem(
@@ -155,7 +143,7 @@ class BrokerToControllerRequestThreadTest {
     assertFalse(completionHandler.completed.get())
 
     // disconnect the node
-    mockClient.setUnreachable(oldControllerNode, time.milliseconds() + 5000)
+    mockClient.setUnreachable(oldController, time.milliseconds() + 5000)
     // verify that the client closed the connection to the faulty controller
     testRequestThread.doWork()
     // should connect to the new controller
@@ -176,24 +164,19 @@ class BrokerToControllerRequestThreadTest {
     val metadata = mock(classOf[Metadata])
     val mockClient = new MockClient(time, metadata)
 
-    val metadataCache = mock(classOf[MetadataCache])
+    val controllerNodeProvider = mock(classOf[ControllerNodeProvider])
     val listenerName = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT)
     val port = 1234
-    val oldController = new Broker(oldControllerId,
-      Seq(new EndPoint("host1", port, listenerName, SecurityProtocol.PLAINTEXT)), None, Features.emptySupportedFeatures)
-    val newController = new Broker(2,
-      Seq(new EndPoint("host2", port, listenerName, SecurityProtocol.PLAINTEXT)), None, Features.emptySupportedFeatures)
+    val oldController = new Node(oldControllerId, "host1", port)
+    val newController = new Node(newControllerId, "host2", port)
 
-    when(metadataCache.getControllerId).thenReturn(Some(oldControllerId), Some(newControllerId))
-    when(metadataCache.getAliveBrokers).thenReturn(Seq(oldController, newController))
-    when(metadataCache.getAliveBroker(oldControllerId)).thenReturn(Some(oldController))
-    when(metadataCache.getAliveBroker(newControllerId)).thenReturn(Some(newController))
+    when(controllerNodeProvider.controllerNode()).thenReturn(Some(oldController), Some(newController))
 
     val responseWithNotControllerError = RequestTestUtils.metadataUpdateWith("cluster1", 2,
       Collections.singletonMap("a", Errors.NOT_CONTROLLER),
       Collections.singletonMap("a", 2))
     val expectedResponse = RequestTestUtils.metadataUpdateWith(3, Collections.singletonMap("a", 2))
-    val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(), metadataCache,
+    val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(), controllerNodeProvider,
       config, listenerName, time, "", retryTimeoutMs = Long.MaxValue)
 
     val completionHandler = new TestRequestCompletionHandler(Some(expectedResponse))
@@ -238,20 +221,17 @@ class BrokerToControllerRequestThreadTest {
     val metadata = mock(classOf[Metadata])
     val mockClient = new MockClient(time, metadata)
 
-    val metadataCache = mock(classOf[MetadataCache])
+    val controllerNodeProvider = mock(classOf[ControllerNodeProvider])
     val listenerName = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT)
-    val controller = new Broker(controllerId,
-      Seq(new EndPoint("host1", 1234, listenerName, SecurityProtocol.PLAINTEXT)), None, Features.emptySupportedFeatures)
+    val controller = new Node(controllerId, "host1", 1234)
 
-    when(metadataCache.getControllerId).thenReturn(Some(controllerId))
-    when(metadataCache.getAliveBrokers).thenReturn(Seq(controller))
-    when(metadataCache.getAliveBroker(controllerId)).thenReturn(Some(controller))
+    when(controllerNodeProvider.controllerNode()).thenReturn(Some(controller))
 
     val retryTimeoutMs = 30000
     val responseWithNotControllerError = RequestTestUtils.metadataUpdateWith("cluster1", 2,
       Collections.singletonMap("a", Errors.NOT_CONTROLLER),
       Collections.singletonMap("a", 2))
-    val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(), metadataCache,
+    val testRequestThread = new BrokerToControllerRequestThread(mockClient, new ManualMetadataUpdater(), controllerNodeProvider,
       config, listenerName, time, "", retryTimeoutMs)
 
     val completionHandler = new TestRequestCompletionHandler()

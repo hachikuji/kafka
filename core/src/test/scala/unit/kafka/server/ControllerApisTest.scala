@@ -21,7 +21,7 @@ import java.net.InetAddress
 import java.util.Properties
 
 import kafka.network.RequestChannel
-import kafka.raft.RaftManager
+import kafka.raft.MetaRaftManager
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.server.{ClientQuotaManager, ClientRequestQuotaManager, ControllerApis, ControllerMutationQuotaManager, KafkaConfig, MetaProperties, ReplicationQuotaManager}
 import kafka.utils.MockTime
@@ -37,8 +37,8 @@ import org.apache.kafka.controller.Controller
 import org.apache.kafka.metadata.VersionRange
 import org.apache.kafka.server.authorizer.{AuthorizableRequestContext, AuthorizationResult, Authorizer}
 import org.easymock.{Capture, EasyMock, IAnswer}
-import org.junit.{After, Test}
-import org.scalatest.Matchers.intercept
+import org.junit.jupiter.api.Assertions._
+import org.junit.jupiter.api.{AfterEach, Test}
 
 class ControllerApisTest {
   // Mocks
@@ -52,7 +52,7 @@ class ControllerApisTest {
   private val clientRequestQuotaManager: ClientRequestQuotaManager = EasyMock.createNiceMock(classOf[ClientRequestQuotaManager])
   private val clientControllerQuotaManager: ControllerMutationQuotaManager = EasyMock.createNiceMock(classOf[ControllerMutationQuotaManager])
   private val replicaQuotaManager: ReplicationQuotaManager = EasyMock.createNiceMock(classOf[ReplicationQuotaManager])
-  private val raftManager: RaftManager = EasyMock.createNiceMock(classOf[RaftManager])
+  private val raftManager: MetaRaftManager = EasyMock.createNiceMock(classOf[MetaRaftManager])
   private val quotas = QuotaManagers(
     clientQuotaManager,
     clientQuotaManager,
@@ -128,13 +128,13 @@ class ControllerApisTest {
     )
     EasyMock.replay(requestChannel, authorizer.get)
 
-    val assertion = intercept[ClusterAuthorizationException] {
+    val assertion = assertThrows(classOf[ClusterAuthorizationException], () => {
       createControllerApis(authorizer = authorizer).handleBrokerRegistration(request)
-    }
+    })
     assert(Errors.forException(assertion) == Errors.CLUSTER_AUTHORIZATION_FAILED)
   }
 
-  @After
+  @AfterEach
   def tearDown(): Unit = {
     quotas.shutdown()
   }

@@ -18,26 +18,25 @@
 package kafka.server
 
 import java.util
-import java.util.concurrent._
 
 import com.yammer.metrics.{core => yammer}
 import kafka.controller.KafkaController
-import kafka.log.{LogConfig, LogManager}
+import kafka.log.LogManager
 import kafka.metrics.{KafkaMetricsGroup, KafkaYammerMetrics, LinuxIoMetricsCollector}
 import kafka.network.SocketServer
 import kafka.utils.{KafkaScheduler, Logging}
 import kafka.zk.BrokerInfo
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.common.internals.ClusterResourceListeners
-import org.apache.kafka.common.metrics.{KafkaMetricsContext, MetricConfig, Metrics, MetricsReporter, Sensor}
 import org.apache.kafka.common.ClusterResource
+import org.apache.kafka.common.internals.ClusterResourceListeners
+import org.apache.kafka.common.metrics.{KafkaMetricsContext, Metrics, MetricsReporter}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.metadata.BrokerState
 import org.apache.kafka.server.authorizer.Authorizer
 
-import scala.jdk.CollectionConverters._
 import scala.collection.Seq
+import scala.jdk.CollectionConverters._
 
 object KafkaBroker {
   //properties for MetricsContext
@@ -117,7 +116,7 @@ trait KafkaBroker extends Logging with KafkaMetricsGroup {
   def boundPort(listenerName: ListenerName): Int
   def metrics(): Metrics
   def currentState(): BrokerState
-  def clusterId(): String
+  def clusterId: String
 
   // methods required for legacy/kip500-agnostic dynamic configuration
   def config: KafkaConfig
@@ -133,7 +132,7 @@ trait KafkaBroker extends Logging with KafkaMetricsGroup {
   def createBrokerInfo: BrokerInfo = throw new UnsupportedOperationException("Unsupported in KIP-500 mode") // must override in legacy broker
 
   newKafkaServerGauge("BrokerState", () => currentState().value())
-  newKafkaServerGauge("ClusterId", () => clusterId())
+  newKafkaServerGauge("ClusterId", () => clusterId)
   newKafkaServerGauge("yammer-metrics-count", () =>  KafkaYammerMetrics.defaultRegistry.allMetrics.size)
 
   val linuxIoMetricsCollector = new LinuxIoMetricsCollector("/proc", Time.SYSTEM, logger.underlying)

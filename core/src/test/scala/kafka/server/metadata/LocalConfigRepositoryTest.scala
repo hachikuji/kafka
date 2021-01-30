@@ -19,14 +19,11 @@ package kafka.server.metadata
 
 import java.util.Properties
 
-import org.junit.Assert.assertEquals
-import org.junit.{Rule, Test}
-import org.junit.rules.Timeout
+import org.junit.jupiter.api.{Test, Timeout}
+import org.junit.jupiter.api.Assertions._
 
-
+@Timeout(120000)
 class LocalConfigRepositoryTest {
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   @Test
   def testEmptyRepository(): Unit = {

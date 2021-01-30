@@ -52,6 +52,12 @@ case class MetadataBroker(id: Int,
       case Some(node) => new BrokerEndPoint(node.id(), node.host(), node.port())
     }
   }
+
+  def node(listenerName: ListenerName): Option[Node] = {
+    endpoints.get(listenerName.value).map { endpoint =>
+      new Node(id, endpoint.host, endpoint.port, rack)
+    }
+  }
 }
 
 class MetadataBrokersBuilder(log: Logger, prevBrokers: MetadataBrokers) {

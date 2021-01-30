@@ -27,13 +27,11 @@ import kafka.server.{KafkaConfig, MetaProperties}
 import kafka.utils.TestUtils
 import org.apache.kafka.common.Uuid
 import org.apache.kafka.common.utils.Utils
-import org.junit.Assert.assertEquals
-import org.junit.rules.Timeout
-import org.junit.{Assert, Rule, Test}
+import org.junit.jupiter.api.{Test, Timeout}
+import org.junit.jupiter.api.Assertions._
 
+@Timeout(120000)
 class StorageToolTest {
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   private def newKip500Properties(): Properties = {
     val properties = new Properties()
@@ -196,7 +194,7 @@ Found problem:
   def testFormatWithInvalidClusterId(): Unit = {
     val config = new KafkaConfig(newKip500Properties())
     assertEquals("Cluster ID string invalid does not appear to be a valid UUID: " +
-      "null", Assert.assertThrows(classOf[TerseFailure],
+      "null", assertThrows(classOf[TerseFailure],
         () => StorageTool.buildMetadataProperties("invalid", config)).getMessage)
   }
 }

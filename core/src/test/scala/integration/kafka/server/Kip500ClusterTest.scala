@@ -17,21 +17,21 @@
 
 package kafka.server
 
+import java.util
+import java.util.Collections
+import java.util.concurrent.TimeUnit
+
 import kafka.testkit.{KafkaClusterTestKit, TestKitNodes}
 import kafka.utils.TestUtils
 import org.apache.kafka.clients.admin.{Admin, NewTopic}
 import org.apache.kafka.metadata.BrokerState
-import org.junit.rules.Timeout
-import org.junit.{Assert, Rule, Test}
+import org.junit.jupiter.api.{Test, Timeout}
+import org.junit.jupiter.api.Assertions._
 
-import java.util
-import java.util.Collections
-import java.util.concurrent.TimeUnit
 import scala.compat.java8.OptionConverters
 
+@Timeout(120000)
 class Kip500ClusterTest {
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   @Test
   def testCreateClusterAndClose(): Unit = {
@@ -62,7 +62,7 @@ class Kip500ClusterTest {
       "RaftManager was not initialized.")
       val admin = Admin.create(cluster.clientProperties())
       try {
-        Assert.assertEquals(cluster.nodes().clusterId().toString,
+        assertEquals(cluster.nodes().clusterId().toString,
           admin.describeCluster().clusterId().get())
       } finally {
         admin.close()
@@ -98,7 +98,7 @@ class Kip500ClusterTest {
           val result = listTopicsResult.names().get(5, TimeUnit.SECONDS).size() == newTopic.size()
           if (result) {
             newTopic forEach(topic => {
-              Assert.assertTrue(listTopicsResult.names().get().contains(topic.name()))
+              assertTrue(listTopicsResult.names().get().contains(topic.name()))
             })
           }
           result
@@ -140,7 +140,7 @@ class Kip500ClusterTest {
           val result = listTopicsResult.names().get(5, TimeUnit.SECONDS).size() == newTopic.size()
           if (result) {
             newTopic forEach(topic => {
-              Assert.assertTrue(listTopicsResult.names().get().contains(topic.name()))
+              assertTrue(listTopicsResult.names().get().contains(topic.name()))
             })
           }
           result
@@ -182,7 +182,7 @@ class Kip500ClusterTest {
           val result = listTopicsResult.names().get(5, TimeUnit.SECONDS).size() == newTopic.size()
           if (result) {
             newTopic forEach(topic => {
-              Assert.assertTrue(listTopicsResult.names().get().contains(topic.name()))
+              assertTrue(listTopicsResult.names().get().contains(topic.name()))
             })
           }
           result

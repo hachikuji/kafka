@@ -17,14 +17,14 @@
 
 package kafka.server
 
-import java.util.concurrent.{CompletableFuture, TimeUnit}
 import java.util
 import java.util.concurrent.locks.ReentrantLock
+import java.util.concurrent.{CompletableFuture, TimeUnit}
 
 import kafka.log.LogConfig
 import kafka.metrics.{KafkaMetricsGroup, KafkaYammerMetrics, LinuxIoMetricsCollector}
 import kafka.network.SocketServer
-import kafka.raft.RaftManager
+import kafka.raft.MetaRaftManager
 import kafka.security.CredentialProvider
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.{CoreUtils, Logging}
@@ -49,7 +49,7 @@ class ControllerServer(
   val metaProperties: MetaProperties,
   val config: KafkaConfig,
   val metaLogManager: MetaLogManager,
-  val raftManager: RaftManager,
+  val raftManager: MetaRaftManager,
   val time: Time,
   val metrics: Metrics,
   val threadNamePrefix: Option[String],
@@ -133,7 +133,7 @@ class ControllerServer(
         credentialProvider,
         Some(config.controllerId),
         Some(new LogContext(s"[SocketServer controllerId=${config.controllerId}] ")),
-        allowDisabledApis = true)
+        allowControllerOnlyApis = true)
       socketServer.startup(false, None, config.controllerListeners)
       socketServerFirstBoundPortFuture.complete(socketServer.boundPort(
         config.controllerListeners.head.listenerName))

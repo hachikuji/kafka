@@ -1123,9 +1123,22 @@ class KafkaApis(val requestChannel: RequestChannel,
         topics.add(new CreatableTopic().setName(topic).setNumPartitions(numPartitions).setReplicationFactor(replicationFactor.toShort).setConfigs(configs))
         // send the request and block waiting for it to complete
         val topicCreateFuture = new CompletableFuture[ClientResponse]()
-        forwardingManager.channelManager.sendRequest(
-          new CreateTopicsRequest.Builder(new CreateTopicsRequestData().setTopics(topics)),
-          (clientResponse: ClientResponse) => {topicCreateFuture.complete(clientResponse)})
+
+        val createRequest = new CreateTopicsRequest.Builder(new CreateTopicsRequestData().setTopics(topics))
+        val completionHandler = new ControllerRequestCompletionHandler {
+          override def onTimeout(): Unit = {
+            topicCreateFuture.completeExceptionally(new TimeoutException(
+              "CreateTopic request sent to controller timed out before completion"))
+          }
+
+          override def onComplete(response: ClientResponse): Unit = {
+            topicCreateFuture.complete(response)
+          }
+        }
+
+        forwardingManager.get.asInstanceOf[ForwardingManagerImpl].channelManager.sendRequest(
+          createRequest, completionHandler)
+
         val clientResponse = topicCreateFuture.get()
         val createTopicResponse = clientResponse.responseBody().asInstanceOf[CreateTopicsResponse]
         val topicResult = createTopicResponse.data().topics().find(topic)
@@ -3328,7 +3341,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         .setControllerId(controllerId)
         .setClusterAuthorizedOperations(clusterAuthorizedOperations);
 
-      brokers.flatMap(_.getNode(request.context.listenerName)).foreach { broker =>
+      brokers.flatMap(_.node(request.context.listenerName)).foreach { broker =>
         data.brokers.add(new DescribeClusterResponseData.DescribeClusterBroker()
           .setBrokerId(broker.id)
           .setHost(broker.host)
@@ -3360,7 +3373,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       requestHelper.sendErrorResponseMaybeThrottle(request, new ClusterAuthorizationException(
         s"Principal ${request.context.principal} does not have required CLUSTER_ACTION for envelope"))
       return
-    } else if (!controller.isActive) {
+    } else if (!legacyController.isActive) {
       requestHelper.sendErrorResponseMaybeThrottle(request, new NotControllerException(
         s"Broker $brokerId is not the active controller"))
       return

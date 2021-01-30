@@ -21,18 +21,15 @@ import java.util
 import java.util.Collections
 
 import org.apache.kafka.common.Uuid
-import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
-import org.junit.{Rule, Test}
-import org.junit.rules.Timeout
+import org.junit.jupiter.api.{Test, Timeout}
+import org.junit.jupiter.api.Assertions._
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
-
+@Timeout(120000)
 class MetadataPartitionsTest {
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   val log = LoggerFactory.getLogger(classOf[MetadataPartitionsTest])
 

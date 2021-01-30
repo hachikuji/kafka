@@ -18,15 +18,13 @@ package kafka.server
 
 import kafka.testkit.{KafkaClusterTestKit, TestKitNodes}
 import org.apache.kafka.clients.admin.Admin
-import org.junit.rules.Timeout
-import org.junit.{Rule, Test}
-
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 
+import org.junit.jupiter.api.{Test, Timeout}
+
+@Timeout(120000)
 class ControllerServerTest {
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   @Test
   def testCreateControllerAndClose(): Unit = {

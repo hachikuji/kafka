@@ -20,7 +20,7 @@ package kafka.server
 import java.util
 
 import kafka.network.RequestChannel
-import kafka.raft.RaftManager
+import kafka.raft.MetaRaftManager
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.Logging
 import org.apache.kafka.clients.admin.AlterConfigOp
@@ -28,7 +28,7 @@ import org.apache.kafka.common.acl.AclOperation.{ALTER, ALTER_CONFIGS, CLUSTER_A
 import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.errors.ApiException
 import org.apache.kafka.common.internals.FatalExitError
-import org.apache.kafka.common.message.ApiVersionsResponseData.{ApiVersionsResponseKey, FinalizedFeatureKey, SupportedFeatureKey}
+import org.apache.kafka.common.message.ApiVersionsResponseData.{FinalizedFeatureKey, SupportedFeatureKey}
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopicCollection
 import org.apache.kafka.common.message.CreateTopicsResponseData.CreatableTopicResult
 import org.apache.kafka.common.message.MetadataResponseData.MetadataResponseBroker
@@ -60,7 +60,7 @@ class ControllerApis(val requestChannel: RequestChannel,
                      val time: Time,
                      val supportedFeatures: Map[String, VersionRange],
                      val controller: Controller,
-                     val raftManager: RaftManager,
+                     val raftManager: MetaRaftManager,
                      val config: KafkaConfig,
                      val metaProperties: MetaProperties,
                      val controllerNodes: Seq[Node]) extends ApiRequestHandler with Logging {
@@ -272,10 +272,10 @@ class ControllerApis(val requestChannel: RequestChannel,
           case (k, v) => data.finalizedFeatures().add(new FinalizedFeatureKey().
             setName(k).setMaxVersionLevel(v.max()).setMinVersionLevel(v.min()))
         }
-        ApiKeys.enabledApis().asScala.foreach {
+        ApiKeys.brokerApis().asScala.foreach {
           key =>
             if (supportedApiKeys.contains(key)) {
-              data.apiKeys().add(new ApiVersionsResponseKey().
+              data.apiKeys().add(new ApiVersionsResponseData.ApiVersion().
                 setApiKey(key.id).
                 setMaxVersion(key.latestVersion()).
                 setMinVersion(key.oldestVersion()))
@@ -400,7 +400,7 @@ class ControllerApis(val requestChannel: RequestChannel,
   private def handleRaftRequest(request: RequestChannel.Request,
                                 buildResponse: ApiMessage => AbstractResponse): Unit = {
     val requestBody = request.body[AbstractRequest]
-    val future = raftManager.handleRequest(request.header, requestBody.data)
+    val future = raftManager.handleRequest(request.header, requestBody.data, time.milliseconds())
 
     future.whenComplete((responseData, exception) => {
       val response = if (exception != null) {

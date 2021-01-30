@@ -79,8 +79,6 @@ class BrokerServer(
   var status: ProcessStatus = SHUTDOWN
 
   var dataPlaneRequestProcessor: KafkaApis = null
-  var controlPlaneRequestProcessor: KafkaApis = null
-
   var authorizer: Option[Authorizer] = None
   var socketServer: SocketServer = null
   var dataPlaneRequestHandlerPool: KafkaRequestHandlerPool = null
@@ -100,9 +98,9 @@ class BrokerServer(
 
   var transactionCoordinator: TransactionCoordinator = null
 
-  var forwardingChannelManager: BrokerToControllerChannelManager = null
+  var forwardingManager: ForwardingManager = null
 
-  var alterIsrChannelManager: BrokerToControllerChannelManager = null
+  var alterIsrManager: AlterIsrManager = null
 
   var kafkaScheduler: KafkaScheduler = null
 
@@ -177,30 +175,32 @@ class BrokerServer(
       // Delay starting processors until the end of the initialization sequence to ensure
       // that credentials have been loaded before processing authentications.
       socketServer = new SocketServer(config, metrics, time, credentialProvider, Some(config.brokerId),
-        Some(new LogContext(s"[SocketServer brokerId=${config.brokerId}] ")), allowDisabledApis = true)
+        Some(new LogContext(s"[SocketServer brokerId=${config.brokerId}] ")),
+        allowControllerOnlyApis = false)
       socketServer.startup(startProcessingRequests = false)
 
+      /* start broker-to-controller channel managers */
+      val controllerNodes = RaftConfig.quorumVoterStringsToNodes(controllerQuorumVotersFuture.get()).asScala
+      val controllerNodeProvider = new RaftControllerNodeProvider(metaLogManager, controllerNodes.toList)
+
+      alterIsrManager = AlterIsrManager(config, controllerNodeProvider, kafkaScheduler,
+        time, metrics, threadNamePrefix, () => lifecycleManager.brokerEpoch())
+
       // Create replica manager.
-      val alterIsrManager = new AlterIsrManagerImpl(alterIsrChannelManager, kafkaScheduler,
-        time, config.brokerId, () => lifecycleManager.brokerEpoch())
       // explicitly declare to eliminate spotbugs error in Scala 2.12
       this.replicaManager = new ReplicaManager(config, metrics, time, None,
         kafkaScheduler, logManager, isShuttingDown, quotaManagers,
         brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager,
         configRepository, threadNamePrefix)
 
-      /* start broker-to-controller channel managers */
-      val controllerNodes =
-        RaftConfig.quorumVoterStringsToNodes(controllerQuorumVotersFuture.get()).asScala
-      val controllerNodeProvider = new RaftControllerNodeProvider(metaLogManager, controllerNodes)
-      alterIsrChannelManager = BrokerToControllerChannelManager(controllerNodeProvider,
-        time, metrics, config, 60000,"alterisr", threadNamePrefix)
-      alterIsrChannelManager.start()
-      forwardingChannelManager = BrokerToControllerChannelManager(controllerNodeProvider,
-        time, metrics, config, 60000, "forwarding", threadNamePrefix)
-      forwardingChannelManager.start()
-      val forwardingManager = new ForwardingManager(forwardingChannelManager, time,
-        config.requestTimeoutMs.longValue, logContext)
+      forwardingManager = ForwardingManager(
+        controllerNodeProvider,
+        config,
+        time,
+        metrics,
+        threadNamePrefix
+      )
+      forwardingManager.start()
 
       /* start token manager */
       if (config.tokenAuthEnabled) {
@@ -243,8 +243,9 @@ class BrokerServer(
           setSecurityProtocol(ep.securityProtocol.id))
       }
       lifecycleManager.start(() => brokerMetadataListener.highestMetadataOffset(),
-        BrokerToControllerChannelManager(controllerNodeProvider, time, metrics, config,
-          config.brokerSessionTimeoutMs.toLong, "heartbeat", threadNamePrefix),
+        new BrokerToControllerChannelManager(controllerNodeProvider, time, metrics, config,
+          channelName = "heartbeat", threadNamePrefix = threadNamePrefix,
+          retryTimeoutMs = config.brokerSessionTimeoutMs.toLong),
         metaProps.clusterId, networkListeners, supportedFeatures)
 
       // Register a listener with the Raft layer to receive metadata event notifications
@@ -291,21 +292,11 @@ class BrokerServer(
       // and started all services that we previously delayed starting.
       dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel,
         replicaManager, null, groupCoordinator, transactionCoordinator,
-        null, forwardingManager, null, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
+        null, Some(forwardingManager), null, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
         fetchManager, brokerTopicStats, clusterId, time, tokenManager, brokerFeatures, featureCache, configRepository)
 
       dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
         config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix)
-
-      socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
-        controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel,
-          replicaManager, null, groupCoordinator, transactionCoordinator,
-          null, forwardingManager, null, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
-          fetchManager, brokerTopicStats, clusterId, time, tokenManager, brokerFeatures, featureCache, configRepository)
-
-        controlPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.controlPlaneRequestChannelOpt.get, controlPlaneRequestProcessor, time,
-          1, s"${SocketServer.ControlPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.ControlPlaneThreadPrefix)
-      }
 
       // Block until we've caught up on the metadata log
       lifecycleManager.initialCatchUpFuture.get()
@@ -384,8 +375,6 @@ class BrokerServer(
 
       if (dataPlaneRequestProcessor != null)
         CoreUtils.swallow(dataPlaneRequestProcessor.close(), this)
-      if (controlPlaneRequestProcessor != null)
-        CoreUtils.swallow(controlPlaneRequestProcessor.close(), this)
       CoreUtils.swallow(authorizer.foreach(_.close()), this)
 
       if (brokerMetadataListener !=  null) {
@@ -402,11 +391,11 @@ class BrokerServer(
       if (replicaManager != null)
         CoreUtils.swallow(replicaManager.shutdown(), this)
 
-      if (alterIsrChannelManager != null)
-        CoreUtils.swallow(alterIsrChannelManager.shutdown(), this)
+      if (alterIsrManager != null)
+        CoreUtils.swallow(alterIsrManager.shutdown(), this)
 
-      if (forwardingChannelManager != null)
-        CoreUtils.swallow(forwardingChannelManager.shutdown(), this)
+      if (forwardingManager != null)
+        CoreUtils.swallow(forwardingManager.shutdown(), this)
 
       if (logManager != null)
         CoreUtils.swallow(logManager.shutdown(), this)

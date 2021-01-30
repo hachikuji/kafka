@@ -24,20 +24,19 @@ import java.util.concurrent.CompletableFuture
 
 import kafka.log.{Log, LogConfig, LogManager}
 import kafka.raft.KafkaRaftManager.RaftIoThread
-import kafka.server.KafkaRaftServer.ControllerRole
-import kafka.server.{BrokerTopicStats, KafkaConfig, LogDirFailureChannel}
+import kafka.server.{BrokerTopicStats, KafkaConfig, KafkaRaftServer, LogDirFailureChannel}
 import kafka.utils.timer.SystemTimer
 import kafka.utils.{KafkaScheduler, Logging, ShutdownableThread}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient}
 import org.apache.kafka.common.{Node, TopicPartition}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.{ChannelBuilders, NetworkReceive, Selectable, Selector}
-import org.apache.kafka.common.protocol.ApiMessage
+import org.apache.kafka.common.protocol.{ApiMessage, ApiMessageAndVersion}
 import org.apache.kafka.common.requests.RequestHeader
 import org.apache.kafka.common.security.JaasContext
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.metalog.{MetaLogListener, MetaLogManager}
-import org.apache.kafka.raft.metadata.MetaLogRaftShim
+import org.apache.kafka.raft.metadata.{MetaLogRaftShim, MetadataRecordSerde}
 import org.apache.kafka.raft.{FileBasedStateStore, KafkaRaftClient, RaftClient, RaftConfig, RaftRequest, RecordSerde}
 
 import scala.jdk.CollectionConverters._
@@ -99,7 +98,34 @@ trait RaftManager[T] {
   ): Option[Long]
 }
 
+class MetaRaftManager(
+  nodeId: OptionalInt,
+  config: KafkaConfig,
+  time: Time,
+  metrics: Metrics,
+  controllerQuorumVotersFuture: CompletableFuture[util.List[String]],
+  shutdownTimeoutMs: Int = 5000
+) extends KafkaRaftManager[ApiMessageAndVersion](
+  nodeId,
+  config,
+  new MetadataRecordSerde,
+  KafkaRaftServer.MetadataPartition,
+  time,
+  metrics,
+  controllerQuorumVotersFuture,
+  shutdownTimeoutMs
+) {
+  private val metaLogShim = new MetaLogRaftShim(raftClient, nodeId)
+
+  def metaLogManager: MetaLogManager = metaLogShim
+
+  def register(listener: MetaLogListener): Unit = {
+    metaLogShim.register(listener)
+  }
+}
+
 class KafkaRaftManager[T](
+  val nodeId: OptionalInt,
   config: KafkaConfig,
   recordSerde: RecordSerde[T],
   topicPartition: TopicPartition,
@@ -110,11 +136,6 @@ class KafkaRaftManager[T](
 ) extends RaftManager[T] with Logging {
 
   private val raftConfig: RaftConfig = new RaftConfig(config)
-  private val nodeId = if (config.processRoles.contains(ControllerRole)) {
-    config.controllerId
-  } else {
-    config.brokerId
-  }
   private val logContext = new LogContext(s"[RaftManager $nodeId] ")
   this.logIdent = logContext.logPrefix()
 
@@ -124,9 +145,8 @@ class KafkaRaftManager[T](
   private val dataDir = createDataDir()
   private val metadataLog = buildMetadataLog()
   private val netChannel = buildNetworkChannel()
-  private val raftClient = buildRaftClient()
+  protected val raftClient: KafkaRaftClient[T] = buildRaftClient()
   private val raftIoThread = new RaftIoThread(raftClient, shutdownTimeoutMs)
-  private val metaLogShim = new MetaLogRaftShim(raftClient, nodeId)
 
   def currentLeader: Option[Node] = {
     val leaderAndEpoch = raftClient.leaderAndEpoch()
@@ -139,13 +159,11 @@ class KafkaRaftManager[T](
     }
   }
 
-  def metaLogManager: MetaLogManager = metaLogShim
-
   def startup(): Unit = {
     // Wait for the controller quorum voters string to be set
     val voterAddresses = RaftConfig.parseVoterConnections(controllerQuorumVotersFuture.get())
 
-    // Update RaftClient voter channel endpoints
+    // Update voter channel endpoints
     for (voterAddressEntry <- voterAddresses.entrySet.asScala) {
       netChannel.updateEndpoint(voterAddressEntry.getKey, voterAddressEntry.getValue)
     }
@@ -160,10 +178,6 @@ class KafkaRaftManager[T](
     scheduler.shutdown()
     netChannel.close()
     metadataLog.close()
-  }
-
-  def register(listener: MetaLogListener): Unit = {
-    metaLogShim.register(listener)
   }
 
   override def register(
@@ -216,7 +230,7 @@ class KafkaRaftManager[T](
       metrics,
       expirationService,
       logContext,
-      OptionalInt.of(nodeId),
+      nodeId,
       raftConfig
     )
 

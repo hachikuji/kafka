@@ -20,13 +20,11 @@ package kafka.tools
 import java.io.{ByteArrayOutputStream, PrintStream}
 
 import org.apache.kafka.clients.admin.MockAdminClient
-import org.junit.Assert.assertEquals
-import org.junit.rules.Timeout
-import org.junit.{Rule, Test}
+import org.junit.jupiter.api.{Test, Timeout}
+import org.junit.jupiter.api.Assertions._
 
+@Timeout(120000)
 class ClusterToolTest {
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   @Test
   def testPrintClusterId(): Unit = {

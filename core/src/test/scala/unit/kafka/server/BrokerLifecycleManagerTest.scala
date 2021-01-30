@@ -17,25 +17,24 @@
 
 package kafka.server
 
-import java.util.{Collections, Properties}
 import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
+import java.util.{Collections, Properties}
 
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.clients.{ManualMetadataUpdater, Metadata, MockClient}
-import org.apache.kafka.common.{Node, Uuid}
 import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.message.BrokerRegistrationRequestData.{Listener, ListenerCollection}
 import org.apache.kafka.common.message.{BrokerHeartbeatResponseData, BrokerRegistrationResponseData}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{BrokerHeartbeatResponse, BrokerRegistrationResponse}
 import org.apache.kafka.common.utils.LogContext
+import org.apache.kafka.common.{Node, Uuid}
 import org.apache.kafka.metadata.BrokerState
-import org.junit.rules.Timeout
-import org.junit.{Assert, Rule, Test}
+import org.junit.jupiter.api.{Test, Timeout}
+import org.junit.jupiter.api.Assertions._
 
+@Timeout(120000)
 class BrokerLifecycleManagerTest {
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   def configProperties = {
     val properties = new Properties()
@@ -61,7 +60,7 @@ class BrokerLifecycleManagerTest {
     val metadataUpdater = new ManualMetadataUpdater()
     val controllerNodeProvider = new SimpleControllerNodeProvider()
     val channelManager = new BrokerToControllerChannelManager(mockClient,
-      metadataUpdater, controllerNodeProvider, time, 60000, config, "channelManager", None)
+      controllerNodeProvider, time, 60000, config, "channelManager", None)
     val clusterId = Uuid.fromString("x4AJGXQSRnephtTZzujw4w")
     val advertisedListeners = new ListenerCollection()
     config.advertisedListeners.foreach { ep =>
@@ -83,15 +82,15 @@ class BrokerLifecycleManagerTest {
   def testCreateStartAndClose(): Unit = {
     val context = new BrokerLifecycleManagerTestContext(configProperties)
     val manager = new BrokerLifecycleManager(context.config, context.time, None)
-    Assert.assertEquals(BrokerState.NOT_RUNNING, manager.state())
+    assertEquals(BrokerState.NOT_RUNNING, manager.state())
     manager.start(() => context.highestMetadataOffset.get(),
       context.channelManager, context.clusterId, context.advertisedListeners,
       Collections.emptyMap())
     TestUtils.retry(60000) {
-      Assert.assertEquals(BrokerState.STARTING, manager.state())
+      assertEquals(BrokerState.STARTING, manager.state())
     }
     manager.close()
-    Assert.assertEquals(BrokerState.SHUTTING_DOWN, manager.state())
+    assertEquals(BrokerState.SHUTTING_DOWN, manager.state())
   }
 
   @Test
@@ -107,7 +106,7 @@ class BrokerLifecycleManagerTest {
       Collections.emptyMap())
     TestUtils.retry(10000) {
       context.mockClient.wakeup()
-      Assert.assertEquals(1000L, manager.brokerEpoch())
+      assertEquals(1000L, manager.brokerEpoch())
     }
     manager.close()
   }
@@ -124,14 +123,14 @@ class BrokerLifecycleManagerTest {
           setErrorCode(Errors.DUPLICATE_BROKER_REGISTRATION.code())), controllerNode)
     }
     newDuplicateRegistrationResponse()
-    Assert.assertEquals(1, context.mockClient.futureResponses().size)
+    assertEquals(1, context.mockClient.futureResponses().size)
     manager.start(() => context.highestMetadataOffset.get(),
       context.channelManager, context.clusterId, context.advertisedListeners,
       Collections.emptyMap())
     // We should send the first registration request and get a failure immediately
     TestUtils.retry(60000) {
       context.mockClient.wakeup()
-      Assert.assertEquals(0, context.mockClient.futureResponses().size)
+      assertEquals(0, context.mockClient.futureResponses().size)
     }
     // Verify that we resend the registration request.
     newDuplicateRegistrationResponse()
@@ -139,16 +138,16 @@ class BrokerLifecycleManagerTest {
       context.time.sleep(100)
       context.mockClient.wakeup()
       manager.eventQueue.wakeup()
-      Assert.assertEquals(0, context.mockClient.futureResponses().size)
+      assertEquals(0, context.mockClient.futureResponses().size)
     }
     // Verify that we time out eventually.
     context.time.sleep(300000)
     TestUtils.retry(60000) {
       context.mockClient.wakeup()
       manager.eventQueue.wakeup()
-      Assert.assertEquals(BrokerState.SHUTTING_DOWN, manager.state())
-      Assert.assertTrue(manager.initialCatchUpFuture.isCompletedExceptionally())
-      Assert.assertEquals(-1L, manager.brokerEpoch())
+      assertEquals(BrokerState.SHUTTING_DOWN, manager.state())
+      assertTrue(manager.initialCatchUpFuture.isCompletedExceptionally())
+      assertEquals(-1L, manager.brokerEpoch())
     }
     manager.close()
   }
@@ -168,26 +167,26 @@ class BrokerLifecycleManagerTest {
       Collections.emptyMap())
     TestUtils.retry(10000) {
       context.mockClient.wakeup()
-      Assert.assertEquals(BrokerState.RECOVERY, manager.state())
+      assertEquals(BrokerState.RECOVERY, manager.state())
     }
     context.mockClient.prepareResponseFrom(new BrokerHeartbeatResponse(
       new BrokerHeartbeatResponseData().setIsFenced(false)), controllerNode)
     context.time.sleep(20)
     TestUtils.retry(10000) {
       context.mockClient.wakeup()
-      Assert.assertEquals(BrokerState.RUNNING, manager.state())
+      assertEquals(BrokerState.RUNNING, manager.state())
     }
     manager.beginControlledShutdown()
     TestUtils.retry(10000) {
       context.mockClient.wakeup()
-      Assert.assertEquals(BrokerState.PENDING_CONTROLLED_SHUTDOWN, manager.state())
+      assertEquals(BrokerState.PENDING_CONTROLLED_SHUTDOWN, manager.state())
     }
     context.mockClient.prepareResponseFrom(new BrokerHeartbeatResponse(
       new BrokerHeartbeatResponseData().setShouldShutDown(true)), controllerNode)
     context.time.sleep(3000)
     TestUtils.retry(10000) {
       context.mockClient.wakeup()
-      Assert.assertEquals(BrokerState.SHUTTING_DOWN, manager.state())
+      assertEquals(BrokerState.SHUTTING_DOWN, manager.state())
     }
     manager.controlledShutdownFuture.get()
     manager.close()

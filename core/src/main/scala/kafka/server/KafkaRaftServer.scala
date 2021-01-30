@@ -16,16 +16,16 @@
  */
 package kafka.server
 
+import java.util.OptionalInt
 import java.util.concurrent.CompletableFuture
 
 import kafka.metrics.{KafkaMetricsReporter, KafkaYammerMetrics}
-import kafka.raft.KafkaRaftManager
+import kafka.raft.MetaRaftManager
 import kafka.server.KafkaRaftServer.{BrokerRole, ControllerRole}
 import kafka.utils.{CoreUtils, Logging, Mx4jLoader, VerifiableProperties}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter}
 import org.apache.kafka.common.utils.{AppInfoParser, Time}
-import org.apache.kafka.raft.metadata.MetadataRecordSerde
 
 /**
  * This class implements the KIP-500 server which relies on a self-managed
@@ -49,11 +49,15 @@ class KafkaRaftServer(
   private val (metaProps, offlineDirs) = loadMetaProperties()
   private val metrics = configureMetrics(metaProps)
   private val controllerQuorumVotersFuture = CompletableFuture.completedFuture(config.quorumVoters)
+  private val nodeId = if (config.processRoles.contains(ControllerRole)) {
+    config.controllerId
+  } else {
+    config.brokerId
+  }
 
-  private val raftManager = new KafkaRaftManager(
+  private val raftManager = new MetaRaftManager(
+    OptionalInt.of(nodeId),
     config,
-    new MetadataRecordSerde,
-    KafkaRaftServer.MetadataPartition,
     time,
     metrics,
     controllerQuorumVotersFuture

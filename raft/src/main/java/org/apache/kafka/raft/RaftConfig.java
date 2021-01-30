@@ -17,12 +17,14 @@
 package org.apache.kafka.raft;
 
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.Node;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.Utils;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -144,6 +146,17 @@ public class RaftConfig {
         } catch (NumberFormatException e) {
             throw new ConfigException("Failed to parse voter ID as an integer from " + idString);
         }
+    }
+
+    public static List<Node> quorumVoterStringsToNodes(List<String> quorumVoterStrings) {
+        List<Node> voterNodes = new ArrayList<>(quorumVoterStrings.size());
+        Map<Integer, InetSocketAddress> voterAddresses = parseVoterConnections(quorumVoterStrings);
+        for (Map.Entry<Integer, InetSocketAddress> entry : voterAddresses.entrySet()) {
+            Integer nodeId = entry.getKey();
+            InetSocketAddress address = entry.getValue();
+            voterNodes.add(new Node(nodeId, address.getHostString(), address.getPort()));
+        }
+        return voterNodes;
     }
 
     public static Map<Integer, InetSocketAddress> parseVoterConnections(List<String> voterEntries) {

@@ -17,6 +17,7 @@
 
 package kafka.tools
 
+import java.util.OptionalInt
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import java.util.concurrent.{CompletableFuture, CountDownLatch, LinkedBlockingDeque, TimeUnit}
 
@@ -70,6 +71,7 @@ class TestRaftServer(
     socketServer.startup(startProcessingRequests = false)
 
     raftManager = new KafkaRaftManager[Array[Byte]](
+      OptionalInt.of(config.brokerId),
       config,
       new ByteArraySerde,
       partition,

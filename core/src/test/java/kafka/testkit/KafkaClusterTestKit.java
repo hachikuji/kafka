@@ -17,23 +17,17 @@
 
 package kafka.testkit;
 
-import kafka.raft.KafkaRaftManager;
-import kafka.raft.RaftManager;
+import kafka.raft.MetaRaftManager;
+import kafka.server.BrokerServer;
+import kafka.server.ControllerServer;
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaConfig$;
 import kafka.server.Server;
-import kafka.server.BrokerServer;
-import kafka.server.ControllerServer;
-import kafka.server.MetaProperties;
 import kafka.tools.StorageTool;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.network.ListenerName;
-import org.apache.kafka.common.protocol.ApiMessage;
-import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -59,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Properties;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
@@ -122,7 +117,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
         public KafkaClusterTestKit build() throws Exception {
             Map<Integer, ControllerServer> controllers = new HashMap<>();
             Map<Integer, BrokerServer> kip500Brokers = new HashMap<>();
-            Map<Integer, KafkaRaftManager> raftManagers = new HashMap<>();
+            Map<Integer, MetaRaftManager> raftManagers = new HashMap<>();
             String dummyQuorumVotersString = nodes.controllerNodes().keySet().stream().
                 map(controllerNode -> String.format("%d@0.0.0.0:0", controllerNode)).
                 collect(Collectors.joining(","));
@@ -165,12 +160,8 @@ public class KafkaClusterTestKit implements AutoCloseable {
                         OptionConverters.toScala(Optional.empty()));
 
                     String threadNamePrefix = String.format("controller%d_", node.id());
-                    MetaProperties metaProperties = MetaProperties.apply(nodes.clusterId(),
-                            OptionConverters.toScala(Optional.empty()),
-                            OptionConverters.toScala(Optional.of(node.id())));
-                    TopicPartition metadataPartition = new TopicPartition(Server.metadataTopicName(), 0);
-                    KafkaRaftManager raftManager = new KafkaRaftManager(metaProperties, metadataPartition, config,
-                            Time.SYSTEM, new Metrics(), connectFutureManager.future, 0);
+                    MetaRaftManager raftManager = new MetaRaftManager(OptionalInt.of(node.id()), config,
+                        Time.SYSTEM, new Metrics(), connectFutureManager.future, 0);
                     ControllerServer controller = new ControllerServer(nodes.controllerProperties(node.id()), config,
                         raftManager.metaLogManager(),
                         raftManager,
@@ -217,12 +208,8 @@ public class KafkaClusterTestKit implements AutoCloseable {
                         OptionConverters.toScala(Optional.empty()));
 
                     String threadNamePrefix = String.format("broker%d_", node.id());
-                    MetaProperties metaProperties = MetaProperties.apply(nodes.clusterId(),
-                        OptionConverters.toScala(Optional.of(node.id())),
-                        OptionConverters.toScala(Optional.empty()));
-                    TopicPartition metadataPartition = new TopicPartition(Server.metadataTopicName(), 0);
-                    KafkaRaftManager raftManager = new KafkaRaftManager(metaProperties, metadataPartition, config,
-                            Time.SYSTEM, new Metrics(), connectFutureManager.future, 0);
+                    MetaRaftManager raftManager = new MetaRaftManager(OptionalInt.of(node.id()), config,
+                        Time.SYSTEM, new Metrics(), connectFutureManager.future, 0);
                     BrokerServer broker = new BrokerServer(config, nodes.brokerProperties(node.id()),
                         raftManager.metaLogManager(),
                         time,
@@ -246,7 +233,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
                 for (BrokerServer brokerServer : kip500Brokers.values()) {
                     brokerServer.shutdown();
                 }
-                for (KafkaRaftManager raftManager : raftManagers.values()) {
+                for (MetaRaftManager raftManager : raftManagers.values()) {
                     raftManager.shutdown();
                 }
                 connectFutureManager.close();
@@ -270,21 +257,11 @@ public class KafkaClusterTestKit implements AutoCloseable {
         }
     }
 
-    static class MockRaftManager implements RaftManager {
-        @Override
-        public CompletableFuture<ApiMessage> handleRequest(RequestHeader header, ApiMessage data) {
-            CompletableFuture<ApiMessage> future = new CompletableFuture<>();
-            future.completeExceptionally(
-                new UnsupportedVersionException("API " + header.apiKey() + " is not available"));
-            return future;
-        }
-    }
-
     private final ExecutorService executorService;
     private final TestKitNodes nodes;
     private final Map<Integer, ControllerServer> controllers;
     private final Map<Integer, BrokerServer> kip500Brokers;
-    private final Map<Integer, KafkaRaftManager> raftManagers;
+    private final Map<Integer, MetaRaftManager> raftManagers;
     private final ControllerQuorumVotersFutureManager controllerQuorumVotersFutureManager;
     private final File baseDirectory;
 
@@ -292,7 +269,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
                                 TestKitNodes nodes,
                                 Map<Integer, ControllerServer> controllers,
                                 Map<Integer, BrokerServer> kip500Brokers,
-                                Map<Integer, KafkaRaftManager> raftManagers,
+                                Map<Integer, MetaRaftManager> raftManagers,
                                 ControllerQuorumVotersFutureManager controllerQuorumVotersFutureManager,
                                 File baseDirectory) {
         this.executorService = executorService;
@@ -366,7 +343,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
             for (ControllerServer controller : controllers.values()) {
                 futures.add(executorService.submit(controller::startup));
             }
-            for (KafkaRaftManager raftManager : raftManagers.values()) {
+            for (MetaRaftManager raftManager : raftManagers.values()) {
                 futures.add(executorService.submit(raftManager::startup));
             }
             for (BrokerServer broker : kip500Brokers.values()) {
@@ -435,7 +412,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
         return kip500Brokers;
     }
 
-    public Map<Integer, KafkaRaftManager> raftManagers() {
+    public Map<Integer, MetaRaftManager> raftManagers() {
         return raftManagers;
     }
 
@@ -464,9 +441,9 @@ public class KafkaClusterTestKit implements AutoCloseable {
             }
             waitForAllFutures(futureEntries);
             futureEntries.clear();
-            for (Entry<Integer, KafkaRaftManager> entry : raftManagers.entrySet()) {
+            for (Entry<Integer, MetaRaftManager> entry : raftManagers.entrySet()) {
                 int raftManagerId = entry.getKey();
-                KafkaRaftManager raftManager = entry.getValue();
+                MetaRaftManager raftManager = entry.getValue();
                 futureEntries.add(new SimpleImmutableEntry<>("raftManager" + raftManagerId,
                     executorService.submit(raftManager::shutdown)));
             }

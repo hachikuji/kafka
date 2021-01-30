@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit.{MILLISECONDS, NANOSECONDS}
 import java.util.concurrent.{CompletableFuture, TimeUnit}
 
 import kafka.utils.Logging
-import org.apache.kafka.clients.{ClientResponse, RequestCompletionHandler}
+import org.apache.kafka.clients.ClientResponse
 import org.apache.kafka.common.Uuid
 import org.apache.kafka.common.message.BrokerRegistrationRequestData.ListenerCollection
 import org.apache.kafka.common.message.{BrokerHeartbeatRequestData, BrokerRegistrationRequestData}
@@ -30,6 +30,7 @@ import org.apache.kafka.common.requests.{BrokerHeartbeatRequest, BrokerHeartbeat
 import org.apache.kafka.common.utils.EventQueue.DeadlineFunction
 import org.apache.kafka.common.utils.{EventQueue, ExponentialBackoff, KafkaEventQueue, LogContext, Time}
 import org.apache.kafka.metadata.{BrokerState, VersionRange}
+
 import scala.jdk.CollectionConverters._
 
 class BrokerLifecycleManager(val config: KafkaConfig,
@@ -265,7 +266,7 @@ class BrokerLifecycleManager(val config: KafkaConfig,
       new BrokerRegistrationResponseHandler())
   }
 
-  class BrokerRegistrationResponseHandler extends RequestCompletionHandler {
+  class BrokerRegistrationResponseHandler extends ControllerRequestCompletionHandler {
     override def onComplete(response: ClientResponse): Unit = {
       if (response.authenticationException() != null) {
         error(s"Unable to register broker ${brokerId} because of an authentication exception.",
@@ -299,6 +300,8 @@ class BrokerLifecycleManager(val config: KafkaConfig,
         }
       }
     }
+
+    override def onTimeout(): Unit = ???
   }
 
   private def sendBrokerHeartbeat(): Unit = {
@@ -316,7 +319,7 @@ class BrokerLifecycleManager(val config: KafkaConfig,
       new BrokerHeartbeatResponseHandler())
   }
 
-  class BrokerHeartbeatResponseHandler extends RequestCompletionHandler {
+  class BrokerHeartbeatResponseHandler extends ControllerRequestCompletionHandler {
     override def onComplete(response: ClientResponse): Unit = {
       if (response.authenticationException() != null) {
         error(s"Unable to send broker heartbeat for ${brokerId} because of an " +
@@ -391,6 +394,12 @@ class BrokerLifecycleManager(val config: KafkaConfig,
         }
       }
     }
+
+    /**
+     * Fire when the request transmission time passes the caller defined deadline on the channel queue.
+     * It covers the total waiting time including retries which might be the result of individual request timeout.
+     */
+    override def onTimeout(): Unit = ???
   }
 
   private def scheduleNextCommunicationImmediately(): Unit = scheduleNextCommunication(0)

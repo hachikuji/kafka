@@ -30,8 +30,49 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.AbstractRequest
 import org.apache.kafka.common.security.JaasContext
 import org.apache.kafka.common.utils.{LogContext, Time}
+import org.apache.kafka.metalog.MetaLogManager
 
 import scala.jdk.CollectionConverters._
+
+trait ControllerNodeProvider {
+  def controllerNode(): Option[Node]
+}
+
+/**
+ * Finds the controller node by looking in the MetadataCache.
+ * This provider is used when we are in legacy mode.
+ */
+class MetadataCacheControllerNodeProvider(val metadataCache: kafka.server.MetadataCache,
+                                          val listenerName: ListenerName) extends ControllerNodeProvider {
+  override def controllerNode(): Option[Node] = {
+    val image = metadataCache.currentImage()
+    image.controllerId.flatMap {
+      id => image.brokers.getAlive(id).flatMap {
+        broker => broker.endpoints.get(listenerName.value())
+      }
+    }
+  }
+}
+
+/**
+ * Finds the controller node by checking the metadata log manager.
+ * This provider is used when we are in KIP-500 mode.
+ */
+class RaftControllerNodeProvider(val metaLogManager: MetaLogManager,
+                                 controllerQuorumVoterNodes: Seq[Node]) extends ControllerNodeProvider with Logging {
+  val idToNode = controllerQuorumVoterNodes.map(node => node.id() -> node).toMap
+
+  override def controllerNode(): Option[Node] = {
+    val leader = metaLogManager.leader()
+    if (leader == null) {
+      None
+    } else if (leader.nodeId() < 0) {
+      None
+    } else {
+      idToNode.get(leader.nodeId())
+    }
+  }
+}
 
 /**
  * This class manages the connection between a broker and the controller. It runs a single
@@ -41,7 +82,7 @@ import scala.jdk.CollectionConverters._
  * care must be taken to not block on outstanding requests for too long.
  */
 class BrokerToControllerChannelManager(
-  metadataCache: kafka.server.MetadataCache,
+  controllerNodeProvider: ControllerNodeProvider,
   time: Time,
   metrics: Metrics,
   config: KafkaConfig,
@@ -118,7 +159,7 @@ class BrokerToControllerChannelManager(
     new BrokerToControllerRequestThread(
       networkClient,
       manualMetadataUpdater,
-      metadataCache,
+      controllerNodeProvider,
       config,
       brokerToControllerListenerName,
       time,
@@ -171,7 +212,7 @@ case class BrokerToControllerQueueItem(
 class BrokerToControllerRequestThread(
   networkClient: KafkaClient,
   metadataUpdater: ManualMetadataUpdater,
-  metadataCache: kafka.server.MetadataCache,
+  controllerNodeProvider: ControllerNodeProvider,
   config: KafkaConfig,
   listenerName: ListenerName,
   time: Time,
@@ -247,13 +288,11 @@ class BrokerToControllerRequestThread(
       super.pollOnce(Long.MaxValue)
     } else {
       debug("Controller isn't cached, looking for local metadata changes")
-      val controllerOpt = metadataCache.getControllerId.flatMap(metadataCache.getAliveBroker)
-      controllerOpt match {
+      controllerNodeProvider.controllerNode() match {
         case Some(controller) =>
           info(s"Recorded new controller, from now on will use broker $controller")
-          val controllerNode = controller.node(listenerName)
-          updateControllerAddress(controllerNode)
-          metadataUpdater.setNodes(Seq(controllerNode).asJava)
+          updateControllerAddress(controller)
+          metadataUpdater.setNodes(Seq(controller).asJava)
         case None =>
           // need to backoff to avoid tight loops
           debug("No controller defined in metadata cache, retrying after backoff")

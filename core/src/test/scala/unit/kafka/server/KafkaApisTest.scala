@@ -338,16 +338,18 @@ class KafkaApisTest {
     EasyMock.replay(replicaManager, clientRequestQuotaManager, requestChannel, authorizer,
       mockMetadataCache)
 
-    val request = buildRequest(new DescribeConfigsRequest.Builder(new DescribeConfigsRequestData()
+    val describeConfigsRequest = new DescribeConfigsRequest.Builder(new DescribeConfigsRequestData()
       .setIncludeSynonyms(true)
       .setResources(List(new DescribeConfigsRequestData.DescribeConfigsResource()
         .setResourceName("topic-1")
-        .setResourceType(ConfigResource.Type.TOPIC.id)).asJava)).build(requestHeader.apiVersion))
+        .setResourceType(ConfigResource.Type.TOPIC.id)).asJava)).build(requestHeader.apiVersion)
+    val request = buildRequest(describeConfigsRequest)
     createKafkaApisKip500(authorizer = Some(authorizer), metadataCache = mockMetadataCache).handleDescribeConfigsRequest(request)
 
     verify(authorizer, mockMetadataCache, clientRequestQuotaManager, requestChannel)
 
-    val describeConfigsResponse = readResponse(request, capturedResponse).asInstanceOf[DescribeConfigsResponse]
+    val describeConfigsResponse = readResponse(describeConfigsRequest, capturedResponse)
+      .asInstanceOf[DescribeConfigsResponse]
     assertEquals(1, describeConfigsResponse.data().results().size())
     val result: DescribeConfigsResult = describeConfigsResponse.data().results().get(0)
     assertEquals(Errors.NONE.code(), result.errorCode())
@@ -371,7 +373,7 @@ class KafkaApisTest {
     val results: List[DescribeConfigsResponseData.DescribeConfigsResult] =
       kafkaApis.describeConfigs(resources, true, true)
     assertEquals(Errors.NONE.code, results.head.errorCode())
-    assertFalse("Should return configs", results.head.configs().isEmpty)
+    assertFalse(results.head.configs().isEmpty, "Should return configs")
   }
 
   @Test
@@ -390,7 +392,7 @@ class KafkaApisTest {
       createKafkaApisKip500(metadataCache = mockMetadataCache,
         configRepository = localConfigRepository).describeConfigs(resources, true, true)
     assertEquals(Errors.NONE.code, results.head.errorCode())
-    assertFalse(results.head.configs().isEmpty, "Should return configs", )
+    assertFalse(results.head.configs().isEmpty, "Should return configs")
   }
 
   @Test
@@ -415,7 +417,7 @@ class KafkaApisTest {
     assertEquals(2, results.size)
     results.foreach(r => {
       assertEquals(Errors.NONE.code, r.errorCode)
-      assertFalse(r.configs.isEmpty, "Should return configs", )
+      assertFalse(r.configs.isEmpty, "Should return configs")
       r.configs.asScala.foreach(c => {
         assertNotNull(s"Config ${c.name} should have non null documentation", c.documentation)
         assertNotEquals(s"Config ${c.name} should have non blank documentation", "", c.documentation.trim)

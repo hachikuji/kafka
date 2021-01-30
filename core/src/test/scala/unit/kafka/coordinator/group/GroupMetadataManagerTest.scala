@@ -46,8 +46,8 @@ import org.easymock.{Capture, EasyMock, IAnswer}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{BeforeEach, Test}
 
-import scala.jdk.CollectionConverters._
 import scala.collection._
+import scala.jdk.CollectionConverters._
 
 class GroupMetadataManagerTest {
 
@@ -80,14 +80,6 @@ class GroupMetadataManagerTest {
       offsetsTopicCompressionCodec = config.offsetsTopicCompressionCodec,
       offsetCommitTimeoutMs = config.offsetCommitTimeoutMs,
       offsetCommitRequiredAcks = config.offsetCommitRequiredAcks)
-  }
-
-  private def mockKafkaZkClient: KafkaZkClient = {
-    // make two partitions of the group topic to make sure some partitions are not owned by the coordinator
-    val zkClient: KafkaZkClient = EasyMock.createNiceMock(classOf[KafkaZkClient])
-    EasyMock.expect(zkClient.getTopicPartitionCount(Topic.GROUP_METADATA_TOPIC_NAME)).andReturn(Some(2))
-    EasyMock.replay(zkClient)
-    zkClient
   }
 
   @BeforeEach

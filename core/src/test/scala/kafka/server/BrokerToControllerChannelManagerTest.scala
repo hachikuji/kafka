@@ -21,17 +21,14 @@ import kafka.server.metadata.{MetadataBroker, MetadataImageBuilder}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.metalog.{MetaLogLeader, MetaLogManager}
-import org.junit.Assert.assertEquals
-import org.junit.rules.Timeout
-import org.junit.{Rule, Test}
+import org.junit.jupiter.api.{Test, Timeout}
+import org.junit.jupiter.api.Assertions._
 import org.mockito.Mockito
 import org.slf4j.LoggerFactory
 
+@Timeout(120000)
 class BrokerToControllerChannelManagerTest {
   private val log = LoggerFactory.getLogger(classOf[BrokerToControllerChannelManagerTest])
-
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   @Test
   def testMetadataCacheControllerNodeProvider(): Unit = {

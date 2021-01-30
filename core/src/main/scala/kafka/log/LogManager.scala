@@ -23,7 +23,7 @@ import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 
 import kafka.metrics.KafkaMetricsGroup
-import kafka.server.{BrokerTopicStats, KafkaBroker, KafkaConfig, LogDirFailureChannel}
+import kafka.server.{BrokerTopicStats, KafkaConfig, LogDirFailureChannel}
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.utils._
 import kafka.zk.KafkaZkClient

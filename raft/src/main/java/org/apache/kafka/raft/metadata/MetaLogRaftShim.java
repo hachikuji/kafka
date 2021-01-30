@@ -26,6 +26,7 @@ import org.apache.kafka.raft.LeaderAndEpoch;
 import org.apache.kafka.raft.RaftClient;
 
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.stream.Collectors;
 
 /**
@@ -35,11 +36,11 @@ import java.util.stream.Collectors;
  */
 public class MetaLogRaftShim implements MetaLogManager {
     private final RaftClient<ApiMessageAndVersion> client;
-    private final int nodeId;
+    private final OptionalInt nodeId;
 
     public MetaLogRaftShim(
         RaftClient<ApiMessageAndVersion> client,
-        int nodeId
+        OptionalInt nodeId
     ) {
         this.client = client;
         this.nodeId = nodeId;
@@ -73,7 +74,7 @@ public class MetaLogRaftShim implements MetaLogManager {
 
     @Override
     public int nodeId() {
-        return nodeId;
+        return nodeId.orElse(-1);
     }
 
     private class ListenerShim implements RaftClient.Listener<ApiMessageAndVersion> {
@@ -103,7 +104,11 @@ public class MetaLogRaftShim implements MetaLogManager {
 
         @Override
         public void handleClaim(int epoch) {
-            listener.handleNewLeader(new MetaLogLeader(nodeId, epoch));
+            if (nodeId.isPresent()) {
+                listener.handleNewLeader(new MetaLogLeader(nodeId.getAsInt(), epoch));
+            } else {
+                throw new IllegalStateException("Unexpected leader claim for anonymous observer");
+            }
         }
 
         @Override

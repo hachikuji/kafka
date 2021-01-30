@@ -20,18 +20,16 @@ package kafka.server.metadata
 import java.util.Collections
 
 import kafka.utils.TestUtils
-import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
-import org.junit.{Assert, Rule, Test}
-import org.junit.rules.Timeout
+import org.junit.jupiter.api.{Test, Timeout}
+import org.junit.jupiter.api.Assertions._
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 
+@Timeout(120000)
 class MetadataBrokersTest {
-  @Rule
-  def globalTimeout = Timeout.millis(120000)
 
   val log = LoggerFactory.getLogger(classOf[MetadataBrokersTest])
 
@@ -59,7 +57,7 @@ class MetadataBrokersTest {
   def testChangeFencing(): Unit = {
     val builder = new MetadataBrokersBuilder(log, emptyBrokers)
     assertEquals(None, builder.get(0))
-    Assert.assertThrows(classOf[RuntimeException], () => builder.changeFencing(0, false))
+    assertThrows(classOf[RuntimeException], () => builder.changeFencing(0, false))
     builder.add(TestUtils.createMetadataBroker(0, fenced = true))
     assertTrue(builder.get(0).get.fenced)
     builder.changeFencing(0, false)

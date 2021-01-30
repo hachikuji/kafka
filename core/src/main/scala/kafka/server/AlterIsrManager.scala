@@ -65,7 +65,7 @@ object AlterIsrManager {
    */
   def apply(
     config: KafkaConfig,
-    metadataCache: MetadataCache,
+    controllerNodeProvider: ControllerNodeProvider,
     scheduler: KafkaScheduler,
     time: Time,
     metrics: Metrics,
@@ -73,7 +73,7 @@ object AlterIsrManager {
     brokerEpochSupplier: () => Long
   ): AlterIsrManager = {
     val channelManager = new BrokerToControllerChannelManager(
-      metadataCache = metadataCache,
+      controllerNodeProvider,
       time = time,
       metrics = metrics,
       config = config,
