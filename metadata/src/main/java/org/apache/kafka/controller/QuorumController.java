@@ -715,7 +715,7 @@ public final class QuorumController implements Controller {
         this.nodeId = nodeId;
         this.queue = queue;
         this.time = time;
-        this.snapshotRegistry = new SnapshotRegistry(logContext, -1);
+        this.snapshotRegistry = new SnapshotRegistry(logContext);
         snapshotRegistry.createSnapshot(-1);
         this.purgatory = new ControllerPurgatory();
         this.configurationControl = new ConfigurationControlManager(logContext,
@@ -867,6 +867,15 @@ public final class QuorumController implements Controller {
                 return result;
             }
         });
+    }
+
+    @Override
+    public CompletableFuture<Void> waitForReadyBrokers(int minBrokers) {
+        final CompletableFuture<Void> future = new CompletableFuture<>();
+        appendControlEvent("waitForReadyBrokers", () -> {
+            clusterControl.addReadyBrokersFuture(future, minBrokers);
+        });
+        return future;
     }
 
     @Override

@@ -165,7 +165,8 @@ class KafkaApisTest {
       null,
       brokerFeatures,
       cache,
-      configRepository)
+      configRepository,
+      None)
   }
 
   @Test
