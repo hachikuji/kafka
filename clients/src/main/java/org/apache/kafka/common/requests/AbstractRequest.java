@@ -278,6 +278,10 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return DescribeClusterRequest.parse(buffer, apiVersion);
             case DESCRIBE_PRODUCERS:
                 return DescribeProducersRequest.parse(buffer, apiVersion);
+            case BROKER_REGISTRATION:
+                return BrokerRegistrationRequest.parse(buffer, apiVersion);
+            case BROKER_HEARTBEAT:
+                return BrokerHeartbeatRequest.parse(buffer, apiVersion);
             case DESCRIBE_TRANSACTIONS:
                 return DescribeTransactionsRequest.parse(buffer, apiVersion);
             case LIST_TRANSACTIONS:
