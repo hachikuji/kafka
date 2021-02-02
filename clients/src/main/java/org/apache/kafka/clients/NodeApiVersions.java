@@ -75,7 +75,6 @@ public class NodeApiVersions {
         return new NodeApiVersions(apiVersions);
     }
 
-
     /**
      * Create a NodeApiVersions object with a single ApiKey. It is mainly used in tests.
      *

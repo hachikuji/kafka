@@ -21,17 +21,20 @@ import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
 import java.util.{Collections, Properties}
 
 import kafka.utils.{MockTime, TestUtils}
-import org.apache.kafka.clients.{ManualMetadataUpdater, Metadata, MockClient}
+import org.apache.kafka.clients.{ManualMetadataUpdater, Metadata, MockClient, NodeApiVersions}
 import org.apache.kafka.common.internals.ClusterResourceListeners
+import org.apache.kafka.common.message.ApiVersionsResponseData.ApiVersion
 import org.apache.kafka.common.message.BrokerRegistrationRequestData.{Listener, ListenerCollection}
 import org.apache.kafka.common.message.{BrokerHeartbeatResponseData, BrokerRegistrationResponseData}
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.{BrokerHeartbeatResponse, BrokerRegistrationResponse}
 import org.apache.kafka.common.utils.LogContext
 import org.apache.kafka.common.{Node, Uuid}
 import org.apache.kafka.metadata.BrokerState
 import org.junit.jupiter.api.{Test, Timeout}
 import org.junit.jupiter.api.Assertions._
+
+import scala.jdk.CollectionConverters._
 
 @Timeout(120000)
 class BrokerLifecycleManagerTest {
@@ -50,17 +53,33 @@ class BrokerLifecycleManagerTest {
     def controllerNode(): Option[Node] = Option(node.get())
   }
 
+  private def apiVersion(
+    apiKey: ApiKeys
+  ): ApiVersion = {
+    new ApiVersion()
+      .setApiKey(apiKey.id)
+      .setMinVersion(apiKey.oldestVersion)
+      .setMaxVersion(apiKey.latestVersion)
+  }
+
+
   class BrokerLifecycleManagerTestContext(properties: Properties) {
     val config = new KafkaConfig(properties)
     val time = new MockTime(1, 1)
     val highestMetadataOffset = new AtomicLong(0)
     val metadata = new Metadata(1000, 1000, new LogContext(), new ClusterResourceListeners())
     val mockClient = new MockClient(time, metadata)
-    mockClient.enableBlockingUntilWakeup(10)
     val metadataUpdater = new ManualMetadataUpdater()
     val controllerNodeProvider = new SimpleControllerNodeProvider()
-    val channelManager = new BrokerToControllerChannelManager(mockClient,
-      controllerNodeProvider, time, 60000, config, "channelManager", None)
+    val channelManager = new MockBrokerToControllerChannelManager(
+      mockClient,
+      time,
+      controllerNodeProvider,
+      controllerApiVersions = NodeApiVersions.create(List(
+        apiVersion(ApiKeys.BROKER_REGISTRATION),
+        apiVersion(ApiKeys.BROKER_HEARTBEAT)
+      ).asJava)
+    )
     val clusterId = Uuid.fromString("x4AJGXQSRnephtTZzujw4w")
     val advertisedListeners = new ListenerCollection()
     config.advertisedListeners.foreach { ep =>
@@ -87,6 +106,7 @@ class BrokerLifecycleManagerTest {
       context.channelManager, context.clusterId, context.advertisedListeners,
       Collections.emptyMap())
     TestUtils.retry(60000) {
+      context.channelManager.poll()
       assertEquals(BrokerState.STARTING, manager.state())
     }
     manager.close()
@@ -105,7 +125,7 @@ class BrokerLifecycleManagerTest {
       context.channelManager, context.clusterId, context.advertisedListeners,
       Collections.emptyMap())
     TestUtils.retry(10000) {
-      context.mockClient.wakeup()
+      context.channelManager.poll()
       assertEquals(1000L, manager.brokerEpoch())
     }
     manager.close()
@@ -129,21 +149,21 @@ class BrokerLifecycleManagerTest {
       Collections.emptyMap())
     // We should send the first registration request and get a failure immediately
     TestUtils.retry(60000) {
-      context.mockClient.wakeup()
+      context.channelManager.poll()
       assertEquals(0, context.mockClient.futureResponses().size)
     }
     // Verify that we resend the registration request.
     newDuplicateRegistrationResponse()
     TestUtils.retry(60000) {
       context.time.sleep(100)
-      context.mockClient.wakeup()
+      context.channelManager.poll()
       manager.eventQueue.wakeup()
       assertEquals(0, context.mockClient.futureResponses().size)
     }
     // Verify that we time out eventually.
     context.time.sleep(300000)
     TestUtils.retry(60000) {
-      context.mockClient.wakeup()
+      context.channelManager.poll()
       manager.eventQueue.wakeup()
       assertEquals(BrokerState.SHUTTING_DOWN, manager.state())
       assertTrue(manager.initialCatchUpFuture.isCompletedExceptionally())
@@ -166,26 +186,26 @@ class BrokerLifecycleManagerTest {
       context.channelManager, context.clusterId, context.advertisedListeners,
       Collections.emptyMap())
     TestUtils.retry(10000) {
-      context.mockClient.wakeup()
+      context.channelManager.poll()
       assertEquals(BrokerState.RECOVERY, manager.state())
     }
     context.mockClient.prepareResponseFrom(new BrokerHeartbeatResponse(
       new BrokerHeartbeatResponseData().setIsFenced(false)), controllerNode)
     context.time.sleep(20)
     TestUtils.retry(10000) {
-      context.mockClient.wakeup()
+      context.channelManager.poll()
       assertEquals(BrokerState.RUNNING, manager.state())
     }
     manager.beginControlledShutdown()
     TestUtils.retry(10000) {
-      context.mockClient.wakeup()
+      context.channelManager.poll()
       assertEquals(BrokerState.PENDING_CONTROLLED_SHUTDOWN, manager.state())
     }
     context.mockClient.prepareResponseFrom(new BrokerHeartbeatResponse(
       new BrokerHeartbeatResponseData().setShouldShutDown(true)), controllerNode)
     context.time.sleep(3000)
     TestUtils.retry(10000) {
-      context.mockClient.wakeup()
+      context.channelManager.poll()
       assertEquals(BrokerState.SHUTTING_DOWN, manager.state())
     }
     manager.controlledShutdownFuture.get()

@@ -243,7 +243,7 @@ class BrokerServer(
           setSecurityProtocol(ep.securityProtocol.id))
       }
       lifecycleManager.start(() => brokerMetadataListener.highestMetadataOffset(),
-        new BrokerToControllerChannelManager(controllerNodeProvider, time, metrics, config,
+        BrokerToControllerChannelManager(controllerNodeProvider, time, metrics, config,
           channelName = "heartbeat", threadNamePrefix = threadNamePrefix,
           retryTimeoutMs = config.brokerSessionTimeoutMs.toLong),
         metaProps.clusterId, networkListeners, supportedFeatures)

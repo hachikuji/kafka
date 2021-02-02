@@ -52,7 +52,7 @@ object ForwardingManager {
     metrics: Metrics,
     threadNamePrefix: Option[String]
   ): ForwardingManager = {
-    val channelManager = new BrokerToControllerChannelManager(
+    val channelManager = BrokerToControllerChannelManager(
       controllerNodeProvider,
       time = time,
       metrics = metrics,
