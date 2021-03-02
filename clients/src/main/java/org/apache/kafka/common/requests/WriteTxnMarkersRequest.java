@@ -111,35 +111,41 @@ public class WriteTxnMarkersRequest extends AbstractRequest {
         }
 
         public Builder(final List<TxnMarkerEntry> markers) {
-            this(ApiKeys.WRITE_TXN_MARKERS.latestVersion(), markers);
+            super(ApiKeys.WRITE_TXN_MARKERS);
+            this.data = buildRequestData(markers);
         }
 
         public Builder(short version, final List<TxnMarkerEntry> markers) {
             super(ApiKeys.WRITE_TXN_MARKERS, version);
+            this.data = buildRequestData(markers);
+        }
+
+        private WriteTxnMarkersRequestData buildRequestData(
+            List<TxnMarkerEntry> markers
+        ) {
             List<WritableTxnMarker> dataMarkers = new ArrayList<>();
             for (TxnMarkerEntry marker : markers) {
                 final Map<String, WritableTxnMarkerTopic> topicMap = new HashMap<>();
                 for (TopicPartition topicPartition : marker.partitions) {
                     WritableTxnMarkerTopic topic = topicMap.getOrDefault(topicPartition.topic(),
-                                                                         new WritableTxnMarkerTopic()
-                                                                             .setName(topicPartition.topic()));
+                        new WritableTxnMarkerTopic()
+                            .setName(topicPartition.topic()));
                     topic.partitionIndexes().add(topicPartition.partition());
                     topicMap.put(topicPartition.topic(), topic);
                 }
 
                 dataMarkers.add(new WritableTxnMarker()
-                                    .setProducerId(marker.producerId)
-                                    .setProducerEpoch(marker.producerEpoch)
-                                    .setCoordinatorEpoch(marker.coordinatorEpoch)
-                                    .setTransactionResult(marker.transactionResult().id)
-                                    .setTopics(new ArrayList<>(topicMap.values())));
+                    .setProducerId(marker.producerId)
+                    .setProducerEpoch(marker.producerEpoch)
+                    .setCoordinatorEpoch(marker.coordinatorEpoch)
+                    .setTransactionResult(marker.transactionResult().id)
+                    .setTopics(new ArrayList<>(topicMap.values())));
             }
-            this.data = new WriteTxnMarkersRequestData().setMarkers(dataMarkers);
+            return new WriteTxnMarkersRequestData().setMarkers(dataMarkers);
         }
 
         @Override
         public WriteTxnMarkersRequest build(short version) {
-            // TODO: We need to rewrite the request for differences between version 0 and 1
             return new WriteTxnMarkersRequest(data, version);
         }
     }

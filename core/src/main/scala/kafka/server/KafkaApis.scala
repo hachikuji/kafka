@@ -3234,44 +3234,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  def handleDescribeProducersRequest(request: RequestChannel.Request): Unit = {
-    val describeProducersRequest = request.body[DescribeProducersRequest]
-
-    def partitionError(topicPartition: TopicPartition, error: Errors): DescribeProducersResponseData.PartitionResponse = {
-      new DescribeProducersResponseData.PartitionResponse()
-        .setPartitionIndex(topicPartition.partition)
-        .setErrorCode(error.code)
-    }
-
-    val response = new DescribeProducersResponseData()
-    describeProducersRequest.data.topics.forEach { topicRequest =>
-      val topicResponse = new DescribeProducersResponseData.TopicResponse()
-        .setName(topicRequest.name)
-      val topicError = if (!authHelper.authorize(request.context, READ, TOPIC, topicRequest.name))
-        Some(Errors.TOPIC_AUTHORIZATION_FAILED)
-      else if (!metadataCache.contains(topicRequest.name))
-        Some(Errors.UNKNOWN_TOPIC_OR_PARTITION)
-      else
-        None
-
-      topicRequest.partitionIndexes.forEach { partitionId =>
-        val topicPartition = new TopicPartition(topicRequest.name, partitionId)
-        val partitionResponse = topicError match {
-          case Some(error) => partitionError(topicPartition, error)
-          case None => replicaManager.activeProducerState(topicPartition)
-        }
-        topicResponse.partitions.add(partitionResponse)
-      }
-
-      if (!topicResponse.partitions.isEmpty) {
-        response.topics.add(topicResponse)
-      }
-    }
-
-    requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs =>
-      new DescribeProducersResponse(response.setThrottleTimeMs(requestThrottleMs)))
-  }
-
   def handleDescribeTransactionsRequest(request: RequestChannel.Request): Unit = {
     val describeTransactionsRequest = request.body[DescribeTransactionsRequest]
     val response = new DescribeTransactionsResponseData()
