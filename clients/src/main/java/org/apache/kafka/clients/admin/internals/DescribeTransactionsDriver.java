@@ -103,9 +103,9 @@ public class DescribeTransactionsDriver extends CoordinatorApiDriver<Transaction
         DescribeTransactionsResponseData.TransactionState transactionState
     ) {
         Set<TopicPartition> res = new HashSet<>();
-        for (DescribeTransactionsResponseData.TopicData topicData : transactionState.topicPartitions()) {
-            String topic = topicData.name();
-            for (Integer partitionId : topicData.partitionIndexes()) {
+        for (DescribeTransactionsResponseData.TopicData topicData : transactionState.topics()) {
+            String topic = topicData.topic();
+            for (Integer partitionId : topicData.partitions()) {
                 res.add(new TopicPartition(topic, partitionId));
             }
         }

@@ -19,11 +19,11 @@ package org.apache.kafka.streams.processor.internals;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.TimeoutException;
+import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
@@ -31,6 +31,7 @@ import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.errors.DeserializationExceptionHandler;
 import org.apache.kafka.streams.errors.LockException;
 import org.apache.kafka.streams.errors.StreamsException;
+import org.apache.kafka.streams.errors.TaskCorruptedException;
 import org.apache.kafka.streams.errors.TaskMigratedException;
 import org.apache.kafka.streams.errors.TopologyException;
 import org.apache.kafka.streams.processor.Cancellable;
@@ -99,6 +100,7 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
     private final InternalProcessorContext processorContext;
     private final RecordQueueCreator recordQueueCreator;
 
+    private StampedRecord record;
     private boolean commitNeeded = false;
     private boolean commitRequested = false;
     private boolean hasPendingTxCommit = false;
@@ -181,6 +183,7 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
         partitionGroup = new PartitionGroup(
             logContext,
             createPartitionQueues(),
+            mainConsumer::currentLag,
             TaskMetrics.recordLatenessSensor(threadId, taskId, streamsMetrics),
             enforcedProcessingSensor,
             maxTaskIdleMs
@@ -621,6 +624,7 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
                 throw new IllegalStateException("Unknown state " + state() + " while closing active task " + id);
         }
 
+        record = null;
         partitionGroup.clear();
         closeTaskSensor.record();
 
@@ -630,11 +634,6 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
     /**
      * An active task is processable if its buffer contains data for all of its input
      * source topic partitions, or if it is enforced to be processable.
-     *
-     * Note that this method is _NOT_ idempotent, because the internal bookkeeping
-     * consumes the partition metadata. For example, unit tests may have to invoke
-     * {@link #addFetchedMetadata(TopicPartition, ConsumerRecords.Metadata)} again
-     * invoking this method.
      */
     public boolean isProcessable(final long wallClockTime) {
         if (state() == State.CLOSED) {
@@ -663,17 +662,20 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
      */
     @SuppressWarnings("unchecked")
     public boolean process(final long wallClockTime) {
-        if (!isProcessable(wallClockTime)) {
-            return false;
-        }
-
-        // get the next record to process
-        final StampedRecord record = partitionGroup.nextRecord(recordInfo, wallClockTime);
-
-        // if there is no record to process, return immediately
         if (record == null) {
-            return false;
+            if (!isProcessable(wallClockTime)) {
+                return false;
+            }
+
+            // get the next record to process
+            record = partitionGroup.nextRecord(recordInfo, wallClockTime);
+
+            // if there is no record to process, return immediately
+            if (record == null) {
+                return false;
+            }
         }
+
 
         try {
             // process the record by passing to the source node of the topology
@@ -682,17 +684,14 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
 
             log.trace("Start processing one record [{}]", record);
 
-            updateProcessorContext(
-                currNode,
-                wallClockTime,
-                new ProcessorRecordContext(
-                    record.timestamp,
-                    record.offset(),
-                    record.partition(),
-                    record.topic(),
-                    record.headers()
-                )
+            final ProcessorRecordContext recordContext = new ProcessorRecordContext(
+                record.timestamp,
+                record.offset(),
+                record.partition(),
+                record.topic(),
+                record.headers()
             );
+            updateProcessorContext(currNode, wallClockTime, recordContext);
 
             maybeRecordE2ELatency(record.timestamp, wallClockTime, currNode.name());
             final Record<Object, Object> toProcess = new Record<>(
@@ -714,19 +713,34 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
             if (recordInfo.queue().size() == maxBufferedSize) {
                 mainConsumer.resume(singleton(partition));
             }
-        } catch (final StreamsException e) {
-            throw e;
+
+            record = null;
+        } catch (final TimeoutException timeoutException) {
+            if (!eosEnabled) {
+                throw timeoutException;
+            } else {
+                record = null;
+                throw new TaskCorruptedException(Collections.singleton(id));
+            }
+        } catch (final StreamsException exception) {
+            record = null;
+            throw exception;
         } catch (final RuntimeException e) {
-            final String stackTrace = getStacktraceString(e);
-            throw new StreamsException(String.format("Exception caught in process. taskId=%s, " +
-                                                  "processor=%s, topic=%s, partition=%d, offset=%d, stacktrace=%s",
-                                              id(),
-                                              processorContext.currentNode().name(),
-                                              record.topic(),
-                                              record.partition(),
-                                              record.offset(),
-                                              stackTrace
-            ), e);
+            final StreamsException error = new StreamsException(
+                String.format(
+                    "Exception caught in process. taskId=%s, processor=%s, topic=%s, partition=%d, offset=%d, stacktrace=%s",
+                    id(),
+                    processorContext.currentNode().name(),
+                    record.topic(),
+                    record.partition(),
+                    record.offset(),
+                    getStacktraceString(e)
+                ),
+                e
+            );
+            record = null;
+
+            throw error;
         } finally {
             processorContext.setCurrentNode(null);
         }
@@ -771,7 +785,16 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
             throw new IllegalStateException(String.format("%sCurrent node is not null", logPrefix));
         }
 
-        updateProcessorContext(node, time.milliseconds(), null);
+        // when punctuating, we need to preserve the timestamp (this can be either system time or event time)
+        // while other record context are set as dummy: null topic, -1 partition, -1 offset and empty header
+        final ProcessorRecordContext recordContext = new ProcessorRecordContext(
+            timestamp,
+            -1L,
+            -1,
+            null,
+            new RecordHeaders()
+        );
+        updateProcessorContext(node, time.milliseconds(), recordContext);
 
         if (log.isTraceEnabled()) {
             log.trace("Punctuating processor {} with timestamp {} and punctuation type {}", node.name(), timestamp, type);
@@ -899,11 +922,6 @@ public class StreamTask extends AbstractTask implements ProcessorNodePunctuator,
         if (newQueueSize > maxBufferedSize) {
             mainConsumer.pause(singleton(partition));
         }
-    }
-
-    @Override
-    public void addFetchedMetadata(final TopicPartition partition, final ConsumerRecords.Metadata metadata) {
-        partitionGroup.addFetchedMetadata(partition, metadata);
     }
 
     /**

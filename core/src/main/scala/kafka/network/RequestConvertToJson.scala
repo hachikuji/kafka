@@ -84,6 +84,7 @@ object RequestConvertToJson {
       case req: StopReplicaRequest => StopReplicaRequestDataJsonConverter.write(req.data, request.version)
       case req: SyncGroupRequest => SyncGroupRequestDataJsonConverter.write(req.data, request.version)
       case req: TxnOffsetCommitRequest => TxnOffsetCommitRequestDataJsonConverter.write(req.data, request.version)
+      case req: UnregisterBrokerRequest => UnregisterBrokerRequestDataJsonConverter.write(req.data, request.version)
       case req: UpdateFeaturesRequest => UpdateFeaturesRequestDataJsonConverter.write(req.data, request.version)
       case req: UpdateMetadataRequest => UpdateMetadataRequestDataJsonConverter.write(req.data, request.version)
       case req: VoteRequest => VoteRequestDataJsonConverter.write(req.data, request.version)
@@ -91,6 +92,8 @@ object RequestConvertToJson {
       case req: FetchSnapshotRequest => FetchSnapshotRequestDataJsonConverter.write(req.data, request.version)
       case req: DescribeClusterRequest => DescribeClusterRequestDataJsonConverter.write(req.data, request.version)
       case req: DescribeProducersRequest => DescribeProducersRequestDataJsonConverter.write(req.data, request.version)
+      case req: DescribeTransactionsRequest => DescribeTransactionsRequestDataJsonConverter.write(req.data, request.version)
+      case req: ListTransactionsRequest => ListTransactionsRequestDataJsonConverter.write(req.data, request.version)
       case _ => throw new IllegalStateException(s"ApiKey ${request.apiKey} is not currently handled in `request`, the " +
         "code should be updated to do so.");
     }
@@ -155,6 +158,7 @@ object RequestConvertToJson {
       case res: StopReplicaResponse => StopReplicaResponseDataJsonConverter.write(res.data, version)
       case res: SyncGroupResponse => SyncGroupResponseDataJsonConverter.write(res.data, version)
       case res: TxnOffsetCommitResponse => TxnOffsetCommitResponseDataJsonConverter.write(res.data, version)
+      case res: UnregisterBrokerResponse => UnregisterBrokerResponseDataJsonConverter.write(res.data, version)
       case res: UpdateFeaturesResponse => UpdateFeaturesResponseDataJsonConverter.write(res.data, version)
       case res: UpdateMetadataResponse => UpdateMetadataResponseDataJsonConverter.write(res.data, version)
       case res: WriteTxnMarkersResponse => WriteTxnMarkersResponseDataJsonConverter.write(res.data, version)
@@ -162,6 +166,8 @@ object RequestConvertToJson {
       case res: FetchSnapshotResponse => FetchSnapshotResponseDataJsonConverter.write(res.data, version)
       case res: DescribeClusterResponse => DescribeClusterResponseDataJsonConverter.write(res.data, version)
       case res: DescribeProducersResponse => DescribeProducersResponseDataJsonConverter.write(res.data, version)
+      case res: DescribeTransactionsResponse => DescribeTransactionsResponseDataJsonConverter.write(res.data, version)
+      case res: ListTransactionsResponse => ListTransactionsResponseDataJsonConverter.write(res.data, version)
       case _ => throw new IllegalStateException(s"ApiKey ${response.apiKey} is not currently handled in `response`, the " +
         "code should be updated to do so.");
     }

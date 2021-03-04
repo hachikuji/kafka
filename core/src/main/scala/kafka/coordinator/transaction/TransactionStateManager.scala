@@ -28,7 +28,6 @@ import kafka.server.{Defaults, FetchLogEnd, ReplicaManager}
 import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
 import kafka.utils.{Logging, Pool, Scheduler}
 import kafka.utils.Implicits._
-import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.message.ListTransactionsResponseData
 import org.apache.kafka.common.metrics.Metrics
@@ -73,7 +72,6 @@ object TransactionStateManager {
  * </ul>
  */
 class TransactionStateManager(brokerId: Int,
-                              zkClient: KafkaZkClient,
                               scheduler: Scheduler,
                               replicaManager: ReplicaManager,
                               config: TransactionConfig,
@@ -97,7 +95,8 @@ class TransactionStateManager(brokerId: Int,
   private[transaction] val transactionMetadataCache: mutable.Map[Int, TxnMetadataCacheEntry] = mutable.Map()
 
   /** number of partitions for the transaction log topic */
-  private val transactionTopicPartitionCount = getTransactionTopicPartitionCount
+  private var retrieveTransactionTopicPartitionCount: () => Int = _
+  @volatile private var transactionTopicPartitionCount: Int = _
 
   /** setup metrics*/
   private val partitionLoadSensor = metrics.sensor(TransactionStateManager.LoadTimeSensor)
@@ -226,39 +225,53 @@ class TransactionStateManager(brokerId: Int,
   }
 
   def listTransactionStates(
-    filteredProducerIds: Set[Long],
-    filteredStateNames: Set[String]
-  ): Either[Errors, List[ListTransactionsResponseData.TransactionState]] = {
+    filterProducerIds: Set[Long],
+    filterStateNames: Set[String]
+  ): ListTransactionsResponseData = {
     inReadLock(stateLock) {
+      val response = new ListTransactionsResponseData()
       if (loadingPartitions.nonEmpty) {
-        Left(Errors.COORDINATOR_LOAD_IN_PROGRESS)
+        response.setErrorCode(Errors.COORDINATOR_LOAD_IN_PROGRESS.code)
       } else {
-        val filteredStates = filteredStateNames.flatMap(TransactionMetadata.fromName)
-        val states = mutable.ListBuffer.empty[ListTransactionsResponseData.TransactionState]
-
-        def shouldInclude(txnMetadata: TransactionMetadata): Boolean = {
-          if (txnMetadata.state == Dead) {
-            false
-          } else {
-            (filteredProducerIds.isEmpty && filteredStates.isEmpty) ||
-              filteredProducerIds.contains(txnMetadata.producerId) ||
-              filteredStates.contains(txnMetadata.state)
+        val filterStates = mutable.Set.empty[TransactionState]
+        filterStateNames.foreach { stateName =>
+          TransactionState.fromName(stateName) match {
+            case Some(state) => filterStates += state
+            case None => response.unknownStateFilters.add(stateName)
           }
         }
 
-        transactionMetadataCache.foreach { case (_, cache) =>
+        def shouldInclude(txnMetadata: TransactionMetadata): Boolean = {
+          if (txnMetadata.state == Dead) {
+            // We filter the `Dead` state since it is a transient state which
+            // indicates that the transactionalId and its metadata are in the
+            // process of expiration and removal.
+            false
+          } else if (filterProducerIds.nonEmpty && !filterProducerIds.contains(txnMetadata.producerId)) {
+            false
+          } else if (filterStateNames.nonEmpty && !filterStates.contains(txnMetadata.state)) {
+            false
+          } else {
+            true
+          }
+        }
+
+        val states = new java.util.ArrayList[ListTransactionsResponseData.TransactionState]
+        transactionMetadataCache.forKeyValue { (_, cache) =>
           cache.metadataPerTransactionalId.values.foreach { txnMetadata =>
             txnMetadata.inLock {
               if (shouldInclude(txnMetadata)) {
-                states += new ListTransactionsResponseData.TransactionState()
+                states.add(new ListTransactionsResponseData.TransactionState()
                   .setTransactionalId(txnMetadata.transactionalId)
                   .setProducerId(txnMetadata.producerId)
-                  .setTransactionState(txnMetadata.state.toString)
+                  .setTransactionState(txnMetadata.state.name)
+                )
               }
             }
           }
         }
-        Right(states.toList)
+        response.setErrorCode(Errors.NONE.code)
+          .setTransactionStates(states)
       }
     }
   }
@@ -314,14 +327,6 @@ class TransactionStateManager(brokerId: Int,
   }
 
   def partitionFor(transactionalId: String): Int = Utils.abs(transactionalId.hashCode) % transactionTopicPartitionCount
-
-  /**
-   * Gets the partition count of the transaction log topic from ZooKeeper.
-   * If the topic does not exist, the default partition count is returned.
-   */
-  private def getTransactionTopicPartitionCount: Int = {
-    zkClient.getTopicPartitionCount(Topic.TRANSACTION_STATE_TOPIC_NAME).getOrElse(config.transactionLogNumPartitions)
-  }
 
   private def loadTransactionMetadata(topicPartition: TopicPartition, coordinatorEpoch: Int): Pool[String, TransactionMetadata] =  {
     def logEndOffset = replicaManager.getLogEndOffset(topicPartition).getOrElse(-1L)
@@ -511,9 +516,10 @@ class TransactionStateManager(brokerId: Int,
   }
 
   private def validateTransactionTopicPartitionCountIsStable(): Unit = {
-    val curTransactionTopicPartitionCount = getTransactionTopicPartitionCount
-    if (transactionTopicPartitionCount != curTransactionTopicPartitionCount)
-      throw new KafkaException(s"Transaction topic number of partitions has changed from $transactionTopicPartitionCount to $curTransactionTopicPartitionCount")
+    val previouslyDeterminedPartitionCount = transactionTopicPartitionCount
+    val curTransactionTopicPartitionCount = retrieveTransactionTopicPartitionCount()
+    if (previouslyDeterminedPartitionCount != curTransactionTopicPartitionCount)
+      throw new KafkaException(s"Transaction topic number of partitions has changed from $previouslyDeterminedPartitionCount to $curTransactionTopicPartitionCount")
   }
 
   def appendTransactionToLog(transactionalId: String,
@@ -679,6 +685,13 @@ class TransactionStateManager(brokerId: Int,
           }
       }
     }
+  }
+
+  def startup(retrieveTransactionTopicPartitionCount: () => Int, enableTransactionalIdExpiration: Boolean = true): Unit = {
+    this.retrieveTransactionTopicPartitionCount = retrieveTransactionTopicPartitionCount
+    transactionTopicPartitionCount = retrieveTransactionTopicPartitionCount()
+    if (enableTransactionalIdExpiration)
+      this.enableTransactionalIdExpiration()
   }
 
   def shutdown(): Unit = {

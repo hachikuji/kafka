@@ -152,6 +152,7 @@ import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteReque
 import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestTopic;
 import org.apache.kafka.common.message.OffsetDeleteRequestData.OffsetDeleteRequestTopicCollection;
 import org.apache.kafka.common.message.RenewDelegationTokenRequestData;
+import org.apache.kafka.common.message.UnregisterBrokerRequestData;
 import org.apache.kafka.common.message.UpdateFeaturesRequestData;
 import org.apache.kafka.common.message.UpdateFeaturesResponseData.UpdatableFeatureResult;
 import org.apache.kafka.common.metrics.JmxReporter;
@@ -241,6 +242,8 @@ import org.apache.kafka.common.requests.OffsetFetchRequest;
 import org.apache.kafka.common.requests.OffsetFetchResponse;
 import org.apache.kafka.common.requests.RenewDelegationTokenRequest;
 import org.apache.kafka.common.requests.RenewDelegationTokenResponse;
+import org.apache.kafka.common.requests.UnregisterBrokerRequest;
+import org.apache.kafka.common.requests.UnregisterBrokerResponse;
 import org.apache.kafka.common.requests.UpdateFeaturesRequest;
 import org.apache.kafka.common.requests.UpdateFeaturesResponse;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -777,6 +780,11 @@ public class KafkaAdminClient extends AdminClient {
             return curNode;
         }
 
+        void abortAndFail(TimeoutException timeoutException) {
+            this.aborted = true;
+            fail(time.milliseconds(), timeoutException);
+        }
+
         /**
          * Handle a failure.
          *
@@ -839,8 +847,12 @@ public class KafkaAdminClient extends AdminClient {
                 log.debug("{} timed out at {} after {} attempt(s)", this, now, tries,
                     new Exception(prettyPrintException(cause)));
             }
-            handleFailure(new TimeoutException(this + " timed out at " + now
-                + " after " + tries + " attempt(s)", cause));
+            if (cause instanceof TimeoutException) {
+                handleFailure(cause);
+            } else {
+                handleFailure(new TimeoutException(this + " timed out at " + now
+                    + " after " + tries + " attempt(s)", cause));
+            }
         }
 
         /**
@@ -1150,7 +1162,7 @@ public class KafkaAdminClient extends AdminClient {
                     if (call.aborted) {
                         log.warn("Aborted call {} is still in callsInFlight.", call);
                     } else {
-                        log.debug("Closing connection to {} to time out {}", nodeId, call);
+                        log.debug("Closing connection to {} due to timeout while awaiting {}", nodeId, call);
                         call.aborted = true;
                         client.disconnect(nodeId);
                         numTimedOut++;
@@ -1395,7 +1407,7 @@ public class KafkaAdminClient extends AdminClient {
                 client.wakeup(); // wake the thread if it is in poll()
             } else {
                 log.debug("The AdminClient thread has exited. Timing out {}.", call);
-                call.fail(Long.MAX_VALUE, new TimeoutException("The AdminClient thread has exited."));
+                call.abortAndFail(new TimeoutException("The AdminClient thread has exited."));
             }
         }
 
@@ -1410,7 +1422,7 @@ public class KafkaAdminClient extends AdminClient {
         void call(Call call, long now) {
             if (hardShutdownTimeMs.get() != INVALID_SHUTDOWN_TIME) {
                 log.debug("The AdminClient is not accepting new calls. Timing out {}.", call);
-                call.fail(Long.MAX_VALUE, new TimeoutException("The AdminClient thread is not accepting new calls."));
+                call.abortAndFail(new TimeoutException("The AdminClient thread is not accepting new calls."));
             } else {
                 enqueue(call, now);
             }
@@ -2537,7 +2549,6 @@ public class KafkaAdminClient extends AdminClient {
                     return new DescribeLogDirsRequest.Builder(new DescribeLogDirsRequestData().setTopics(null));
                 }
 
-                @SuppressWarnings("deprecation")
                 @Override
                 public void handleResponse(AbstractResponse abstractResponse) {
                     DescribeLogDirsResponse response = (DescribeLogDirsResponse) abstractResponse;
@@ -2590,13 +2601,13 @@ public class KafkaAdminClient extends AdminClient {
                 brokerId -> new DescribeLogDirsRequestData());
             DescribableLogDirTopic describableLogDirTopic = requestData.topics().find(replica.topic());
             if (describableLogDirTopic == null) {
-                List<Integer> partitionIndex = new ArrayList<>();
-                partitionIndex.add(replica.partition());
+                List<Integer> partitions = new ArrayList<>();
+                partitions.add(replica.partition());
                 describableLogDirTopic = new DescribableLogDirTopic().setTopic(replica.topic())
-                        .setPartitionIndex(partitionIndex);
+                        .setPartitions(partitions);
                 requestData.topics().add(describableLogDirTopic);
             } else {
-                describableLogDirTopic.partitionIndex().add(replica.partition());
+                describableLogDirTopic.partitions().add(replica.partition());
             }
         }
 
@@ -2606,7 +2617,7 @@ public class KafkaAdminClient extends AdminClient {
             final DescribeLogDirsRequestData topicPartitions = entry.getValue();
             final Map<TopicPartition, ReplicaLogDirInfo> replicaDirInfoByPartition = new HashMap<>();
             for (DescribableLogDirTopic topicPartition: topicPartitions.topics()) {
-                for (Integer partitionId : topicPartition.partitionIndex()) {
+                for (Integer partitionId : topicPartition.partitions()) {
                     replicaDirInfoByPartition.put(new TopicPartition(topicPartition.topic(), partitionId), new ReplicaLogDirInfo());
                 }
             }
@@ -4598,7 +4609,7 @@ public class KafkaAdminClient extends AdminClient {
         final Map<String, KafkaFutureImpl<Void>> updateFutures = new HashMap<>();
         for (final Map.Entry<String, FeatureUpdate> entry : featureUpdates.entrySet()) {
             final String feature = entry.getKey();
-            if (feature.trim().isEmpty()) {
+            if (Utils.isBlank(feature)) {
                 throw new IllegalArgumentException("Provided feature can not be empty.");
             }
             updateFutures.put(entry.getKey(), new KafkaFutureImpl<>());
@@ -4672,6 +4683,48 @@ public class KafkaAdminClient extends AdminClient {
 
         runnable.call(call, now);
         return new UpdateFeaturesResult(new HashMap<>(updateFutures));
+    }
+
+    @Override
+    public UnregisterBrokerResult unregisterBroker(int brokerId, UnregisterBrokerOptions options) {
+        final KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
+        final long now = time.milliseconds();
+        final Call call = new Call("unregisterBroker", calcDeadlineMs(now, options.timeoutMs()),
+                new LeastLoadedNodeProvider()) {
+
+            @Override
+            UnregisterBrokerRequest.Builder createRequest(int timeoutMs) {
+                UnregisterBrokerRequestData data =
+                        new UnregisterBrokerRequestData().setBrokerId(brokerId);
+                return new UnregisterBrokerRequest.Builder(data);
+            }
+
+            @Override
+            void handleResponse(AbstractResponse abstractResponse) {
+                final UnregisterBrokerResponse response =
+                        (UnregisterBrokerResponse) abstractResponse;
+                Errors error = Errors.forCode(response.data().errorCode());
+                switch (error) {
+                    case NONE:
+                        future.complete(null);
+                        break;
+                    case REQUEST_TIMED_OUT:
+                        throw error.exception();
+                    default:
+                        log.error("Unregister broker request for broker ID {} failed: {}",
+                            brokerId, error.message());
+                        future.completeExceptionally(error.exception());
+                        break;
+                }
+            }
+
+            @Override
+            void handleFailure(Throwable throwable) {
+                future.completeExceptionally(throwable);
+            }
+        };
+        runnable.call(call, now);
+        return new UnregisterBrokerResult(future);
     }
 
     /**

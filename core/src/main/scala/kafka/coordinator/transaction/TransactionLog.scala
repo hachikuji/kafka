@@ -128,7 +128,7 @@ object TransactionLog {
           producerEpoch = value.producerEpoch,
           lastProducerEpoch = RecordBatch.NO_PRODUCER_EPOCH,
           txnTimeoutMs = value.transactionTimeoutMs,
-          state = TransactionMetadata.fromId(value.transactionStatus),
+          state = TransactionState.fromId(value.transactionStatus),
           topicPartitions = mutable.Set.empty[TopicPartition],
           txnStartTimestamp = value.transactionStartTimestampMs,
           txnLastUpdateTimestamp = value.transactionLastUpdateTimestampMs)

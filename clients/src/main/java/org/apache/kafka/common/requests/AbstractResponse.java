@@ -239,6 +239,8 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return BrokerRegistrationResponse.parse(responseBuffer, version);
             case BROKER_HEARTBEAT:
                 return BrokerHeartbeatResponse.parse(responseBuffer, version);
+            case UNREGISTER_BROKER:
+                return UnregisterBrokerResponse.parse(responseBuffer, version);
             case DESCRIBE_TRANSACTIONS:
                 return DescribeTransactionsResponse.parse(responseBuffer, version);
             case LIST_TRANSACTIONS:
