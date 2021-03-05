@@ -259,12 +259,12 @@ public class ListTransactionsDriverTest {
         assertTrue(spec.request instanceof ListTransactionsRequest.Builder);
         ListTransactionsRequest.Builder request = (ListTransactionsRequest.Builder) spec.request;
 
-        assertEquals(options.filteredProducerIds(), new HashSet<>(request.data.producerIdFilter()));
+        assertEquals(options.filteredProducerIds(), new HashSet<>(request.data.producerIdFilters()));
 
         Set<String> expectedFilteredStates = options.filteredStates().stream()
             .map(TransactionState::toString)
             .collect(Collectors.toSet());
-        assertEquals(expectedFilteredStates, new HashSet<>(request.data.statesFilter()));
+        assertEquals(expectedFilteredStates, new HashSet<>(request.data.stateFilters()));
     }
 
     private RequestSpec<BrokerKey> findBrokerRequest(

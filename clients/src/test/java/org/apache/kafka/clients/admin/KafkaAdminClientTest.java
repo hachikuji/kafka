@@ -5218,7 +5218,7 @@ public class KafkaAdminClientTest {
                 new DescribeTransactionsResponse(new DescribeTransactionsResponseData().setTransactionStates(
                     singletonList(new DescribeTransactionsResponseData.TransactionState()
                         .setErrorCode(Errors.NONE.code())
-                        .setProducerEpoch(expected.producerEpoch())
+                        .setProducerEpoch((short) expected.producerEpoch())
                         .setProducerId(expected.producerId())
                         .setTransactionalId(transactionalId)
                         .setTransactionTimeoutMs(10000)

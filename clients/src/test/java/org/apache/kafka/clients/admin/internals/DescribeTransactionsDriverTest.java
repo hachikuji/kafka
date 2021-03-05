@@ -395,17 +395,17 @@ public class DescribeTransactionsDriverTest {
             .setTransactionState("Ongoing")
             .setTransactionalId(transactionalId)
             .setProducerId(12345L)
-            .setProducerEpoch(15)
+            .setProducerEpoch((short) 15)
             .setTransactionStartTimeMs(1599151791L)
             .setTransactionTimeoutMs(10000)
-            .setTopicPartitions(asList(
+            .setTopics(new DescribeTransactionsResponseData.TopicDataCollection(asList(
                 new DescribeTransactionsResponseData.TopicData()
-                    .setName("foo")
-                    .setPartitionIndexes(asList(1, 3, 5)),
+                    .setTopic("foo")
+                    .setPartitions(asList(1, 3, 5)),
                 new DescribeTransactionsResponseData.TopicData()
-                    .setName("bar")
-                    .setPartitionIndexes(asList(1, 3, 5))
-            ));
+                    .setTopic("bar")
+                    .setPartitions(asList(1, 3, 5))
+            ).iterator()));
     }
 
     private DescribeTransactionsResponseData.TransactionState sampleTransactionState2(
@@ -416,7 +416,7 @@ public class DescribeTransactionsDriverTest {
             .setTransactionState("Empty")
             .setTransactionalId(transactionalId)
             .setProducerId(98765L)
-            .setProducerEpoch(30)
+            .setProducerEpoch((short) 30)
             .setTransactionStartTimeMs(-1);
     }
 
@@ -437,9 +437,9 @@ public class DescribeTransactionsDriverTest {
         DescribeTransactionsResponseData.TransactionState transactionState
     ) {
         Set<TopicPartition> topicPartitions = new HashSet<>();
-        for (DescribeTransactionsResponseData.TopicData topicData : transactionState.topicPartitions()) {
-            for (Integer partitionId : topicData.partitionIndexes()) {
-                topicPartitions.add(new TopicPartition(topicData.name(), partitionId));
+        for (DescribeTransactionsResponseData.TopicData topicData : transactionState.topics()) {
+            for (Integer partitionId : topicData.partitions()) {
+                topicPartitions.add(new TopicPartition(topicData.topic(), partitionId));
             }
         }
         return topicPartitions;

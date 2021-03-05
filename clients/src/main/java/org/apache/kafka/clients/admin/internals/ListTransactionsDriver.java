@@ -57,8 +57,8 @@ public class ListTransactionsDriver extends AllBrokerApiDriver<Collection<Transa
     @Override
     AbstractRequest.Builder<?> buildFulfillmentRequest(Integer brokerId) {
         ListTransactionsRequestData request = new ListTransactionsRequestData();
-        request.setProducerIdFilter(new ArrayList<>(options.filteredProducerIds()));
-        request.setStatesFilter(options.filteredStates().stream()
+        request.setProducerIdFilters(new ArrayList<>(options.filteredProducerIds()));
+        request.setStateFilters(options.filteredStates().stream()
             .map(TransactionState::toString)
             .collect(Collectors.toList()));
         return new ListTransactionsRequest.Builder(request);
