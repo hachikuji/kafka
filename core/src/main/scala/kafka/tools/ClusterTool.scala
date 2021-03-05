@@ -32,9 +32,12 @@ object ClusterTool extends Logging {
   def main(args: Array[String]): Unit = {
     try {
       val parser = ArgumentParsers.
-        newArgumentParser("kafka-cluster").
-        defaultHelp(true).
-        description("The Kafka cluster tool.")
+        newFor("kafka-cluster").
+        addHelp(true).
+        build()
+
+      parser.description("The Kafka cluster tool.")
+
       val subparsers = parser.addSubparsers().dest("command")
 
       val clusterIdParser = subparsers.addParser("cluster-id").
