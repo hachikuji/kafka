@@ -3177,47 +3177,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  def handleDescribeTransactionsRequest(request: RequestChannel.Request): Unit = {
-    val describeTransactionsRequest = request.body[DescribeTransactionsRequest]
-    val response = new DescribeTransactionsResponseData()
-
-    describeTransactionsRequest.data.transactionalIds.forEach { transactionalId =>
-      val transactionState = if (!authHelper.authorize(request.context, DESCRIBE, TRANSACTIONAL_ID, transactionalId)) {
-        new DescribeTransactionsResponseData.TransactionState()
-          .setTransactionalId(transactionalId)
-          .setErrorCode(Errors.TRANSACTIONAL_ID_AUTHORIZATION_FAILED.code)
-      } else {
-        txnCoordinator.handleDescribeTransactions(transactionalId)
-      }
-      response.transactionStates.add(transactionState)
-    }
-
-    requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs =>
-      new DescribeTransactionsResponse(response.setThrottleTimeMs(requestThrottleMs)))
-  }
-
-  def handleListTransactionsRequest(request: RequestChannel.Request): Unit = {
-    val listTransactionsRequest = request.body[ListTransactionsRequest]
-    val response = new ListTransactionsResponseData()
-
-    val filteredProducerIds = listTransactionsRequest.data.producerIdFilter.asScala.map(Long.unbox).toSet
-    val filteredStates = listTransactionsRequest.data.statesFilter.asScala.toSet
-
-    txnCoordinator.handleListTransactions(filteredProducerIds, filteredStates) match {
-      case Left(error) =>
-        response.setErrorCode(error.code)
-      case Right(transactions) =>
-        val authorizedTransactions = transactions.filter { state =>
-          authHelper.authorize(request.context, DESCRIBE, TRANSACTIONAL_ID, state.transactionalId)
-        }
-        response.setErrorCode(Errors.NONE.code)
-          .setTransactionStates(authorizedTransactions.asJava)
-    }
-
-    requestHelper.sendResponseMaybeThrottle(request, requestThrottleMs =>
-      new ListTransactionsResponse(response.setThrottleTimeMs(requestThrottleMs)))
-  }
-
   def handleDescribeCluster(request: RequestChannel.Request): Unit = {
     val describeClusterRequest = request.body[DescribeClusterRequest]
 
