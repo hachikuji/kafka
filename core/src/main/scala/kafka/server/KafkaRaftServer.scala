@@ -56,7 +56,7 @@ class KafkaRaftServer(
   private val metrics = Server.initializeMetrics(
     config,
     time,
-    metaProps.clusterId.toString
+    metaProps.clusterId
   )
 
   private val controllerQuorumVotersFuture = CompletableFuture.completedFuture(

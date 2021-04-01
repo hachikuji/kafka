@@ -88,8 +88,7 @@ object KafkaServer {
 class KafkaServer(
   val config: KafkaConfig,
   time: Time = Time.SYSTEM,
-  threadNamePrefix: Option[String] = None,
-  enableForwarding: Boolean = false
+  threadNamePrefix: Option[String] = None
 ) extends KafkaBroker with Server {
 
   private val startupComplete = new AtomicBoolean(false)
@@ -129,8 +128,6 @@ class KafkaServer(
   var transactionCoordinator: TransactionCoordinator = null
 
   var kafkaController: KafkaController = null
-
-  var forwardingManager: Option[ForwardingManager] = None
 
   var autoTopicCreationManager: AutoTopicCreationManager = null
 
@@ -257,25 +254,10 @@ class KafkaServer(
         tokenCache = new DelegationTokenCache(ScramMechanism.mechanismNames)
         credentialProvider = new CredentialProvider(ScramMechanism.mechanismNames, tokenCache)
 
-        /* start forwarding manager */
-        if (enableForwarding) {
-          val brokerToControllerManager = BrokerToControllerChannelManager(
-            controllerNodeProvider = MetadataCacheControllerNodeProvider(config, metadataCache),
-            time = time,
-            metrics = metrics,
-            config = config,
-            channelName = "forwarding",
-            threadNamePrefix = threadNamePrefix,
-            retryTimeoutMs = config.requestTimeoutMs.longValue)
-          brokerToControllerManager.start()
-          this.forwardingManager = Some(ForwardingManager(brokerToControllerManager))
-          clientToControllerChannelManager = Some(brokerToControllerManager)
-        }
-
         val apiVersionManager = ApiVersionManager(
           ListenerType.ZK_BROKER,
           config,
-          forwardingManager,
+          None,
           brokerFeatures,
           featureCache
         )
@@ -368,7 +350,7 @@ class KafkaServer(
             KafkaServer.MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS))
 
         /* start processing requests */
-        val zkSupport = ZkSupport(adminManager, kafkaController, zkClient, forwardingManager, metadataCache)
+        val zkSupport = ZkSupport(adminManager, kafkaController, zkClient, metadataCache)
         dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, zkSupport, replicaManager, groupCoordinator, transactionCoordinator,
           autoTopicCreationManager, config.brokerId, config, configRepository, metadataCache, metrics, authorizer, quotaManagers,
           fetchManager, brokerTopicStats, clusterId, time, tokenManager, apiVersionManager)

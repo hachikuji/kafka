@@ -85,7 +85,6 @@ abstract class KafkaServerTestHarness extends ZooKeeperTestHarness {
   protected def serverSaslProperties: Option[Properties] = None
   protected def clientSaslProperties: Option[Properties] = None
   protected def brokerTime(brokerId: Int): Time = Time.SYSTEM
-  protected def enableForwarding: Boolean = false
 
   @BeforeEach
   override def setUp(): Unit = {
@@ -103,8 +102,7 @@ abstract class KafkaServerTestHarness extends ZooKeeperTestHarness {
       servers += TestUtils.createServer(
         config,
         time = brokerTime(config.brokerId),
-        threadNamePrefix = None,
-        enableForwarding
+        threadNamePrefix = None
       )
     }
     brokerList = TestUtils.bootstrapServers(servers, listenerName)

@@ -60,8 +60,6 @@ object ConsumerTopicCreationTest {
     extends TestCase(brokerAutoTopicCreationEnable, consumerAllowAutoCreateTopics) {
 
     override protected def brokerCount: Int = 3
-
-    override def enableForwarding: Boolean = true
   }
 
   private class TestCase(brokerAutoTopicCreationEnable: JBoolean, consumerAllowAutoCreateTopics: JBoolean) extends IntegrationTestHarness {

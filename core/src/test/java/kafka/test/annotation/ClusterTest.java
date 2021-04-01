@@ -36,6 +36,7 @@ public @interface ClusterTest {
     int brokers() default 0;
     int controllers() default 0;
     AutoStart autoStart() default AutoStart.DEFAULT;
+    AutoCreateOffsetsTopic autoCreateOffsetsTopic() default AutoCreateOffsetsTopic.DEFAULT;
 
     String name() default "";
     SecurityProtocol securityProtocol() default SecurityProtocol.PLAINTEXT;

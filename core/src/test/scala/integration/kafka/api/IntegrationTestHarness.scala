@@ -52,6 +52,7 @@ abstract class IntegrationTestHarness extends KafkaServerTestHarness {
   private val adminClients = mutable.Buffer[Admin]()
 
   protected def interBrokerListenerName: ListenerName = listenerName
+  protected def createOffsetsTopic: Boolean = true
 
   protected def modifyConfigs(props: Seq[Properties]): Unit = {
     props.foreach(_ ++= serverConfig)
@@ -81,10 +82,6 @@ abstract class IntegrationTestHarness extends KafkaServerTestHarness {
 
   @BeforeEach
   override def setUp(): Unit = {
-    doSetup(createOffsetsTopic = true)
-  }
-
-  def doSetup(createOffsetsTopic: Boolean): Unit = {
     // Generate client security properties before starting the brokers in case certs are needed
     producerConfig ++= clientSecurityProps("producer")
     consumerConfig ++= clientSecurityProps("consumer")

@@ -58,6 +58,7 @@ class GroupAuthorizerIntegrationTest extends BaseRequestTest {
   override def brokerCount: Int = 1
   override def interBrokerListenerName: ListenerName = new ListenerName(BrokerListenerName)
   override def listenerName: ListenerName = new ListenerName(ClientListenerName)
+  override protected def createOffsetsTopic: Boolean = false
 
   def brokerPrincipal: KafkaPrincipal = BrokerPrincipal
   def clientPrincipal: KafkaPrincipal = ClientPrincipal
@@ -75,7 +76,7 @@ class GroupAuthorizerIntegrationTest extends BaseRequestTest {
 
   @BeforeEach
   override def setUp(): Unit = {
-    doSetup(createOffsetsTopic = false)
+    super.setUp()
 
     // Allow inter-broker communication
     TestUtils.addAndVerifyAcls(servers.head,

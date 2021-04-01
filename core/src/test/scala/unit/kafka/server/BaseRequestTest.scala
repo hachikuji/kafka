@@ -35,6 +35,7 @@ import scala.annotation.nowarn
 import scala.collection.Seq
 import scala.reflect.ClassTag
 
+
 abstract class BaseRequestTest extends IntegrationTestHarness {
   private var correlationId = 0
 

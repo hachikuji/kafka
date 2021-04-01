@@ -92,6 +92,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
   override def interBrokerListenerName: ListenerName = new ListenerName(BrokerListenerName)
   override def listenerName: ListenerName = new ListenerName(ClientListenerName)
   override def brokerCount: Int = 1
+  override protected def createOffsetsTopic: Boolean = false
 
   def clientPrincipal: KafkaPrincipal = ClientPrincipal
   def brokerPrincipal: KafkaPrincipal = BrokerPrincipal
@@ -309,7 +310,7 @@ class AuthorizerIntegrationTest extends BaseRequestTest {
 
   @BeforeEach
   override def setUp(): Unit = {
-    doSetup(createOffsetsTopic = false)
+    super.setUp()
 
     // Allow inter-broker communication
     addAndVerifyAcls(Set(new AccessControlEntry(brokerPrincipal.toString, WildcardHost, CLUSTER_ACTION, ALLOW)), clusterResource)

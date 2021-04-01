@@ -140,11 +140,6 @@ class KafkaApisTest {
     properties.put(KafkaConfig.InterBrokerProtocolVersionProp, interBrokerProtocolVersion.toString)
     properties.put(KafkaConfig.LogMessageFormatVersionProp, interBrokerProtocolVersion.toString)
 
-    val forwardingManagerOpt = if (enableForwarding)
-      Some(this.forwardingManager)
-    else
-      None
-
     val metadataSupport = if (raftSupport) {
       // it will be up to the test to replace the default ZkMetadataCache implementation
       // with a RaftMetadataCache instance
@@ -156,7 +151,7 @@ class KafkaApisTest {
     } else {
       metadataCache match {
         case zkMetadataCache: ZkMetadataCache =>
-          ZkSupport(adminManager, controller, zkClient, forwardingManagerOpt, zkMetadataCache)
+          ZkSupport(adminManager, controller, zkClient, zkMetadataCache)
         case _ => throw new IllegalStateException("Test must set an instance of ZkMetadataCache")
       }
     }
@@ -3760,12 +3755,6 @@ class KafkaApisTest {
   def testRaftShouldNeverHandleAlterIsrRequest(): Unit = {
     metadataCache = MetadataCache.raftMetadataCache(brokerId)
     verifyShouldNeverHandle(createKafkaApis(raftSupport = true).handleAlterIsrRequest)
-  }
-
-  @Test
-  def testRaftShouldNeverHandleEnvelope(): Unit = {
-    metadataCache = MetadataCache.raftMetadataCache(brokerId)
-    verifyShouldNeverHandle(createKafkaApis(raftSupport = true).handleEnvelope)
   }
 
   @Test

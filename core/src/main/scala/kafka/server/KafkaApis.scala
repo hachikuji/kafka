@@ -125,10 +125,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     info("Shutdown complete.")
   }
 
-  private def isForwardingEnabled(request: RequestChannel.Request): Boolean = {
-    metadataSupport.forwardingManager.isDefined && request.context.principalSerde.isPresent
-  }
-
   private def maybeForwardToController(
     request: RequestChannel.Request,
     handler: RequestChannel.Request => Unit
@@ -144,7 +140,10 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     }
 
-    metadataSupport.maybeForward(request, handler, responseCallback)
+    metadataSupport match {
+      case raftSupport: RaftSupport => raftSupport.maybeForward(request, handler, responseCallback)
+      case _: ZkSupport => handler(request)
+    }
   }
 
   /**
@@ -216,7 +215,6 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.ALTER_USER_SCRAM_CREDENTIALS => maybeForwardToController(request, handleAlterUserScramCredentialsRequest)
         case ApiKeys.ALTER_ISR => handleAlterIsrRequest(request)
         case ApiKeys.UPDATE_FEATURES => maybeForwardToController(request, handleUpdateFeatures)
-        case ApiKeys.ENVELOPE => handleEnvelope(request)
         case ApiKeys.DESCRIBE_CLUSTER => handleDescribeCluster(request)
         case ApiKeys.DESCRIBE_PRODUCERS => handleDescribeProducersRequest(request)
         case ApiKeys.UNREGISTER_BROKER => maybeForwardToController(request, handleUnregisterBrokerRequest)
@@ -3208,34 +3206,6 @@ class KafkaApis(val requestChannel: RequestChannel,
 
       new DescribeClusterResponse(data)
     })
-  }
-
-  def handleEnvelope(request: RequestChannel.Request): Unit = {
-    val zkSupport = metadataSupport.requireZkOrThrow(KafkaApis.shouldNeverReceive(request))
-
-    // If forwarding is not yet enabled or this request has been received on an invalid endpoint,
-    // then we treat the request as unparsable and close the connection.
-    if (!isForwardingEnabled(request)) {
-      info(s"Closing connection ${request.context.connectionId} because it sent an `Envelope` " +
-        "request even though forwarding has not been enabled")
-      requestChannel.closeConnection(request, Collections.emptyMap())
-      return
-    } else if (!request.context.fromPrivilegedListener) {
-      info(s"Closing connection ${request.context.connectionId} from listener ${request.context.listenerName} " +
-        s"because it sent an `Envelope` request, which is only accepted on the inter-broker listener " +
-        s"${config.interBrokerListenerName}.")
-      requestChannel.closeConnection(request, Collections.emptyMap())
-      return
-    } else if (!authHelper.authorize(request.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME)) {
-      requestHelper.sendErrorResponseMaybeThrottle(request, new ClusterAuthorizationException(
-        s"Principal ${request.context.principal} does not have required CLUSTER_ACTION for envelope"))
-      return
-    } else if (!zkSupport.controller.isActive) {
-      requestHelper.sendErrorResponseMaybeThrottle(request, new NotControllerException(
-        s"Broker $brokerId is not the active controller"))
-      return
-    }
-    EnvelopeUtils.handleEnvelopeRequest(request, requestChannel.metrics, handle)
   }
 
   def handleDescribeProducersRequest(request: RequestChannel.Request): Unit = {

@@ -30,7 +30,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-
 @ClusterTestDefaults(clusterType = Type.ZK)   // Set defaults for a few params in @ClusterTest(s)
 @ExtendWith(ClusterTestExtensions.class)
 public class ClusterTestExtensionsTest {
@@ -52,7 +51,7 @@ public class ClusterTestExtensionsTest {
     @BeforeEach
     public void beforeEach(ClusterConfig config) {
         Assertions.assertSame(this.config, config, "Injected objects should be the same");
-        config.serverProperties().put("before", "each");
+        config.serverProperties().setProperty("before", "each");
     }
 
     // AfterEach runs after test invocation and cluster teardown

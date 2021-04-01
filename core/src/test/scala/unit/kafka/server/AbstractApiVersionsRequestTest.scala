@@ -16,16 +16,15 @@
  */
 package kafka.server
 
-import java.util.Properties
-
 import integration.kafka.server.IntegrationTestUtils
-import kafka.test.ClusterInstance
+import kafka.test.{ClusterConfig, ClusterInstance}
 import org.apache.kafka.common.message.ApiMessageType.ListenerType
 import org.apache.kafka.common.message.ApiVersionsResponseData.ApiVersion
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.ApiKeys
 import org.apache.kafka.common.requests.{ApiVersionsRequest, ApiVersionsResponse}
 import org.junit.jupiter.api.Assertions._
+import org.junit.jupiter.api.BeforeEach
 
 import scala.jdk.CollectionConverters._
 
@@ -37,13 +36,13 @@ abstract class AbstractApiVersionsRequestTest(cluster: ClusterInstance) {
 
   def controlPlaneListenerName = new ListenerName("CONTROLLER")
 
-  // Configure control plane listener to make sure we have separate listeners for testing.
-  def brokerPropertyOverrides(properties: Properties): Unit = {
-    val securityProtocol = cluster.config().securityProtocol()
-    properties.setProperty(KafkaConfig.ControlPlaneListenerNameProp, controlPlaneListenerName.value())
-    properties.setProperty(KafkaConfig.ListenerSecurityProtocolMapProp, s"${controlPlaneListenerName.value()}:$securityProtocol,$securityProtocol:$securityProtocol")
-    properties.setProperty("listeners", s"$securityProtocol://localhost:0,${controlPlaneListenerName.value()}://localhost:0")
-    properties.setProperty(KafkaConfig.AdvertisedListenersProp, s"$securityProtocol://localhost:0,${controlPlaneListenerName.value()}://localhost:0")
+  @BeforeEach
+  def setup(config: ClusterConfig): Unit = {
+    val securityProtocol = config.securityProtocol()
+    config.serverProperties().setProperty(KafkaConfig.ControlPlaneListenerNameProp, controlPlaneListenerName.value())
+    config.serverProperties().setProperty(KafkaConfig.ListenerSecurityProtocolMapProp, s"${controlPlaneListenerName.value()}:$securityProtocol,$securityProtocol:$securityProtocol")
+    config.serverProperties().setProperty(KafkaConfig.ListenersProp, s"$securityProtocol://localhost:0,${controlPlaneListenerName.value()}://localhost:0")
+    config.serverProperties().setProperty(KafkaConfig.AdvertisedListenersProp, s"$securityProtocol://localhost:0,${controlPlaneListenerName.value()}://localhost:0")
   }
 
   def sendUnsupportedApiVersionRequest(request: ApiVersionsRequest): ApiVersionsResponse = {
@@ -56,6 +55,8 @@ abstract class AbstractApiVersionsRequestTest(cluster: ClusterInstance) {
   }
 
   def validateApiVersionsResponse(apiVersionsResponse: ApiVersionsResponse): Unit = {
+    // TODO: Why does this work?
+
     val expectedApis = ApiKeys.zkBrokerApis()
     assertEquals(expectedApis.size(), apiVersionsResponse.data.apiKeys().size(),
       "API keys in ApiVersionsResponse must match API keys supported by broker.")

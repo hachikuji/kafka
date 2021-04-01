@@ -17,6 +17,7 @@
 
 package kafka.test;
 
+import kafka.server.KafkaRaftServer;
 import kafka.test.annotation.Type;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 
@@ -25,6 +26,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Represents a requested configuration of a Kafka cluster for integration testing
@@ -36,11 +39,13 @@ public class ClusterConfig {
     private final int controllers;
     private final String name;
     private final boolean autoStart;
+    private final boolean autoCreateOffsetsTopic;
 
     private final SecurityProtocol securityProtocol;
     private final String listenerName;
     private final File trustStoreFile;
 
+    private Function<ProcessSpec, Properties> serverOverrides = spec -> new Properties();
     private final Properties serverProperties = new Properties();
     private final Properties producerProperties = new Properties();
     private final Properties consumerProperties = new Properties();
@@ -49,7 +54,8 @@ public class ClusterConfig {
     private final Properties saslClientProperties = new Properties();
 
     ClusterConfig(Type type, int brokers, int controllers, String name, boolean autoStart,
-                  SecurityProtocol securityProtocol, String listenerName, File trustStoreFile) {
+                  SecurityProtocol securityProtocol, String listenerName, File trustStoreFile,
+                  boolean autoCreateOffsetsTopic) {
         this.type = type;
         this.brokers = brokers;
         this.controllers = controllers;
@@ -58,6 +64,7 @@ public class ClusterConfig {
         this.securityProtocol = securityProtocol;
         this.listenerName = listenerName;
         this.trustStoreFile = trustStoreFile;
+        this.autoCreateOffsetsTopic = autoCreateOffsetsTopic;
     }
 
     public Type clusterType() {
@@ -80,8 +87,20 @@ public class ClusterConfig {
         return autoStart;
     }
 
+    public boolean shouldAutoCreateOffsetsTopic() {
+        return autoCreateOffsetsTopic;
+    }
+
     public Properties serverProperties() {
         return serverProperties;
+    }
+
+    public Function<ProcessSpec, Properties> serverOverrides() {
+        return serverOverrides;
+    }
+
+    public void setServerOverrides(Function<ProcessSpec, Properties> overrideConsumer) {
+        this.serverOverrides = overrideConsumer;
     }
 
     public Properties producerProperties() {
@@ -125,7 +144,9 @@ public class ClusterConfig {
     }
 
     public ClusterConfig copyOf() {
-        ClusterConfig copy = new ClusterConfig(type, brokers, controllers, name, autoStart, securityProtocol, listenerName, trustStoreFile);
+        ClusterConfig copy = new ClusterConfig(type, brokers, controllers, name, autoStart, securityProtocol,
+            listenerName, trustStoreFile, autoCreateOffsetsTopic);
+        copy.setServerOverrides(serverOverrides);
         copy.serverProperties.putAll(serverProperties);
         copy.producerProperties.putAll(producerProperties);
         copy.consumerProperties.putAll(consumerProperties);
@@ -142,6 +163,18 @@ public class ClusterConfig {
         return new Builder(type, brokers, controllers, autoStart, securityProtocol);
     }
 
+    public static class ProcessSpec {
+        public final Type type;
+        public final Set<KafkaRaftServer.ProcessRole> roles;
+        public final int nodeId;
+
+        public ProcessSpec(Type type, Set<KafkaRaftServer.ProcessRole> roles, int nodeId) {
+            this.type = type;
+            this.roles = roles;
+            this.nodeId = nodeId;
+        }
+    }
+
     public static class Builder {
         private Type type;
         private int brokers;
@@ -151,6 +184,7 @@ public class ClusterConfig {
         private SecurityProtocol securityProtocol;
         private String listenerName;
         private File trustStoreFile;
+        private boolean autoCreateOffsetsTopic = true;
 
         Builder(Type type, int brokers, int controllers, boolean autoStart, SecurityProtocol securityProtocol) {
             this.type = type;
@@ -180,6 +214,11 @@ public class ClusterConfig {
             return this;
         }
 
+        public Builder autoCreateOffsetsTopic(boolean shouldCreate) {
+            this.autoCreateOffsetsTopic = shouldCreate;
+            return this;
+        }
+
         public Builder autoStart(boolean autoStart) {
             this.autoStart = autoStart;
             return this;
@@ -201,7 +240,8 @@ public class ClusterConfig {
         }
 
         public ClusterConfig build() {
-            return new ClusterConfig(type, brokers, controllers, name, autoStart, securityProtocol, listenerName, trustStoreFile);
+            return new ClusterConfig(type, brokers, controllers, name, autoStart, securityProtocol,
+                listenerName, trustStoreFile, autoCreateOffsetsTopic);
         }
     }
 }

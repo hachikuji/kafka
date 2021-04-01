@@ -19,20 +19,24 @@ package kafka.test.junit;
 
 import kafka.api.IntegrationTestHarness;
 import kafka.network.SocketServer;
+import kafka.server.KafkaRaftServer;
 import kafka.server.KafkaServer;
+import kafka.test.ClusterConfig;
+import kafka.test.ClusterInstance;
+import kafka.test.annotation.Type;
 import kafka.utils.TestUtils;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
-import kafka.test.ClusterConfig;
-import kafka.test.ClusterInstance;
 import org.junit.jupiter.api.extension.AfterTestExecutionCallback;
 import org.junit.jupiter.api.extension.BeforeTestExecutionCallback;
 import org.junit.jupiter.api.extension.Extension;
 import org.junit.jupiter.api.extension.TestTemplateInvocationContext;
 import scala.Option;
-import scala.collection.JavaConverters;
+import scala.collection.Iterator;
+import scala.collection.Seq;
 import scala.compat.java8.OptionConverters;
+import scala.jdk.javaapi.CollectionConverters;
 
 import java.io.File;
 import java.util.Arrays;
@@ -42,6 +46,8 @@ import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+
+import static java.util.Collections.singleton;
 
 /**
  * Wraps a {@link IntegrationTestHarness} inside lifecycle methods for a test invocation. Each instance of this
@@ -90,8 +96,22 @@ public class ZkClusterInvocationContext implements TestTemplateInvocationContext
                 // configure the cluster using values from ClusterConfig
                 IntegrationTestHarness cluster = new IntegrationTestHarness() {
                     @Override
-                    public Properties serverConfig() {
-                        return clusterConfig.serverProperties();
+                    public void modifyConfigs(Seq<Properties> allProps) {
+                        Iterator<Properties> propsIterator = allProps.iterator();
+                        while (propsIterator.hasNext()) {
+                            Properties props = propsIterator.next();
+                            props.putAll(clusterConfig.serverProperties());
+                            props.putAll(clusterConfig.serverOverrides().apply(new ClusterConfig.ProcessSpec(
+                                Type.ZK,
+                                singleton(KafkaRaftServer.BrokerRole$.MODULE$),
+                                Integer.parseInt(props.getProperty("broker.id"))
+                            )));
+                        }
+                    }
+
+                    @Override
+                    public boolean createOffsetsTopic() {
+                        return clusterConfig.shouldAutoCreateOffsetsTopic();
                     }
 
                     @Override
@@ -180,9 +200,17 @@ public class ZkClusterInvocationContext implements TestTemplateInvocationContext
 
         @Override
         public Collection<SocketServer> brokerSocketServers() {
-            return JavaConverters.asJavaCollection(clusterReference.get().servers()).stream()
+            return CollectionConverters.asJavaCollection(clusterReference.get().servers()).stream()
                     .map(KafkaServer::socketServer)
                     .collect(Collectors.toList());
+        }
+
+        @Override
+        public SocketServer brokerSocketServer(Integer brokerId) {
+            return brokerSocketServers().stream()
+                .filter(server -> server.config().brokerId() == brokerId)
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Could not find socket server for broker " + brokerId));
         }
 
         @Override
@@ -192,7 +220,7 @@ public class ZkClusterInvocationContext implements TestTemplateInvocationContext
 
         @Override
         public Collection<SocketServer> controllerSocketServers() {
-            return JavaConverters.asJavaCollection(clusterReference.get().servers()).stream()
+            return CollectionConverters.asJavaCollection(clusterReference.get().servers()).stream()
                 .filter(broker -> broker.kafkaController().isActive())
                 .map(KafkaServer::socketServer)
                 .collect(Collectors.toList());
@@ -200,7 +228,7 @@ public class ZkClusterInvocationContext implements TestTemplateInvocationContext
 
         @Override
         public SocketServer anyBrokerSocketServer() {
-            return JavaConverters.asJavaCollection(clusterReference.get().servers()).stream()
+            return CollectionConverters.asJavaCollection(clusterReference.get().servers()).stream()
                 .map(KafkaServer::socketServer)
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("No broker SocketServers found"));
@@ -208,7 +236,7 @@ public class ZkClusterInvocationContext implements TestTemplateInvocationContext
 
         @Override
         public SocketServer anyControllerSocketServer() {
-            return JavaConverters.asJavaCollection(clusterReference.get().servers()).stream()
+            return CollectionConverters.asJavaCollection(clusterReference.get().servers()).stream()
                 .filter(broker -> broker.kafkaController().isActive())
                 .map(KafkaServer::socketServer)
                 .findFirst()

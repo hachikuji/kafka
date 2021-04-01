@@ -25,6 +25,8 @@ import kafka.server.KafkaConfig$;
 import kafka.server.KafkaRaftServer;
 import kafka.server.MetaProperties;
 import kafka.server.Server;
+import kafka.test.ClusterConfig;
+import kafka.test.annotation.Type;
 import kafka.tools.StorageTool;
 import kafka.utils.Logging;
 import org.apache.kafka.clients.CommonClientConfigs;
@@ -46,6 +48,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
 import scala.collection.JavaConverters;
+import scala.jdk.javaapi.CollectionConverters;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -71,10 +74,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
-
-@SuppressWarnings("deprecation") // Needed for Scala 2.12 compatibility
 public class KafkaClusterTestKit implements AutoCloseable {
     private final static Logger log = LoggerFactory.getLogger(KafkaClusterTestKit.class);
 
@@ -114,22 +116,25 @@ public class KafkaClusterTestKit implements AutoCloseable {
     }
 
     public static class Builder {
+        private final Function<ClusterConfig.ProcessSpec, Properties> configGenerator;
         private TestKitNodes nodes;
-        private Map<String, String> configProps = new HashMap<>();
 
-        public Builder(TestKitNodes nodes) {
+        public Builder(
+            TestKitNodes nodes,
+            Function<ClusterConfig.ProcessSpec, Properties> configGenerator
+        ) {
             this.nodes = nodes;
+            this.configGenerator = configGenerator;
         }
 
-        public Builder setConfigProp(String key, String value) {
-            this.configProps.put(key, value);
-            return this;
+        public Builder(TestKitNodes nodes) {
+            this(nodes, spec -> new Properties());
         }
 
         public KafkaClusterTestKit build() throws Exception {
             Map<Integer, ControllerServer> controllers = new HashMap<>();
             Map<Integer, BrokerServer> brokers = new HashMap<>();
-            Map<Integer, KafkaRaftManager> raftManagers = new HashMap<>();
+            Map<Integer, KafkaRaftManager<ApiMessageAndVersion>> raftManagers = new HashMap<>();
             String uninitializedQuorumVotersString = nodes.controllerNodes().keySet().stream().
                 map(controllerNode -> String.format("%d@0.0.0.0:0", controllerNode)).
                 collect(Collectors.joining(","));
@@ -150,7 +155,12 @@ public class KafkaClusterTestKit implements AutoCloseable {
                 executorService = Executors.newFixedThreadPool(numOfExecutorThreads,
                     ThreadUtils.createThreadFactory("KafkaClusterTestKit%d", false));
                 for (ControllerNode node : nodes.controllerNodes().values()) {
-                    Map<String, String> props = new HashMap<>(configProps);
+                    Properties props = configGenerator.apply(new ClusterConfig.ProcessSpec(
+                        Type.RAFT,
+                        Collections.singleton(KafkaRaftServer.ControllerRole$.MODULE$),
+                        node.id()
+                    ));
+
                     props.put(KafkaConfig$.MODULE$.ProcessRolesProp(), "controller");
                     props.put(KafkaConfig$.MODULE$.NodeIdProp(),
                         Integer.toString(node.id()));
@@ -197,7 +207,17 @@ public class KafkaClusterTestKit implements AutoCloseable {
                     raftManagers.put(node.id(), raftManager);
                 }
                 for (BrokerNode node : nodes.brokerNodes().values()) {
-                    Map<String, String> props = new HashMap<>(configProps);
+                    Properties props = configGenerator.apply(new ClusterConfig.ProcessSpec(
+                        Type.RAFT,
+                        Collections.singleton(KafkaRaftServer.BrokerRole$.MODULE$),
+                        node.id()
+                    ));
+
+                    props.putIfAbsent(KafkaConfig$.MODULE$.OffsetsTopicReplicationFactorProp(), "1");
+                    props.putIfAbsent(KafkaConfig$.MODULE$.OffsetsTopicPartitionsProp(), "5");
+                    props.putIfAbsent(KafkaConfig$.MODULE$.GroupInitialRebalanceDelayMsProp(), "0");
+                    props.putIfAbsent(KafkaConfig$.MODULE$.DefaultReplicationFactorProp(), "1");
+
                     props.put(KafkaConfig$.MODULE$.ProcessRolesProp(), "broker");
                     props.put(KafkaConfig$.MODULE$.BrokerIdProp(),
                         Integer.toString(node.id()));
@@ -220,7 +240,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
                     // Just like above, we set a placeholder voter list here until we
                     // find out what ports the controllers picked.
                     props.put(RaftConfig.QUORUM_VOTERS_CONFIG, uninitializedQuorumVotersString);
-                    KafkaConfig config = new KafkaConfig(props, false, Option.empty());
+                    KafkaConfig config = new KafkaConfig(props, true, Option.empty());
 
                     String threadNamePrefix = String.format("broker%d_", node.id());
                     MetaProperties metaProperties = MetaProperties.apply(nodes.clusterId().toString(), node.id());
@@ -236,7 +256,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
                         Time.SYSTEM,
                         new Metrics(),
                         Option.apply(threadNamePrefix),
-                        JavaConverters.asScalaBuffer(Collections.<String>emptyList()).toSeq(),
+                        CollectionConverters.asScala(Collections.<String>emptyList()).toSeq(),
                         connectFutureManager.future,
                         Server.SUPPORTED_FEATURES()
                     );
@@ -254,7 +274,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
                 for (BrokerServer brokerServer : brokers.values()) {
                     brokerServer.shutdown();
                 }
-                for (KafkaRaftManager raftManager : raftManagers.values()) {
+                for (KafkaRaftManager<ApiMessageAndVersion> raftManager : raftManagers.values()) {
                     raftManager.shutdown();
                 }
                 connectFutureManager.close();
@@ -282,7 +302,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
     private final TestKitNodes nodes;
     private final Map<Integer, ControllerServer> controllers;
     private final Map<Integer, BrokerServer> brokers;
-    private final Map<Integer, KafkaRaftManager> raftManagers;
+    private final Map<Integer, KafkaRaftManager<ApiMessageAndVersion>> raftManagers;
     private final ControllerQuorumVotersFutureManager controllerQuorumVotersFutureManager;
     private final File baseDirectory;
 
@@ -290,7 +310,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
                                 TestKitNodes nodes,
                                 Map<Integer, ControllerServer> controllers,
                                 Map<Integer, BrokerServer> brokers,
-                                Map<Integer, KafkaRaftManager> raftManagers,
+                                Map<Integer, KafkaRaftManager<ApiMessageAndVersion>> raftManagers,
                                 ControllerQuorumVotersFutureManager controllerQuorumVotersFutureManager,
                                 File baseDirectory) {
         this.executorService = executorService;
@@ -334,7 +354,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
             try (ByteArrayOutputStream stream = new ByteArrayOutputStream()) {
                 try (PrintStream out = new PrintStream(stream)) {
                     StorageTool.formatCommand(out,
-                            JavaConverters.asScalaBuffer(Collections.singletonList(metadataLogDir)).toSeq(),
+                            CollectionConverters.asScala(Collections.singletonList(metadataLogDir)).toSeq(),
                             properties,
                             false);
                 } finally {
@@ -354,7 +374,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
             for (ControllerServer controller : controllers.values()) {
                 futures.add(executorService.submit(controller::startup));
             }
-            for (KafkaRaftManager raftManager : raftManagers.values()) {
+            for (KafkaRaftManager<ApiMessageAndVersion> raftManager : raftManagers.values()) {
                 futures.add(controllerQuorumVotersFutureManager.future.thenRunAsync(raftManager::startup));
             }
             for (BrokerServer broker : brokers.values()) {
@@ -434,7 +454,7 @@ public class KafkaClusterTestKit implements AutoCloseable {
         return brokers;
     }
 
-    public Map<Integer, KafkaRaftManager> raftManagers() {
+    public Map<Integer, KafkaRaftManager<ApiMessageAndVersion>> raftManagers() {
         return raftManagers;
     }
 
@@ -463,9 +483,9 @@ public class KafkaClusterTestKit implements AutoCloseable {
             }
             waitForAllFutures(futureEntries);
             futureEntries.clear();
-            for (Entry<Integer, KafkaRaftManager> entry : raftManagers.entrySet()) {
+            for (Entry<Integer, KafkaRaftManager<ApiMessageAndVersion>> entry : raftManagers.entrySet()) {
                 int raftManagerId = entry.getKey();
-                KafkaRaftManager raftManager = entry.getValue();
+                KafkaRaftManager<ApiMessageAndVersion> raftManager = entry.getValue();
                 futureEntries.add(new SimpleImmutableEntry<>("raftManager" + raftManagerId,
                     executorService.submit(raftManager::shutdown)));
             }

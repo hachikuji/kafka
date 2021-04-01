@@ -25,8 +25,6 @@ import scala.jdk.CollectionConverters._
 
 class CreateTopicsRequestWithForwardingTest extends AbstractCreateTopicsRequestTest {
 
-  override def enableForwarding: Boolean = true
-
   @Test
   def testForwardToController(): Unit = {
     val req = topicsReq(Seq(topicReq("topic1")))

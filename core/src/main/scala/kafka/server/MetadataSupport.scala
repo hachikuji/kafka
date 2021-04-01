@@ -25,12 +25,6 @@ import org.apache.kafka.common.requests.AbstractResponse
 
 sealed trait MetadataSupport {
   /**
-   * Provide a uniform way of getting to the ForwardingManager, which is a shared concept
-   * despite being optional when using ZooKeeper and required when using Raft
-   */
-  val forwardingManager: Option[ForwardingManager]
-
-  /**
    * Return this instance downcast for use with ZooKeeper
    *
    * @param createException function to create an exception to throw
@@ -56,17 +50,12 @@ sealed trait MetadataSupport {
    */
   def ensureConsistentWith(config: KafkaConfig): Unit
 
-  def maybeForward(request: RequestChannel.Request,
-                   handler: RequestChannel.Request => Unit,
-                   responseCallback: Option[AbstractResponse] => Unit): Unit
-
   def controllerId: Option[Int]
 }
 
 case class ZkSupport(adminManager: ZkAdminManager,
                      controller: KafkaController,
                      zkClient: KafkaZkClient,
-                     forwardingManager: Option[ForwardingManager],
                      metadataCache: ZkMetadataCache) extends MetadataSupport {
   val adminZkClient = new AdminZkClient(zkClient)
 
@@ -79,20 +68,10 @@ case class ZkSupport(adminManager: ZkAdminManager,
     }
   }
 
-  override def maybeForward(request: RequestChannel.Request,
-                            handler: RequestChannel.Request => Unit,
-                            responseCallback: Option[AbstractResponse] => Unit): Unit = {
-    forwardingManager match {
-      case Some(mgr) if !request.isForwarded && !controller.isActive => mgr.forwardRequest(request, responseCallback)
-      case _ => handler(request)
-    }
-  }
-
   override def controllerId: Option[Int] =  metadataCache.getControllerId
 }
 
-case class RaftSupport(fwdMgr: ForwardingManager, metadataCache: RaftMetadataCache) extends MetadataSupport {
-  override val forwardingManager: Option[ForwardingManager] = Some(fwdMgr)
+case class RaftSupport(forwardingManager: ForwardingManager, metadataCache: RaftMetadataCache) extends MetadataSupport {
   override def requireZkOrThrow(createException: => Exception): ZkSupport = throw createException
   override def requireRaftOrThrow(createException: => Exception): RaftSupport = this
 
@@ -102,11 +81,11 @@ case class RaftSupport(fwdMgr: ForwardingManager, metadataCache: RaftMetadataCac
     }
   }
 
-  override def maybeForward(request: RequestChannel.Request,
+  def maybeForward(request: RequestChannel.Request,
                             handler: RequestChannel.Request => Unit,
                             responseCallback: Option[AbstractResponse] => Unit): Unit = {
     if (!request.isForwarded) {
-      fwdMgr.forwardRequest(request, responseCallback)
+      forwardingManager.forwardRequest(request, responseCallback)
     } else {
       handler(request) // will reject
     }

@@ -179,7 +179,25 @@ public class ClusterTestExtensions implements TestTemplateInvocationContextProvi
                 throw new IllegalStateException();
         }
 
+        final boolean autoCreateOffsetsTopic;
+        switch (annot.autoCreateOffsetsTopic()) {
+            case YES:
+                autoCreateOffsetsTopic = true;
+                break;
+            case NO:
+                autoCreateOffsetsTopic = false;
+                break;
+            case DEFAULT:
+                autoCreateOffsetsTopic = defaults.autoCreateOffsetsTopic();
+                break;
+            default:
+                throw new IllegalStateException();
+        }
+
+
         ClusterConfig.Builder builder = ClusterConfig.clusterBuilder(type, brokers, controllers, autoStart, annot.securityProtocol());
+        builder.autoCreateOffsetsTopic(autoCreateOffsetsTopic);
+
         if (!annot.name().isEmpty()) {
             builder.name(annot.name());
         }
@@ -188,6 +206,10 @@ public class ClusterTestExtensions implements TestTemplateInvocationContextProvi
         }
 
         Properties properties = new Properties();
+        for (ClusterConfigProperty property : defaults.serverProperties()) {
+            properties.put(property.key(), property.value());
+        }
+
         for (ClusterConfigProperty property : annot.serverProperties()) {
             properties.put(property.key(), property.value());
         }

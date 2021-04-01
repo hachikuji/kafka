@@ -72,6 +72,11 @@ public interface ClusterInstance {
     SocketServer anyBrokerSocketServer();
 
     /**
+     * Return the SocketServer for a specific broker. Throw an error if the brokerId could not be found.
+     */
+    SocketServer brokerSocketServer(Integer brokerId);
+
+    /**
      * Return any one of the controller servers. Throw an error if none are found
      */
     SocketServer anyControllerSocketServer();

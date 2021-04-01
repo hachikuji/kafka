@@ -20,25 +20,36 @@ package kafka.test.junit;
 import kafka.network.SocketServer;
 import kafka.server.BrokerServer;
 import kafka.server.ControllerServer;
+import kafka.server.KafkaConfig;
 import kafka.test.ClusterConfig;
 import kafka.test.ClusterInstance;
 import kafka.testkit.KafkaClusterTestKit;
 import kafka.testkit.TestKitNodes;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.CreateTopicsResult;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.metadata.BrokerState;
 import org.junit.jupiter.api.extension.AfterTestExecutionCallback;
 import org.junit.jupiter.api.extension.BeforeTestExecutionCallback;
 import org.junit.jupiter.api.extension.Extension;
 import org.junit.jupiter.api.extension.TestTemplateInvocationContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -75,13 +86,20 @@ public class RaftClusterInvocationContext implements TestTemplateInvocationConte
     public List<Extension> getAdditionalExtensions() {
         return Arrays.asList(
             (BeforeTestExecutionCallback) context -> {
-                KafkaClusterTestKit.Builder builder = new KafkaClusterTestKit.Builder(
-                    new TestKitNodes.Builder().
-                        setNumKip500BrokerNodes(clusterConfig.numBrokers()).
-                        setNumControllerNodes(clusterConfig.numControllers()).build());
+                TestKitNodes testKitNodes = new TestKitNodes.Builder().
+                    setNumKip500BrokerNodes(clusterConfig.numBrokers()).
+                    setNumControllerNodes(clusterConfig.numControllers()).build();
 
-                // Copy properties into the TestKit builder
-                clusterConfig.serverProperties().forEach((key, value) -> builder.setConfigProp(key.toString(), value.toString()));
+                Function<ClusterConfig.ProcessSpec, Properties> configGenerator = spec -> {
+                    Properties properties = new Properties();
+                    properties.putAll(clusterConfig.serverProperties());
+                    properties.putAll(clusterConfig.serverOverrides().apply(spec));
+                    return properties;
+                };
+
+                KafkaClusterTestKit.Builder builder = new KafkaClusterTestKit.Builder(
+                    testKitNodes, configGenerator);
+
                 // KAFKA-12512 need to pass security protocol and listener name here
                 KafkaClusterTestKit cluster = builder.build();
                 clusterReference.set(cluster);
@@ -92,6 +110,25 @@ public class RaftClusterInvocationContext implements TestTemplateInvocationConte
                     () -> "Broker never made it to RUNNING state.",
                     org.apache.kafka.test.TestUtils.DEFAULT_MAX_WAIT_MS,
                     100L);
+
+                cluster.waitForReadyBrokers();
+
+                if (clusterConfig.shouldAutoCreateOffsetsTopic()) {
+                    BrokerServer server = cluster.brokers().values().stream().findFirst().orElseThrow(() ->
+                        new IllegalStateException("No brokers have been initialized"));
+
+                    KafkaConfig config = server.config();
+                    Admin admin = Admin.create(cluster.clientProperties());
+
+                    CreateTopicsResult result = admin.createTopics(Collections.singleton(new NewTopic(
+                        Topic.GROUP_METADATA_TOPIC_NAME,
+                        config.offsetsTopicPartitions(),
+                        config.offsetsTopicReplicationFactor()
+                    )));
+
+                    // TODO: Initialize all the topic configs as well
+                    result.all().get();
+                }
             },
             (AfterTestExecutionCallback) context -> clusterReference.get().close(),
             new ClusterInstanceParameterResolver(new RaftClusterInstance(clusterReference, clusterConfig)),
@@ -100,11 +137,13 @@ public class RaftClusterInvocationContext implements TestTemplateInvocationConte
     }
 
     public static class RaftClusterInstance implements ClusterInstance {
+        private static final Logger log = LoggerFactory.getLogger(RaftClusterInstance.class);
 
         private final AtomicReference<KafkaClusterTestKit> clusterReference;
         private final ClusterConfig clusterConfig;
         final AtomicBoolean started = new AtomicBoolean(false);
         final AtomicBoolean stopped = new AtomicBoolean(false);
+        private final ConcurrentLinkedQueue<Admin> admins = new ConcurrentLinkedQueue<>();
 
         RaftClusterInstance(AtomicReference<KafkaClusterTestKit> clusterReference, ClusterConfig clusterConfig) {
             this.clusterReference = clusterReference;
@@ -121,6 +160,14 @@ public class RaftClusterInvocationContext implements TestTemplateInvocationConte
             return clusterReference.get().brokers().values().stream()
                 .map(BrokerServer::socketServer)
                 .collect(Collectors.toList());
+        }
+
+        @Override
+        public SocketServer brokerSocketServer(Integer brokerId) {
+            return brokerSocketServers().stream()
+                .filter(server -> server.config().nodeId() == brokerId)
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Could not find socket server for broker " + brokerId));
         }
 
         @Override
@@ -168,7 +215,9 @@ public class RaftClusterInvocationContext implements TestTemplateInvocationConte
 
         @Override
         public Admin createAdminClient(Properties configOverrides) {
-            return Admin.create(clusterReference.get().clientProperties());
+            Admin admin = Admin.create(clusterReference.get().clientProperties());
+            admins.add(admin);
+            return admin;
         }
 
         @Override
@@ -188,7 +237,15 @@ public class RaftClusterInvocationContext implements TestTemplateInvocationConte
                 try {
                     clusterReference.get().close();
                 } catch (Exception e) {
-                    throw new RuntimeException("Failed to stop Raft server", e);
+                    log.error("Failed to stop Raft server", e);
+                }
+
+                for (Admin admin : admins) {
+                    try {
+                        admin.close(Duration.ZERO);
+                    } catch (Exception e) {
+                        log.error("Failed to stop admin client", e);
+                    }
                 }
             }
         }

@@ -16,25 +16,24 @@
   */
 package kafka.server
 
-import integration.kafka.server.IntegrationTestUtils
-
 import java.net.Socket
 import java.util.Collections
+
+import integration.kafka.server.IntegrationTestUtils
 import kafka.api.{KafkaSasl, SaslSetup}
+import kafka.test.annotation.{ClusterTest, Type}
+import kafka.test.junit.ClusterTestExtensions
+import kafka.test.{ClusterConfig, ClusterInstance}
 import kafka.utils.JaasTestUtils
 import org.apache.kafka.common.message.SaslHandshakeRequestData
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.{ApiVersionsRequest, ApiVersionsResponse, SaslHandshakeRequest, SaslHandshakeResponse}
-import kafka.test.annotation.{ClusterTest, Type}
-import kafka.test.junit.ClusterTestExtensions
-import kafka.test.{ClusterConfig, ClusterInstance}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.junit.jupiter.api.Assertions._
-import org.junit.jupiter.api.{AfterEach, BeforeEach}
 import org.junit.jupiter.api.extension.ExtendWith
+import org.junit.jupiter.api.{AfterEach, BeforeEach}
 
 import scala.jdk.CollectionConverters._
-
 
 @ExtendWith(value = Array(classOf[ClusterTestExtensions]))
 class SaslApiVersionsRequestTest(cluster: ClusterInstance) extends AbstractApiVersionsRequestTest(cluster) {
@@ -45,12 +44,12 @@ class SaslApiVersionsRequestTest(cluster: ClusterInstance) extends AbstractApiVe
   private var sasl: SaslSetup = _
 
   @BeforeEach
-  def setupSasl(config: ClusterConfig): Unit = {
+  override def setup(config: ClusterConfig): Unit = {
+    super.setup(config)
     sasl = new SaslSetup() {}
     sasl.startSasl(sasl.jaasSections(kafkaServerSaslMechanisms, Some(kafkaClientSaslMechanism), KafkaSasl, JaasTestUtils.KafkaServerContextName))
     config.saslServerProperties().putAll(sasl.kafkaServerSaslProperties(kafkaServerSaslMechanisms, kafkaClientSaslMechanism))
     config.saslClientProperties().putAll(sasl.kafkaClientSaslProperties(kafkaClientSaslMechanism))
-    super.brokerPropertyOverrides(config.serverProperties())
   }
 
   @ClusterTest(securityProtocol = SecurityProtocol.SASL_PLAINTEXT, clusterType = Type.ZK)
