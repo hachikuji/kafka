@@ -290,10 +290,10 @@ class KafkaApis(val requestChannel: RequestChannel,
             else
               None
             if (topicPartition.topic == GROUP_METADATA_TOPIC_NAME
-              && partitionStates(topicPartition).deletePartition) {
+              && partitionState.deletePartition) {
               groupCoordinator.onResignation(topicPartition.partition, leaderEpoch)
             } else if (topicPartition.topic == TRANSACTION_STATE_TOPIC_NAME
-              && partitionStates(topicPartition).deletePartition) {
+              && partitionState.deletePartition) {
               txnCoordinator.onResignation(topicPartition.partition, coordinatorEpoch = leaderEpoch)
             }
           }
