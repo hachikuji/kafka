@@ -1664,17 +1664,14 @@ class KafkaApisTest {
       EasyMock.eq(controllerId),
       EasyMock.eq(controllerEpoch),
       EasyMock.eq(brokerEpoch),
-      EasyMock.eq(stopReplicaRequest.partitionStates().asScala),
-      EasyMock.anyObject()
-    )).andAnswer{() =>
-      val result = (mutable.Map(
+      EasyMock.eq(stopReplicaRequest.partitionStates().asScala)
+    )).andReturn(
+      (mutable.Map(
         groupMetadataPartition -> Errors.NONE,
         txnStatePartition -> Errors.NONE,
         fooPartition -> Errors.NONE
       ), Errors.NONE)
-      EasyMock.getCurrentArgument[(Errors, Map[TopicPartition, Errors]) => Unit](5)(Errors.NONE, result._1)
-      result
-    }
+    )
     EasyMock.expect(controller.brokerEpoch).andStubReturn(brokerEpoch)
 
     if (deletePartition) {
@@ -2898,29 +2895,17 @@ class KafkaApisTest {
       EasyMock.eq(controllerId),
       EasyMock.eq(controllerEpoch),
       EasyMock.eq(brokerEpochInRequest),
-      EasyMock.eq(stopReplicaRequest.partitionStates().asScala),
-      EasyMock.anyObject()
-    )).andStubAnswer {() =>
-      val result = (mutable.Map(
+      EasyMock.eq(stopReplicaRequest.partitionStates().asScala)
+    )).andStubReturn(
+      (mutable.Map(
         fooPartition -> Errors.NONE
       ), Errors.NONE)
-//<<<<<<< HEAD
-//    )
-//    EasyMock.expect(requestChannel.sendResponse(
-//      EasyMock.eq(request),
-//      EasyMock.capture(capturedResponse),
-//      EasyMock.eq(None)
-//    ))
-//=======
-      EasyMock.getCurrentArgument[(Errors, Map[TopicPartition, Errors]) => Unit](5)(result._2, result._1)
-      result
-    }
+    )
     EasyMock.expect(requestChannel.sendResponse(
       EasyMock.eq(request),
       EasyMock.capture(capturedResponse),
       EasyMock.eq(None)
     ))
-//>>>>>>> f13bd30050... KAFKA-10614: Ensure group state (un)load is executed in the right order
 
     EasyMock.replay(controller, replicaManager, requestChannel)
 

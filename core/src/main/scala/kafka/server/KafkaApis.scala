@@ -279,33 +279,34 @@ class KafkaApis(val requestChannel: RequestChannel,
         new StopReplicaResponseData().setErrorCode(Errors.STALE_BROKER_EPOCH.code)))
     } else {
       val partitionStates = stopReplicaRequest.partitionStates().asScala
-      def onStopReplicas(error: Errors, partitions: Map[TopicPartition, Errors]): Unit = {
-        // Clear the coordinator caches in case we were the leader. In the case of a reassignment, we
-        // cannot rely on the LeaderAndIsr API for this since it is only sent to active replicas.
-        partitions.forKeyValue { (topicPartition, partitionError) =>
-          if (partitionError == Errors.NONE) {
-            val partitionState = partitionStates(topicPartition)
-            val leaderEpoch = if (partitionState.leaderEpoch >= 0)
-              Some(partitionState.leaderEpoch)
-            else
-              None
-            if (topicPartition.topic == GROUP_METADATA_TOPIC_NAME
-              && partitionState.deletePartition) {
-              groupCoordinator.onResignation(topicPartition.partition, leaderEpoch)
-            } else if (topicPartition.topic == TRANSACTION_STATE_TOPIC_NAME
-              && partitionState.deletePartition) {
-              txnCoordinator.onResignation(topicPartition.partition, coordinatorEpoch = leaderEpoch)
-            }
-          }
-        }
-      }
       val (result, error) = replicaManager.stopReplicas(
         request.context.correlationId,
         stopReplicaRequest.controllerId,
         stopReplicaRequest.controllerEpoch,
         stopReplicaRequest.brokerEpoch,
-        partitionStates,
-        onStopReplicas)
+        partitionStates)
+      // Clear the coordinator caches in case we were the leader. In the case of a reassignment, we
+      // cannot rely on the LeaderAndIsr API for this since it is only sent to active replicas.
+      result.forKeyValue { (topicPartition, error) =>
+        if (error == Errors.NONE) {
+          val partitionState = partitionStates(topicPartition)
+          if (topicPartition.topic == GROUP_METADATA_TOPIC_NAME
+              && partitionState.deletePartition) {
+            val leaderEpoch = if (partitionState.leaderEpoch >= 0)
+              Some(partitionState.leaderEpoch)
+            else
+              None
+            groupCoordinator.onResignation(topicPartition.partition, leaderEpoch)
+          } else if (topicPartition.topic == TRANSACTION_STATE_TOPIC_NAME
+                     && partitionState.deletePartition) {
+            val leaderEpoch = if (partitionState.leaderEpoch >= 0)
+              Some(partitionState.leaderEpoch)
+            else
+              None
+            txnCoordinator.onResignation(topicPartition.partition, coordinatorEpoch = leaderEpoch)
+          }
+        }
+      }
 
       def toStopReplicaPartition(tp: TopicPartition, error: Errors) =
         new StopReplicaResponseData.StopReplicaPartitionError()

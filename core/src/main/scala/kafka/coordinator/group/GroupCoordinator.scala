@@ -909,15 +909,18 @@ class GroupCoordinator(val brokerId: Int,
    * @param offsetTopicPartitionId The partition we are now leading
    */
   def onElection(offsetTopicPartitionId: Int, coordinatorEpoch: Int): Unit = {
-    val currentEpoch = Option(epochForPartitionId.get(offsetTopicPartitionId))
-    if (currentEpoch.forall(currentEpoch => coordinatorEpoch > currentEpoch)) {
-      info(s"Elected as the group coordinator for partition $offsetTopicPartitionId in epoch $coordinatorEpoch")
-      groupManager.scheduleLoadGroupAndOffsets(offsetTopicPartitionId, onGroupLoaded)
-      epochForPartitionId.put(offsetTopicPartitionId, coordinatorEpoch)
-    } else {
-      warn(s"Ignored election as group coordinator for partition $offsetTopicPartitionId " +
-        s"in epoch $coordinatorEpoch since current epoch is $currentEpoch")
-    }
+    epochForPartitionId.compute(offsetTopicPartitionId, (_, epoch) => {
+      val currentEpoch = Option(epoch)
+      if (currentEpoch.forall(currentEpoch => coordinatorEpoch > currentEpoch)) {
+        info(s"Elected as the group coordinator for partition $offsetTopicPartitionId in epoch $coordinatorEpoch")
+        groupManager.scheduleLoadGroupAndOffsets(offsetTopicPartitionId, onGroupLoaded)
+        coordinatorEpoch
+      } else {
+        warn(s"Ignored election as group coordinator for partition $offsetTopicPartitionId " +
+          s"in epoch $coordinatorEpoch since current epoch is $currentEpoch")
+        epoch
+      }
+    })
   }
 
   /**
