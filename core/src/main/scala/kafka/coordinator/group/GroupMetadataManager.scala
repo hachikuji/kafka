@@ -21,7 +21,7 @@ import java.io.PrintStream
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.Optional
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 
@@ -85,6 +85,9 @@ class GroupMetadataManager(brokerId: Int,
    * marker comes in for a transaction, it is for a particular partition on the offsets topic and a particular producerId.
    * We use this structure to quickly find the groups which need to be updated by the commit/abort marker. */
   private val openGroupsForProducer = mutable.HashMap[Long, mutable.Set[String]]()
+
+  /* Track the epoch in which we (un)loaded group state to detect racing LeaderAndIsr requests */
+  val epochForPartitionId = new ConcurrentHashMap[java.lang.Integer, java.lang.Integer]()
 
   /* setup metrics*/
   private val partitionLoadSensor = metrics.sensor(GroupMetadataManager.LoadTimeSensor)
@@ -526,36 +529,46 @@ class GroupMetadataManager(brokerId: Int,
   /**
    * Asynchronously read the partition from the offsets topic and populate the cache
    */
-  def scheduleLoadGroupAndOffsets(offsetsPartition: Int, onGroupLoaded: GroupMetadata => Unit): Unit = {
+  def scheduleLoadGroupAndOffsets(offsetsPartition: Int, coordinatorEpoch: Int, onGroupLoaded: GroupMetadata => Unit): Unit = {
     val topicPartition = new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, offsetsPartition)
     if (addLoadingPartition(offsetsPartition)) {
       info(s"Scheduling loading of offsets and group metadata from $topicPartition")
       val startTimeMs = time.milliseconds()
-      scheduler.schedule(topicPartition.toString, () => loadGroupsAndOffsets(topicPartition, onGroupLoaded, startTimeMs))
+      scheduler.schedule(topicPartition.toString, () => loadGroupsAndOffsets(topicPartition, coordinatorEpoch, onGroupLoaded, startTimeMs))
     } else {
       info(s"Already loading offsets and group metadata from $topicPartition")
     }
   }
 
-  private[group] def loadGroupsAndOffsets(topicPartition: TopicPartition, onGroupLoaded: GroupMetadata => Unit, startTimeMs: java.lang.Long): Unit = {
-    try {
-      val schedulerTimeMs = time.milliseconds() - startTimeMs
-      debug(s"Started loading offsets and group metadata from $topicPartition")
-      doLoadGroupsAndOffsets(topicPartition, onGroupLoaded)
-      val endTimeMs = time.milliseconds()
-      val totalLoadingTimeMs = endTimeMs - startTimeMs
-      partitionLoadSensor.record(totalLoadingTimeMs.toDouble, endTimeMs, false)
-      info(s"Finished loading offsets and group metadata from $topicPartition "
-        + s"in $totalLoadingTimeMs milliseconds, of which $schedulerTimeMs milliseconds"
-        + s" was spent in the scheduler.")
-    } catch {
-      case t: Throwable => error(s"Error loading offsets from $topicPartition", t)
-    } finally {
-      inLock(partitionLock) {
-        ownedPartitions.add(topicPartition.partition)
-        loadingPartitions.remove(topicPartition.partition)
+  private[group] def loadGroupsAndOffsets(topicPartition: TopicPartition, coordinatorEpoch: Int, onGroupLoaded: GroupMetadata => Unit, startTimeMs: java.lang.Long): Unit = {
+    epochForPartitionId.compute(topicPartition.partition(), (_, epoch) => {
+      val currentEpoch = Option(epoch)
+      if (currentEpoch.forall(currentEpoch => coordinatorEpoch > currentEpoch)) {
+        try {
+          val schedulerTimeMs = time.milliseconds() - startTimeMs
+          debug(s"Started loading offsets and group metadata from $topicPartition")
+          doLoadGroupsAndOffsets(topicPartition, onGroupLoaded)
+          val endTimeMs = time.milliseconds()
+          val totalLoadingTimeMs = endTimeMs - startTimeMs
+          partitionLoadSensor.record(totalLoadingTimeMs.toDouble, endTimeMs, false)
+          info(s"Finished loading offsets and group metadata from $topicPartition "
+            + s"in $totalLoadingTimeMs milliseconds, of which $schedulerTimeMs milliseconds"
+            + s" was spent in the scheduler.")
+        } catch {
+          case t: Throwable => error(s"Error loading offsets from $topicPartition", t)
+        } finally {
+          inLock(partitionLock) {
+            ownedPartitions.add(topicPartition.partition)
+            loadingPartitions.remove(topicPartition.partition)
+          }
+        }
+        coordinatorEpoch
+      } else {
+        warn(s"Not loading offsets and group metadata for $topicPartition " +
+          s"in epoch $coordinatorEpoch since current epoch is $currentEpoch")
+        epoch
       }
-    }
+    })
   }
 
   private def doLoadGroupsAndOffsets(topicPartition: TopicPartition, onGroupLoaded: GroupMetadata => Unit): Unit = {
@@ -747,35 +760,49 @@ class GroupMetadataManager(brokerId: Int,
    * @param offsetsPartition Groups belonging to this partition of the offsets topic will be deleted from the cache.
    */
   def removeGroupsForPartition(offsetsPartition: Int,
+                               coordinatorEpoch: Option[Int],
                                onGroupUnloaded: GroupMetadata => Unit): Unit = {
+    info(s"Resigned as the group coordinator for partition $offsetsPartition in epoch $coordinatorEpoch")
     val topicPartition = new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, offsetsPartition)
     info(s"Scheduling unloading of offsets and group metadata from $topicPartition")
-    scheduler.schedule(topicPartition.toString, () => removeGroupsAndOffsets())
+    scheduler.schedule(topicPartition.toString, () => removeGroupsAndOffsets(topicPartition, coordinatorEpoch, onGroupUnloaded))
+  }
+  private [group] def removeGroupsAndOffsets(topicPartition: TopicPartition,
+                                             coordinatorEpoch: Option[Int],
+                                             onGroupUnloaded: GroupMetadata => Unit): Unit = {
+    val offsetsPartition = topicPartition.partition
+    epochForPartitionId.compute(offsetsPartition, (_, epoch) => {
+        val currentEpoch = Option(epoch)
+        if (currentEpoch.forall(currentEpoch => currentEpoch <= coordinatorEpoch.getOrElse(Int.MaxValue))) {
+          var numOffsetsRemoved = 0
+          var numGroupsRemoved = 0
 
-    def removeGroupsAndOffsets(): Unit = {
-      var numOffsetsRemoved = 0
-      var numGroupsRemoved = 0
+          debug(s"Started unloading offsets and group metadata for $topicPartition")
+          inLock(partitionLock) {
+            // we need to guard the group removal in cache in the loading partition lock
+            // to prevent coordinator's check-and-get-group race condition
+            ownedPartitions.remove(offsetsPartition)
 
-      debug(s"Started unloading offsets and group metadata for $topicPartition")
-      inLock(partitionLock) {
-        // we need to guard the group removal in cache in the loading partition lock
-        // to prevent coordinator's check-and-get-group race condition
-        ownedPartitions.remove(offsetsPartition)
-
-        for (group <- groupMetadataCache.values) {
-          if (partitionFor(group.groupId) == offsetsPartition) {
-            onGroupUnloaded(group)
-            groupMetadataCache.remove(group.groupId, group)
-            removeGroupFromAllProducers(group.groupId)
-            numGroupsRemoved += 1
-            numOffsetsRemoved += group.numOffsets
+            for (group <- groupMetadataCache.values) {
+              if (partitionFor(group.groupId) == offsetsPartition) {
+                onGroupUnloaded(group)
+                groupMetadataCache.remove(group.groupId, group)
+                removeGroupFromAllProducers(group.groupId)
+                numGroupsRemoved += 1
+                numOffsetsRemoved += group.numOffsets
+              }
+            }
           }
+          info(s"Finished unloading $topicPartition. Removed $numOffsetsRemoved cached offsets " +
+            s"and $numGroupsRemoved cached groups.")
+          epoch
+        } else {
+          warn(s"Not removing offsets and group metadata for partition $topicPartition " +
+            s"in epoch $coordinatorEpoch since current epoch is $currentEpoch")
+          coordinatorEpoch.map(java.lang.Integer.valueOf).orNull
         }
       }
-
-      info(s"Finished unloading $topicPartition. Removed $numOffsetsRemoved cached offsets " +
-        s"and $numGroupsRemoved cached groups.")
-    }
+    )
   }
 
   // visible for testing
