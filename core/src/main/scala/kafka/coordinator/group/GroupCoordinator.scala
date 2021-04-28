@@ -916,8 +916,8 @@ class GroupCoordinator(val brokerId: Int,
    * @param offsetTopicPartitionId The partition we are no longer leading
    */
   def onResignation(offsetTopicPartitionId: Int, coordinatorEpoch: Option[Int]): Unit = {
-      info(s"Resigned as the group coordinator for partition $offsetTopicPartitionId in epoch $coordinatorEpoch")
-      groupManager.removeGroupsForPartition(offsetTopicPartitionId, coordinatorEpoch, onGroupUnloaded)
+    info(s"Resigned as the group coordinator for partition $offsetTopicPartitionId in epoch $coordinatorEpoch")
+    groupManager.removeGroupsForPartition(offsetTopicPartitionId, coordinatorEpoch, onGroupUnloaded)
   }
 
   private def setAndPropagateAssignment(group: GroupMetadata, assignment: Map[String, Array[Byte]]): Unit = {
