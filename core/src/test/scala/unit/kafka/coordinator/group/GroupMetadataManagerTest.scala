@@ -686,22 +686,26 @@ class GroupMetadataManagerTest {
   def testLoadOffsetsAndGroupIgnored(): Unit = {
     val groupEpoch = 2
     loadOffsetsAndGroup(groupTopicPartition, groupEpoch)
+    assertEquals(groupEpoch, groupMetadataManager.epochForPartitionId.get(groupTopicPartition.partition()))
 
     groupMetadataManager.removeGroupsAndOffsets(groupTopicPartition, Some(groupEpoch), _ => ())
     assertTrue(groupMetadataManager.getGroup(groupId).isEmpty,
       "Removed group remained in cache")
+    assertEquals(groupEpoch, groupMetadataManager.epochForPartitionId.get(groupTopicPartition.partition()))
 
     groupMetadataManager.loadGroupsAndOffsets(groupTopicPartition, groupEpoch - 1, _ => (), 0L)
     assertTrue(groupMetadataManager.getGroup(groupId).isEmpty,
       "Removed group remained in cache")
+    assertEquals(groupEpoch, groupMetadataManager.epochForPartitionId.get(groupTopicPartition.partition()))
   }
 
   @Test
   def testUnloadOffsetsAndGroup(): Unit = {
     val groupEpoch = 2
     loadOffsetsAndGroup(groupTopicPartition, groupEpoch)
-    groupMetadataManager.removeGroupsAndOffsets(groupTopicPartition, Some(groupEpoch), _ => ())
 
+    groupMetadataManager.removeGroupsAndOffsets(groupTopicPartition, Some(groupEpoch), _ => ())
+    assertEquals(groupEpoch, groupMetadataManager.epochForPartitionId.get(groupTopicPartition.partition()))
     assertTrue(groupMetadataManager.getGroup(groupId).isEmpty,
     "Removed group remained in cache")
   }
@@ -710,8 +714,9 @@ class GroupMetadataManagerTest {
   def testUnloadOffsetsAndGroupIgnored(): Unit = {
     val groupEpoch = 2
     val initiallyLoaded = loadOffsetsAndGroup(groupTopicPartition, groupEpoch)
-    groupMetadataManager.removeGroupsAndOffsets(groupTopicPartition, Some(groupEpoch - 1), _ => ())
 
+    groupMetadataManager.removeGroupsAndOffsets(groupTopicPartition, Some(groupEpoch - 1), _ => ())
+    assertEquals(groupEpoch, groupMetadataManager.epochForPartitionId.get(groupTopicPartition.partition()))
     val group = groupMetadataManager.getGroup(groupId).getOrElse(throw new AssertionError("Group was not loaded into the cache"))
     assertEquals(initiallyLoaded.groupId, group.groupId)
     assertEquals(initiallyLoaded.currentState, group.currentState)
@@ -731,10 +736,12 @@ class GroupMetadataManagerTest {
   def testUnloadOffsetsAndGroupIgnoredAfterStopReplica(): Unit = {
     val groupEpoch = 2
     val initiallyLoaded = loadOffsetsAndGroup(groupTopicPartition, groupEpoch)
-    groupMetadataManager.removeGroupsAndOffsets(groupTopicPartition, None, _ => ())
 
+    groupMetadataManager.removeGroupsAndOffsets(groupTopicPartition, None, _ => ())
     assertTrue(groupMetadataManager.getGroup(groupId).isEmpty,
       "Removed group remained in cache")
+    assertFalse(groupMetadataManager.epochForPartitionId.containsKey(groupTopicPartition.partition()),
+    "Replica which was stopped still in epochForPartitionId")
 
     EasyMock.reset(replicaManager)
     loadOffsetsAndGroup(groupTopicPartition, groupEpoch + 1)

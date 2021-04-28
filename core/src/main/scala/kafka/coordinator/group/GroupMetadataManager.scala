@@ -87,7 +87,7 @@ class GroupMetadataManager(brokerId: Int,
   private val openGroupsForProducer = mutable.HashMap[Long, mutable.Set[String]]()
 
   /* Track the epoch in which we (un)loaded group state to detect racing LeaderAndIsr requests */
-  val epochForPartitionId = new ConcurrentHashMap[java.lang.Integer, java.lang.Integer]()
+  private [group] val epochForPartitionId = new ConcurrentHashMap[java.lang.Integer, java.lang.Integer]()
 
   /* setup metrics*/
   private val partitionLoadSensor = metrics.sensor(GroupMetadataManager.LoadTimeSensor)
@@ -542,7 +542,7 @@ class GroupMetadataManager(brokerId: Int,
 
   private[group] def loadGroupsAndOffsets(topicPartition: TopicPartition, coordinatorEpoch: Int, onGroupLoaded: GroupMetadata => Unit, startTimeMs: java.lang.Long): Unit = {
     epochForPartitionId.compute(topicPartition.partition(), (_, epoch) => {
-      val currentEpoch = Option(epoch)
+      val currentEpoch = Option(epoch).map(_.intValue())
       if (currentEpoch.forall(currentEpoch => coordinatorEpoch > currentEpoch)) {
         try {
           val schedulerTimeMs = time.milliseconds() - startTimeMs
@@ -562,12 +562,11 @@ class GroupMetadataManager(brokerId: Int,
             loadingPartitions.remove(topicPartition.partition)
           }
         }
-        coordinatorEpoch
       } else {
         warn(s"Not loading offsets and group metadata for $topicPartition " +
           s"in epoch $coordinatorEpoch since current epoch is $currentEpoch")
-        epoch
       }
+      maxEpoch(currentEpoch, Some(coordinatorEpoch)).map(java.lang.Integer.valueOf).orNull
     })
   }
 
@@ -767,12 +766,13 @@ class GroupMetadataManager(brokerId: Int,
     info(s"Scheduling unloading of offsets and group metadata from $topicPartition")
     scheduler.schedule(topicPartition.toString, () => removeGroupsAndOffsets(topicPartition, coordinatorEpoch, onGroupUnloaded))
   }
+
   private [group] def removeGroupsAndOffsets(topicPartition: TopicPartition,
                                              coordinatorEpoch: Option[Int],
                                              onGroupUnloaded: GroupMetadata => Unit): Unit = {
     val offsetsPartition = topicPartition.partition
     epochForPartitionId.compute(offsetsPartition, (_, epoch) => {
-        val currentEpoch = Option(epoch)
+        val currentEpoch = Option(epoch).map(_.intValue())
         if (currentEpoch.forall(currentEpoch => currentEpoch <= coordinatorEpoch.getOrElse(Int.MaxValue))) {
           var numOffsetsRemoved = 0
           var numGroupsRemoved = 0
@@ -795,14 +795,23 @@ class GroupMetadataManager(brokerId: Int,
           }
           info(s"Finished unloading $topicPartition. Removed $numOffsetsRemoved cached offsets " +
             s"and $numGroupsRemoved cached groups.")
-          epoch
         } else {
           warn(s"Not removing offsets and group metadata for partition $topicPartition " +
             s"in epoch $coordinatorEpoch since current epoch is $currentEpoch")
-          coordinatorEpoch.map(java.lang.Integer.valueOf).orNull
         }
+        maxEpoch(currentEpoch, coordinatorEpoch).map(java.lang.Integer.valueOf).orNull
       }
     )
+  }
+
+  private def maxEpoch(currentEpoch: Option[Int], coordinatorEpoch: Option[Int]): Option[Int] = {
+    coordinatorEpoch match {
+      case Some(y) => currentEpoch match {
+        case Some(x) => Some(if (x > y) x else y)
+        case None => Some(y)
+        }
+      case None => None
+    }
   }
 
   // visible for testing
