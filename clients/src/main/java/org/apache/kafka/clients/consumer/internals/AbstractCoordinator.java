@@ -471,7 +471,8 @@ public abstract class AbstractCoordinator implements Closeable {
                 if (exception instanceof UnknownMemberIdException ||
                     exception instanceof IllegalGenerationException ||
                     exception instanceof RebalanceInProgressException ||
-                    exception instanceof MemberIdRequiredException)
+                    exception instanceof MemberIdRequiredException ||
+                    exception instanceof DisconnectException)
                     continue;
                 else if (!future.isRetriable())
                     throw exception;
