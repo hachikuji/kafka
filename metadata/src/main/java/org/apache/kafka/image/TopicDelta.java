@@ -17,18 +17,19 @@
 
 package org.apache.kafka.image;
 
-import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.metadata.PartitionChangeRecord;
 import org.apache.kafka.common.metadata.PartitionRecord;
 import org.apache.kafka.metadata.PartitionRegistration;
 import org.apache.kafka.metadata.Replicas;
 
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map.Entry;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Map.Entry;
 
 /**
  * Represents changes to a topic in the metadata image.
@@ -104,34 +105,30 @@ public final class TopicDelta {
      * @return the list of partitions which the broker should remove, become leader or become follower.
      */
     public LocalReplicaChanges localChanges(int brokerId) {
-        Set<TopicPartition> deletes = new HashSet<>();
-        Map<TopicPartition, LocalReplicaChanges.PartitionInfo> leaders = new HashMap<>();
-        Map<TopicPartition, LocalReplicaChanges.PartitionInfo> followers = new HashMap<>();
+        List<TopicIdPartition> deletes = new ArrayList<>();
+        List<LocalReplicaChanges.PartitionInfo> leaders = new ArrayList<>();
+        List<LocalReplicaChanges.PartitionInfo> followers = new ArrayList<>();
 
         for (Entry<Integer, PartitionRegistration> entry : partitionChanges.entrySet()) {
-            if (!Replicas.contains(entry.getValue().replicas, brokerId)) {
-                PartitionRegistration prevPartition = image.partitions().get(entry.getKey());
+            PartitionRegistration newPartition = entry.getValue();
+            Integer partitionId = entry.getKey();
+            TopicPartition topicPartition = new TopicPartition(name(), partitionId);
+            TopicIdPartition topicIdPartition = new TopicIdPartition(id(), topicPartition);
+
+            if (!Replicas.contains(newPartition.replicas, brokerId)) {
+                PartitionRegistration prevPartition = image.partitions().get(partitionId);
                 if (prevPartition != null && Replicas.contains(prevPartition.replicas, brokerId)) {
-                    deletes.add(new TopicPartition(name(), entry.getKey()));
+                    deletes.add(topicIdPartition);
                 }
-            } else if (entry.getValue().leader == brokerId) {
-                PartitionRegistration prevPartition = image.partitions().get(entry.getKey());
-                if (prevPartition == null || prevPartition.partitionEpoch != entry.getValue().partitionEpoch) {
-                    leaders.put(
-                        new TopicPartition(name(), entry.getKey()),
-                        new LocalReplicaChanges.PartitionInfo(id(), entry.getValue())
-                    );
+            } else if (newPartition.leader == brokerId) {
+                PartitionRegistration prevPartition = image.partitions().get(partitionId);
+                if (prevPartition == null || prevPartition.partitionEpoch != newPartition.partitionEpoch) {
+                    leaders.add(new LocalReplicaChanges.PartitionInfo(topicIdPartition, newPartition));
                 }
-            } else if (
-                entry.getValue().leader != brokerId &&
-                Replicas.contains(entry.getValue().replicas, brokerId)
-            ) {
-                PartitionRegistration prevPartition = image.partitions().get(entry.getKey());
-                if (prevPartition == null || prevPartition.partitionEpoch != entry.getValue().partitionEpoch) {
-                    followers.put(
-                        new TopicPartition(name(), entry.getKey()),
-                        new LocalReplicaChanges.PartitionInfo(id(), entry.getValue())
-                    );
+            } else {
+                PartitionRegistration prevPartition = image.partitions().get(partitionId);
+                if (prevPartition == null || prevPartition.partitionEpoch != newPartition.partitionEpoch) {
+                    followers.add(new LocalReplicaChanges.PartitionInfo(topicIdPartition, newPartition));
                 }
             }
         }

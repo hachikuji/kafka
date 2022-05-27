@@ -311,11 +311,11 @@ class BrokerMetadataPublisher(conf: KafkaConfig,
       changes.deletes.forEach { topicPartition =>
         resignation(topicPartition.partition, None)
       }
-      changes.leaders.forEach { (topicPartition, partitionInfo) =>
-        election(topicPartition.partition, partitionInfo.partition.leaderEpoch)
+      changes.leaders.forEach { partitionInfo =>
+        election(partitionInfo.topicPartition.partition, partitionInfo.partition.leaderEpoch)
       }
-      changes.followers.forEach { (topicPartition, partitionInfo) =>
-        resignation(topicPartition.partition, Some(partitionInfo.partition.leaderEpoch))
+      changes.followers.forEach { partitionInfo =>
+        resignation(partitionInfo.topicPartition.partition, Some(partitionInfo.partition.leaderEpoch))
       }
     }
   }

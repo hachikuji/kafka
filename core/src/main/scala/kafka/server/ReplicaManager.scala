@@ -2058,7 +2058,7 @@ class ReplicaManager(val config: KafkaConfig,
       // Handle deleted partitions. We need to do this first because we might subsequently
       // create new partitions with the same names as the ones we are deleting here.
       if (!localChanges.deletes.isEmpty) {
-        val deletes = localChanges.deletes.asScala.map(tp => (tp, true)).toMap
+        val deletes = localChanges.deletes.asScala.map(tp => (tp.topicPartition, true)).toMap
         stateChangeLogger.info(s"Deleting ${deletes.size} partition(s).")
         stopPartitions(deletes).forKeyValue { (topicPartition, e) =>
           if (e.isInstanceOf[KafkaStorageException]) {
@@ -2074,37 +2074,31 @@ class ReplicaManager(val config: KafkaConfig,
       // Handle partitions which we are now the leader or follower for.
       if (!localChanges.leaders.isEmpty || !localChanges.followers.isEmpty) {
         val lazyOffsetCheckpoints = new LazyOffsetCheckpoints(this.highWatermarkCheckpoints)
-        val changedPartitions = new mutable.HashSet[Partition]
         if (!localChanges.leaders.isEmpty) {
-          applyLocalLeadersDelta(changedPartitions, delta, lazyOffsetCheckpoints, localChanges.leaders.asScala)
+          applyLocalLeadersDelta(delta, lazyOffsetCheckpoints, localChanges.leaders.asScala)
         }
         if (!localChanges.followers.isEmpty) {
-          applyLocalFollowersDelta(changedPartitions, newImage, delta, lazyOffsetCheckpoints, localChanges.followers.asScala)
+          applyLocalFollowersDelta(newImage, delta, lazyOffsetCheckpoints, localChanges.followers.asScala)
         }
-        maybeAddLogDirFetchers(changedPartitions, lazyOffsetCheckpoints,
-          name => Option(newImage.topics().getTopic(name)).map(_.id()))
-
         replicaFetcherManager.shutdownIdleFetcherThreads()
-        replicaAlterLogDirsManager.shutdownIdleFetcherThreads()
       }
     }
   }
 
   private def applyLocalLeadersDelta(
-    changedPartitions: mutable.Set[Partition],
     delta: TopicsDelta,
     offsetCheckpoints: OffsetCheckpoints,
-    localLeaders: mutable.Map[TopicPartition, LocalReplicaChanges.PartitionInfo]
+    localLeaders: Seq[LocalReplicaChanges.PartitionInfo]
   ): Unit = {
     stateChangeLogger.info(s"Transitioning ${localLeaders.size} partition(s) to " +
       "local leaders.")
-    replicaFetcherManager.removeFetcherForPartitions(localLeaders.keySet)
-    localLeaders.forKeyValue { (tp, info) =>
+    replicaFetcherManager.removeFetcherForPartitions(localLeaders.map(_.topicPartition))
+    localLeaders.foreach { info =>
+      val tp = info.topicPartition
       getOrCreatePartition(tp, delta, info.topicId).foreach { case (partition, isNew) =>
         try {
-          val state = info.partition.toLeaderAndIsrPartitionState(tp, isNew)
+          val state = info.toLeaderAndIsrPartitionState(isNew)
           partition.makeLeader(state, offsetCheckpoints, Some(info.topicId))
-          changedPartitions.add(partition)
         } catch {
           case e: KafkaStorageException =>
             stateChangeLogger.info(s"Skipped the become-leader state change for $tp " +
@@ -2120,11 +2114,10 @@ class ReplicaManager(val config: KafkaConfig,
   }
 
   private def applyLocalFollowersDelta(
-    changedPartitions: mutable.Set[Partition],
     newImage: MetadataImage,
     delta: TopicsDelta,
     offsetCheckpoints: OffsetCheckpoints,
-    localFollowers: mutable.Map[TopicPartition, LocalReplicaChanges.PartitionInfo]
+    localFollowers: Seq[LocalReplicaChanges.PartitionInfo]
   ): Unit = {
     stateChangeLogger.info(s"Transitioning ${localFollowers.size} partition(s) to " +
       "local followers.")
@@ -2132,7 +2125,8 @@ class ReplicaManager(val config: KafkaConfig,
     val partitionsToStartFetching = new mutable.HashMap[TopicPartition, Partition]
     val partitionsToStopFetching = new mutable.HashMap[TopicPartition, Boolean]
     val followerTopicSet = new mutable.HashSet[String]
-    localFollowers.forKeyValue { (tp, info) =>
+    localFollowers.foreach { info =>
+      val tp = info.topicPartition
       getOrCreatePartition(tp, delta, info.topicId).foreach { case (partition, isNew) =>
         try {
           followerTopicSet.add(tp.topic)
@@ -2159,7 +2153,6 @@ class ReplicaManager(val config: KafkaConfig,
               partitionsToStartFetching.put(tp, partition)
             }
           }
-          changedPartitions.add(partition)
         } catch {
           case e: KafkaStorageException =>
             stateChangeLogger.error(s"Unable to start fetching $tp " +

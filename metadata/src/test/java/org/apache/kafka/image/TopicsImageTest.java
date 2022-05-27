@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.apache.kafka.common.metadata.MetadataRecordType.PARTITION_CHANGE_RECORD;
 import static org.apache.kafka.common.metadata.MetadataRecordType.PARTITION_RECORD;
@@ -207,13 +208,13 @@ public class TopicsImageTest {
         );
         assertEquals(
             new HashSet<>(Arrays.asList(new TopicPartition("baz", 0))),
-            changes.leaders().keySet()
+            changes.leaders().stream().map(LocalReplicaChanges.PartitionInfo::topicPartition).collect(Collectors.toSet())
         );
         assertEquals(
             new HashSet<>(
                 Arrays.asList(new TopicPartition("baz", 1), new TopicPartition("bar", 0), new TopicPartition("foo", 1))
             ),
-            changes.followers().keySet()
+            changes.followers().stream().map(LocalReplicaChanges.PartitionInfo::topicPartition).collect(Collectors.toSet())
         );
     }
 
@@ -349,11 +350,11 @@ public class TopicsImageTest {
         );
         assertEquals(
             new HashSet<>(Arrays.asList(new TopicPartition("zoo", 0), new TopicPartition("zoo", 4))),
-            changes.leaders().keySet()
+            changes.leaders().stream().map(LocalReplicaChanges.PartitionInfo::topicPartition).collect(Collectors.toSet())
         );
         assertEquals(
             new HashSet<>(Arrays.asList(new TopicPartition("zoo", 1), new TopicPartition("zoo", 5))),
-            changes.followers().keySet()
+            changes.followers().stream().map(LocalReplicaChanges.PartitionInfo::topicPartition).collect(Collectors.toSet())
         );
     }
 

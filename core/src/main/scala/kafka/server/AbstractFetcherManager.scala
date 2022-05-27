@@ -186,7 +186,7 @@ abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: Stri
     }
   }
 
-  def removeFetcherForPartitions(partitions: Set[TopicPartition]): Map[TopicPartition, PartitionFetchState] = {
+  def removeFetcherForPartitions(partitions: Iterable[TopicPartition]): Map[TopicPartition, PartitionFetchState] = {
     val fetchStates = mutable.Map.empty[TopicPartition, PartitionFetchState]
     lock synchronized {
       for (fetcher <- fetcherThreadMap.values)
@@ -247,7 +247,7 @@ class FailedPartitions {
     failedPartitionsSet += topicPartition
   }
 
-  def removeAll(topicPartitions: Set[TopicPartition]): Unit = synchronized {
+  def removeAll(topicPartitions: Iterable[TopicPartition]): Unit = synchronized {
     failedPartitionsSet --= topicPartitions
   }
 

@@ -731,7 +731,7 @@ abstract class AbstractFetcherThread(name: String,
     } finally partitionMapLock.unlock()
   }
 
-  def removePartitions(topicPartitions: Set[TopicPartition]): Map[TopicPartition, PartitionFetchState] = {
+  def removePartitions(topicPartitions: Iterable[TopicPartition]): Map[TopicPartition, PartitionFetchState] = {
     partitionMapLock.lockInterruptibly()
     try {
       topicPartitions.map { topicPartition =>

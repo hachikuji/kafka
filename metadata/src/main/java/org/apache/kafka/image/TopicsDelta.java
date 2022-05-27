@@ -17,6 +17,7 @@
 
 package org.apache.kafka.image;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.metadata.PartitionChangeRecord;
@@ -26,9 +27,11 @@ import org.apache.kafka.common.metadata.TopicRecord;
 import org.apache.kafka.metadata.Replicas;
 import org.apache.kafka.server.common.MetadataVersion;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -182,16 +185,15 @@ public final class TopicsDelta {
      * @return the list of topic partitions which the broker should remove, become leader or become follower.
      */
     public LocalReplicaChanges localChanges(int brokerId) {
-        Set<TopicPartition> deletes = new HashSet<>();
-        Map<TopicPartition, LocalReplicaChanges.PartitionInfo> leaders = new HashMap<>();
-        Map<TopicPartition, LocalReplicaChanges.PartitionInfo> followers = new HashMap<>();
+        List<TopicIdPartition> deletes = new ArrayList<>();
+        List<LocalReplicaChanges.PartitionInfo> leaders = new ArrayList<>();
+        List<LocalReplicaChanges.PartitionInfo> followers = new ArrayList<>();
 
         for (TopicDelta delta : changedTopics.values()) {
             LocalReplicaChanges changes = delta.localChanges(brokerId);
-
             deletes.addAll(changes.deletes());
-            leaders.putAll(changes.leaders());
-            followers.putAll(changes.followers());
+            leaders.addAll(changes.leaders());
+            followers.addAll(changes.followers());
         }
 
         // Add all of the removed topic partitions to the set of locally removed partitions
@@ -199,7 +201,8 @@ public final class TopicsDelta {
             TopicImage topicImage = image().getTopic(topicId);
             topicImage.partitions().forEach((partitionId, prevPartition) -> {
                 if (Replicas.contains(prevPartition.replicas, brokerId)) {
-                    deletes.add(new TopicPartition(topicImage.name(), partitionId));
+                    TopicPartition topicPartition = new TopicPartition(topicImage.name(), partitionId);
+                    deletes.add(new TopicIdPartition(topicId, topicPartition));
                 }
             });
         });
