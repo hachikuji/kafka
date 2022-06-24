@@ -94,6 +94,18 @@ public class UnattachedState implements EpochState {
     }
 
     @Override
+    public boolean canGrantVote(int candidateId, OffsetAndEpoch candidateOffsetAndEpoch, OffsetAndEpoch localOffsetAndEpoch) {
+        boolean isLogUpToDate = candidateOffsetAndEpoch.compareTo(localOffsetAndEpoch) >= 0;
+        if (!isLogUpToDate) {
+            log.debug("Rejecting vote request from candidate {} since candidate epoch/offset {} is behind the " +
+                    "local epoch/offset {}", candidateId, candidateOffsetAndEpoch, localOffsetAndEpoch);
+        }
+        return isLogUpToDate;
+
+    }
+
+
+    @Override
     public boolean canGrantVote(int candidateId, boolean isLogUpToDate) {
         if (!isLogUpToDate) {
             log.debug("Rejecting vote request from candidate {} since candidate epoch/offset is not up to date with us",

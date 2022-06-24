@@ -36,6 +36,10 @@ public interface EpochState extends Closeable {
      */
     boolean canGrantVote(int candidateId, boolean isLogUpToDate);
 
+    default boolean canGrantVote(int candidateId, OffsetAndEpoch candidateOffsetAndEpoch, OffsetAndEpoch localOffsetAndEpoch) {
+        return canGrantVote(candidateId, candidateOffsetAndEpoch.compareTo(localOffsetAndEpoch) >= 0);
+    }
+
     /**
      * Get the current election state, which is guaranteed to be immutable.
      */

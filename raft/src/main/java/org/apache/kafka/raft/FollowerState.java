@@ -153,7 +153,7 @@ public class FollowerState implements EpochState {
 
     @Override
     public String toString() {
-        return "FollowerState(" +
+        return "Follower(" +
             "fetchTimeoutMs=" + fetchTimeoutMs +
             ", epoch=" + epoch +
             ", leaderId=" + leaderId +

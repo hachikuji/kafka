@@ -169,6 +169,11 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
     private final ConcurrentLinkedQueue<Registration<T>> pendingRegistrations = new ConcurrentLinkedQueue<>();
 
     /**
+     * While the voter is recovering, we cannot become candidate
+     */
+    private boolean inRecovery;
+
+    /**
      * Create a new instance.
      *
      * Note that if the node ID is empty, then the client will behave as a
@@ -247,6 +252,7 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
             time,
             logContext,
             random);
+        this.inRecovery = raftConfig.recoveryEnabled();
         this.kafkaRaftMetrics = new KafkaRaftMetrics(metrics, "raft", quorum);
         kafkaRaftMetrics.updateNumUnknownVoterConnections(quorum.remoteVoters().size());
 
@@ -570,8 +576,14 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
             transitionToUnattached(candidateEpoch);
         }
 
-        OffsetAndEpoch lastEpochEndOffsetAndEpoch = new OffsetAndEpoch(lastEpochEndOffset, lastEpoch);
-        boolean voteGranted = quorum.canGrantVote(candidateId, lastEpochEndOffsetAndEpoch.compareTo(endOffset()) >= 0);
+        final boolean voteGranted;
+        if (inRecovery) {
+            logger.debug("Rejecting vote request {} since this node is in recovery", partitionRequest);
+            voteGranted = false;
+        } else {
+            OffsetAndEpoch candidateOffsetAndEpoch = new OffsetAndEpoch(lastEpochEndOffset, lastEpoch);
+            voteGranted = quorum.canGrantVote(candidateId, candidateOffsetAndEpoch, endOffset());
+        }
 
         if (voteGranted && quorum.isUnattached()) {
             transitionToVoted(candidateId, candidateEpoch);
@@ -1472,6 +1484,18 @@ public class KafkaRaftClient<T> implements RaftClient<T> {
         } else if (epoch == quorum.epoch()
             && leaderId.isPresent()
             && !quorum.hasLeader()) {
+
+            // Check if the other node is telling us that we should be the leader.
+            // This might happen during a quick restart if this node did not gracefully
+            // resign leadership, or if this node was a candidate prior to failure and the
+            // vote concluded while this node was offline.
+            OptionalInt nodeIdOpt = nodeId();
+            if (nodeIdOpt.isPresent()) {
+                int nodeId = nodeIdOpt.getAsInt();
+                if (leaderId.getAsInt() == nodeId) {
+                    return Optional.of(false);
+                }
+            }
 
             // Since we are transitioning to Follower, we will only forward the
             // request to the handler if there is no error. Otherwise, we will let

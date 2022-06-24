@@ -92,6 +92,11 @@ public class RaftConfig {
     public static final String QUORUM_RETRY_BACKOFF_MS_DOC = CommonClientConfigs.RETRY_BACKOFF_MS_DOC;
     public static final int DEFAULT_QUORUM_RETRY_BACKOFF_MS = 20;
 
+    public static final String QUORUM_ENABLE_RECOVERY_CONFIG = QUORUM_PREFIX + "enable.recovery";
+    public static final String QUORUM_ENABLE_RECOVERY_DOC = "awesome docs";
+    public static final boolean DEFAULT_QUORUM_ENABLE_RECOVERY = false;
+
+
     private final int requestTimeoutMs;
     private final int retryBackoffMs;
     private final int electionTimeoutMs;
@@ -99,6 +104,7 @@ public class RaftConfig {
     private final int fetchTimeoutMs;
     private final int appendLingerMs;
     private final Map<Integer, AddressSpec> voterConnections;
+    private final boolean enableRecovery;
 
     public interface AddressSpec {
     }
@@ -145,7 +151,8 @@ public class RaftConfig {
             abstractConfig.getInt(QUORUM_ELECTION_TIMEOUT_MS_CONFIG),
             abstractConfig.getInt(QUORUM_ELECTION_BACKOFF_MAX_MS_CONFIG),
             abstractConfig.getInt(QUORUM_FETCH_TIMEOUT_MS_CONFIG),
-            abstractConfig.getInt(QUORUM_LINGER_MS_CONFIG));
+            abstractConfig.getInt(QUORUM_LINGER_MS_CONFIG),
+            abstractConfig.getBoolean(QUORUM_ENABLE_RECOVERY_CONFIG));
     }
 
     public RaftConfig(
@@ -155,7 +162,8 @@ public class RaftConfig {
         int electionTimeoutMs,
         int electionBackoffMaxMs,
         int fetchTimeoutMs,
-        int appendLingerMs
+        int appendLingerMs,
+        boolean enableRecovery
     ) {
         this.voterConnections = voterConnections;
         this.requestTimeoutMs = requestTimeoutMs;
@@ -164,6 +172,7 @@ public class RaftConfig {
         this.electionBackoffMaxMs = electionBackoffMaxMs;
         this.fetchTimeoutMs = fetchTimeoutMs;
         this.appendLingerMs = appendLingerMs;
+        this.enableRecovery = enableRecovery;
     }
 
     public int requestTimeoutMs() {
@@ -188,6 +197,10 @@ public class RaftConfig {
 
     public int appendLingerMs() {
         return appendLingerMs;
+    }
+
+    public boolean recoveryEnabled() {
+        return enableRecovery;
     }
 
     public Set<Integer> quorumVoterIds() {

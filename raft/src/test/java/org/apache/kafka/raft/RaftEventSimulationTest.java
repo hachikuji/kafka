@@ -40,6 +40,8 @@ import org.apache.kafka.raft.internals.BatchMemoryPool;
 import org.apache.kafka.server.common.serialization.RecordSerde;
 import org.apache.kafka.snapshot.SnapshotReader;
 import org.apache.kafka.snapshot.RecordsSnapshotReader;
+import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -64,6 +66,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -96,6 +99,8 @@ import static org.junit.jupiter.api.Assertions.fail;
  */
 @Tag("integration")
 public class RaftEventSimulationTest {
+    private static final Logger log = new LogContext("[TEST] ").logger(RaftEventSimulationTest.class);
+
     private static final TopicPartition METADATA_PARTITION = new TopicPartition("__cluster_metadata", 0);
     private static final int ELECTION_TIMEOUT_MS = 1000;
     private static final int ELECTION_JITTER_MS = 100;
@@ -356,10 +361,56 @@ public class RaftEventSimulationTest {
         scheduler.runUntil(() -> cluster.allReachedHighWatermark(highWatermarkBeforeRestart + 10));
     }
 
+    @Test
+    public void runFailingSample() {
+        canRecoverFromSingleNodeCommittedDataLossWithConcurrentFailure(4, 3);
+    }
+
+    @Property(tries = 1000, afterFailure = AfterFailureMode.SAMPLE_ONLY)
+    void canRecoverFromSingleNodeCommittedDataLossWithConcurrentFailure(
+        @ForAll int seed,
+        @ForAll @IntRange(min = 3, max = 5) int numVoters
+    ) {
+        Random random = new Random(seed);
+        Cluster cluster = new Cluster(numVoters, 0, random);
+        EventScheduler scheduler = new EventScheduler(cluster.random, cluster.time);
+        scheduler.addInvariant(new MonotonicHighWatermark(cluster));
+        scheduler.addInvariant(new SingleLeader(cluster));
+        scheduler.addInvariant(new WeakMonotonicEpoch(cluster));
+        scheduler.addValidation(new ConsistentCommittedData(cluster));
+
+        MessageRouter router = new MessageRouter(cluster);
+
+        cluster.startAll();
+        schedulePolling(scheduler, cluster, 3, 5);
+        scheduler.schedule(router::deliverAll, 0, 2, 5);
+        scheduler.schedule(new SequentialAppendAction(cluster), 0, 2, 3);
+        scheduler.runUntil(() -> cluster.anyReachedHighWatermark(10));
+
+        // Kill a random node and drop all of its persistent state.
+        RaftNode hardFailureNode = cluster.randomRunning().orElseThrow(() ->
+            new AssertionError("Failed to find running node")
+        );
+        cluster.killAndDeletePersistentState(hardFailureNode.nodeId);
+
+        // Soft failure on another node
+        RaftNode softFailureNode = cluster.randomRunning().orElseThrow(() ->
+            new AssertionError("Failed to find running node")
+        );
+        assertNotEquals(hardFailureNode.nodeId, softFailureNode.nodeId);
+        cluster.kill(softFailureNode.nodeId);
+
+        // Restart both failed nodes and ensure recovery
+        long highWatermarkBeforeRestart = cluster.maxHighWatermarkReached();
+        cluster.start(hardFailureNode.nodeId,  true);
+        cluster.start(softFailureNode.nodeId);
+        scheduler.runUntil(() -> cluster.allReachedHighWatermark(highWatermarkBeforeRestart + 10));
+    }
+
     private EventScheduler schedulerWithDefaultInvariants(Cluster cluster) {
         EventScheduler scheduler = new EventScheduler(cluster.random, cluster.time);
         scheduler.addInvariant(new MonotonicHighWatermark(cluster));
-        scheduler.addInvariant(new MonotonicEpoch(cluster));
+        scheduler.addInvariant(new StrongMonotonicEpoch(cluster));
         scheduler.addInvariant(new MajorityReachedHighWatermark(cluster));
         scheduler.addInvariant(new SingleLeader(cluster));
         scheduler.addInvariant(new SnapshotAtLogStart(cluster));
@@ -643,11 +694,14 @@ public class RaftEventSimulationTest {
         }
 
         void killAll() {
+            ArrayList<Integer> killedNodes = new ArrayList<>(this.running.keySet());
             running.clear();
+            log.info("Killed all nodes {}", killedNodes);
         }
 
         void kill(int nodeId) {
             running.remove(nodeId);
+            log.info("Killed node {}", nodeId);
         }
 
         void shutdown(int nodeId) {
@@ -656,6 +710,7 @@ public class RaftEventSimulationTest {
                 throw new IllegalStateException("Attempt to shutdown a node which is not currently running");
             }
             node.client.shutdown(500).whenComplete((res, exception) -> kill(nodeId));
+            log.info("Sent shutdown request with timeout 500ms to node {}", nodeId);
         }
 
         void pollIfRunning(int nodeId) {
@@ -705,7 +760,10 @@ public class RaftEventSimulationTest {
 
         void killAndDeletePersistentState(int nodeId) {
             kill(nodeId);
+            PersistentState deletedState = nodes.get(nodeId);
             nodes.put(nodeId, new PersistentState(nodeId));
+            log.info("Deleted persistent state of node {}, including end log offset/epoch {}",
+                nodeId, deletedState.log.endOffset());
         }
 
         private static RaftConfig.AddressSpec nodeAddress(int id) {
@@ -713,6 +771,10 @@ public class RaftEventSimulationTest {
         }
 
         void start(int nodeId) {
+            start(nodeId, false);
+        }
+
+        void start(int nodeId, boolean enableRecovery) {
             LogContext logContext = new LogContext("[Node " + nodeId + "] ");
             PersistentState persistentState = nodes.get(nodeId);
             MockNetworkChannel channel = new MockNetworkChannel(correlationIdCounter, voters);
@@ -720,7 +782,7 @@ public class RaftEventSimulationTest {
             Map<Integer, RaftConfig.AddressSpec> voterAddressMap = voters.stream()
                 .collect(Collectors.toMap(id -> id, Cluster::nodeAddress));
             RaftConfig raftConfig = new RaftConfig(voterAddressMap, REQUEST_TIMEOUT_MS, RETRY_BACKOFF_MS, ELECTION_TIMEOUT_MS,
-                    ELECTION_JITTER_MS, FETCH_TIMEOUT_MS, LINGER_MS);
+                    ELECTION_JITTER_MS, FETCH_TIMEOUT_MS, LINGER_MS, enableRecovery);
             Metrics metrics = new Metrics(time);
 
             persistentState.log.reopen();
@@ -758,7 +820,10 @@ public class RaftEventSimulationTest {
                 serde
             );
             node.initialize();
+            log.info("Initialized node {}", nodeId);
+
             running.put(nodeId, node);
+            log.info("Started node {}", nodeId);
         }
     }
 
@@ -902,11 +967,54 @@ public class RaftEventSimulationTest {
         }
     }
 
-    private static class MonotonicEpoch implements Invariant {
+    /**
+     * Ensure that the current leader epoch increases monotonically
+     */
+    private static class WeakMonotonicEpoch implements Invariant {
+        final Cluster cluster;
+        final Map<Integer, Integer> leaderEpochs = new HashMap<>();
+
+        private WeakMonotonicEpoch(Cluster cluster) {
+            this.cluster = cluster;
+        }
+
+        @Override
+        public void verify() {
+            for (Map.Entry<Integer, PersistentState> nodeStateEntry : cluster.nodes.entrySet()) {
+                Integer nodeId = nodeStateEntry.getKey();
+                PersistentState state = nodeStateEntry.getValue();
+                Integer oldEpoch = leaderEpochs.get(nodeId);
+
+                ElectionState electionState = state.store.readElectionState();
+                if (electionState == null) {
+                    continue;
+                }
+
+                if (electionState.isLeader(nodeId)) {
+                    Integer newEpoch = electionState.epoch;
+                    if (oldEpoch != null && oldEpoch > newEpoch) {
+                        fail("Non-monotonic update of leader epoch detected on node " + nodeId + ": " +
+                            oldEpoch + " -> " + newEpoch);
+                    }
+
+                    cluster.ifRunning(nodeId, nodeState -> {
+                        assertEquals(newEpoch.intValue(), nodeState.client.quorum().epoch());
+                    });
+
+                    leaderEpochs.put(nodeId, newEpoch);
+                }
+            }
+        }
+    }
+
+    /**
+     * Ensure that the leader epoch increases on each node monotonically.
+     */
+    private static class StrongMonotonicEpoch implements Invariant {
         final Cluster cluster;
         final Map<Integer, Integer> nodeEpochs = new HashMap<>();
 
-        private MonotonicEpoch(Cluster cluster) {
+        private StrongMonotonicEpoch(Cluster cluster) {
             this.cluster = cluster;
             for (Map.Entry<Integer, PersistentState> nodeStateEntry : cluster.nodes.entrySet()) {
                 Integer nodeId = nodeStateEntry.getKey();
