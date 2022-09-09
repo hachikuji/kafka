@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 
 public interface Controller extends AclMutator, AutoCloseable {
@@ -76,10 +77,24 @@ public interface Controller extends AclMutator, AutoCloseable {
      *
      * @return              A future yielding the response.
      */
-    CompletableFuture<CreateTopicsResponseData> createTopics(
+    default CompletableFuture<CreateTopicsResponseData> createTopics(
         ControllerRequestContext context,
         CreateTopicsRequestData request,
         Set<String> describable
+    ) {
+        return createTopics(
+            context,
+            request,
+            describable,
+            count -> {}
+        );
+    }
+
+    CompletableFuture<CreateTopicsResponseData> createTopics(
+        ControllerRequestContext context,
+        CreateTopicsRequestData request,
+        Set<String> describable,
+        Consumer<Integer> recordQuotaCallback
     );
 
     /**

@@ -555,10 +555,14 @@ class ControllerApisTest {
         setTopicConfigErrorCode(TOPIC_AUTHORIZATION_FAILED.code()),
       new CreatableTopicResult().setName("quux").
         setErrorCode(TOPIC_AUTHORIZATION_FAILED.code()))
-    assertEquals(expectedResponse, controllerApis.createTopics(ANONYMOUS_CONTEXT, request,
+    assertEquals(expectedResponse, controllerApis.createTopics(
+      ANONYMOUS_CONTEXT,
+      request,
+      UnboundedControllerMutationQuota,
       false,
       _ => Set("baz", "indescribable"),
-      _ => Set("baz")).get().topics().asScala.toSet)
+      _ => Set("baz")).get().topics().asScala.toSet
+    )
   }
 
   @Test

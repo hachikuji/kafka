@@ -66,6 +66,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import static org.apache.kafka.clients.admin.AlterConfigOp.OpType.DELETE;
 import static org.apache.kafka.clients.admin.AlterConfigOp.OpType.SET;
@@ -128,7 +129,8 @@ public class MockController implements Controller {
     synchronized public CompletableFuture<CreateTopicsResponseData> createTopics(
         ControllerRequestContext context,
         CreateTopicsRequestData request,
-        Set<String> describable
+        Set<String> describable,
+        Consumer<Integer> recordQuotaCallback
     ) {
         CreateTopicsResponseData response = new CreateTopicsResponseData();
         for (CreatableTopic topic : request.topics()) {
@@ -149,12 +151,14 @@ public class MockController implements Controller {
                     // Note: we don't simulate topic configs here yet.
                     // Just returning replication factor and numPartitions.
                     if (topic.assignments() != null && !topic.assignments().isEmpty()) {
+                        recordQuotaCallback.accept(topic.assignments().size());
                         creatableTopicResult.
                             setTopicConfigErrorCode(Errors.NONE.code()).
                             setReplicationFactor((short)
                                 topic.assignments().iterator().next().brokerIds().size()).
                             setNumPartitions(topic.assignments().size());
                     } else {
+                        recordQuotaCallback.accept(topic.numPartitions());
                         creatableTopicResult.
                             setTopicConfigErrorCode(Errors.NONE.code()).
                             setReplicationFactor(topic.replicationFactor()).

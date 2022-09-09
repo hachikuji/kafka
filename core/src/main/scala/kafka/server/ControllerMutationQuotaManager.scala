@@ -274,9 +274,11 @@ class ControllerMutationQuotaManager(private val config: ClientQuotaManagerConfi
    * @return
    */
   def newQuotaFor(request: RequestChannel.Request, strictSinceVersion: Short): ControllerMutationQuota = {
-    if (request.header.apiVersion() >= strictSinceVersion)
+    val newQuota = if (request.header.apiVersion() >= strictSinceVersion)
       newStrictQuotaFor(request)
     else
       newPermissiveQuotaFor(request)
+    println(s"New quota: $newQuota")
+    newQuota
   }
 }

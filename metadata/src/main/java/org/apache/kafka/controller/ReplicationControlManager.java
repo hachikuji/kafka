@@ -32,6 +32,7 @@ import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.NoReassignmentInProgressException;
 import org.apache.kafka.common.errors.PolicyViolationException;
+import org.apache.kafka.common.errors.ThrottlingQuotaExceededException;
 import org.apache.kafka.common.errors.UnknownServerException;
 import org.apache.kafka.common.errors.UnknownTopicIdException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
@@ -110,6 +111,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -558,8 +560,22 @@ public class ReplicationControlManager {
         log.info("Removed topic {} with ID {}.", topic.name, record.topicId());
     }
 
-    ControllerResult<CreateTopicsResponseData>
-            createTopics(CreateTopicsRequestData request, Set<String> describable) {
+    ControllerResult<CreateTopicsResponseData> createTopics(
+        CreateTopicsRequestData request,
+        Set<String> describable
+    ) {
+        return createTopics(
+            request,
+            describable,
+            numPartitions -> {}
+        );
+    }
+
+    ControllerResult<CreateTopicsResponseData> createTopics(
+        CreateTopicsRequestData request,
+        Set<String> describable,
+        Consumer<Integer> recordQuotaCallback
+    ) {
         Map<String, ApiError> topicErrors = new HashMap<>();
         List<ApiMessageAndVersion> records = new ArrayList<>();
 
@@ -590,7 +606,13 @@ public class ReplicationControlManager {
             if (topicErrors.containsKey(topic.name())) continue;
             ApiError error;
             try {
-                error = createTopic(topic, records, successes, describable.contains(topic.name()));
+                error = createTopic(
+                    topic,
+                    records,
+                    successes,
+                    describable.contains(topic.name()),
+                    recordQuotaCallback
+                );
             } catch (ApiException e) {
                 error = ApiError.fromThrowable(e);
             }
@@ -630,10 +652,13 @@ public class ReplicationControlManager {
         }
     }
 
-    private ApiError createTopic(CreatableTopic topic,
-                                 List<ApiMessageAndVersion> records,
-                                 Map<String, CreatableTopicResult> successes,
-                                 boolean authorizedToReturnConfigs) {
+    private ApiError createTopic(
+        CreatableTopic topic,
+        List<ApiMessageAndVersion> records,
+        Map<String, CreatableTopicResult> successes,
+        boolean authorizedToReturnConfigs,
+        Consumer<Integer> recordQuotaCallback
+    ) {
         Map<String, String> creationConfigs = translateCreationConfigs(topic.configs());
         Map<Integer, PartitionRegistration> newParts = new HashMap<>();
         if (!topic.assignments().isEmpty()) {
@@ -730,6 +755,14 @@ public class ReplicationControlManager {
                 topic.name(), numPartitions, replicationFactor, null, creationConfigs));
             if (error.isFailure()) return error;
         }
+
+        try {
+            recordQuotaCallback.accept(newParts.size());
+        } catch (ThrottlingQuotaExceededException e) {
+            System.out.println("Quota exceeded");
+            return ApiError.fromThrowable(e);
+        }
+
         Uuid topicId = Uuid.randomUuid();
         CreatableTopicResult result = new CreatableTopicResult().
             setName(topic.name()).

@@ -460,6 +460,8 @@ class ClientQuotaManager(private val config: ClientQuotaManagerConfig,
      */
     lock.writeLock().lock()
     try {
+      println(s"Update quota: user $sanitizedUser, clientId: $clientId, sanitizedClientId: $sanitizedClientId, quota: $quota")
+
       val userEntity = sanitizedUser.map {
         case ConfigEntityName.Default => DefaultUserEntity
         case user => UserEntity(user)

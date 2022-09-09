@@ -51,6 +51,7 @@ import org.apache.kafka.metadata.{BrokerHeartbeatReply, BrokerRegistrationReply}
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.common.ApiMessageAndVersion
 
+import java.util.function.Consumer
 import scala.jdk.CollectionConverters._
 
 
@@ -339,14 +340,21 @@ class ControllerApis(val requestChannel: RequestChannel,
     val createTopicsRequest = request.body[CreateTopicsRequest]
     val context = new ControllerRequestContext(request.context.header.data, request.context.principal,
       requestTimeoutMsToDeadlineNs(time, createTopicsRequest.data.timeoutMs))
-    val future = createTopics(context,
-        createTopicsRequest.data,
-        authHelper.authorize(request.context, CREATE, CLUSTER, CLUSTER_NAME, logIfDenied = false),
-        names => authHelper.filterByAuthorized(request.context, CREATE, TOPIC, names)(identity),
-        names => authHelper.filterByAuthorized(request.context, DESCRIBE_CONFIGS, TOPIC,
-            names, logIfDenied = false)(identity))
+    val controllerMutationQuota = quotas.controllerMutation.newQuotaFor(request, strictSinceVersion = 6)
+
+    val future = createTopics(
+      context,
+      createTopicsRequest.data,
+      controllerMutationQuota,
+      authHelper.authorize(request.context, CREATE, CLUSTER, CLUSTER_NAME, logIfDenied = false),
+      names => authHelper.filterByAuthorized(request.context, CREATE, TOPIC, names)(identity),
+      names => authHelper.filterByAuthorized(request.context, DESCRIBE_CONFIGS, TOPIC,
+        names, logIfDenied = false)(identity)
+    )
+
     future.handle[Unit] { (result, exception) =>
-      requestHelper.sendResponseMaybeThrottle(request, throttleTimeMs => {
+      requestHelper.sendResponseMaybeThrottleWithControllerQuota(controllerMutationQuota, request, throttleTimeMs => {
+        println(s"Principal: ${context.principal}, ThrottleTimeMs: $throttleTimeMs, Quota: $controllerMutationQuota")
         if (exception != null) {
           createTopicsRequest.getErrorResponse(throttleTimeMs, exception)
         } else {
@@ -360,6 +368,7 @@ class ControllerApis(val requestChannel: RequestChannel,
   def createTopics(
     context: ControllerRequestContext,
     request: CreateTopicsRequestData,
+    controllerMutationQuota: ControllerMutationQuota,
     hasClusterAuth: Boolean,
     getCreatableTopics: Iterable[String] => Set[String],
     getDescribableTopics: Iterable[String] => Set[String]
@@ -389,7 +398,17 @@ class ControllerApis(val requestChannel: RequestChannel,
         iterator.remove()
       }
     }
-    controller.createTopics(context, effectiveRequest, describableTopicNames).thenApply { response =>
+
+    val recordQuotaCallback: Consumer[java.lang.Integer] = { numCreatedPartitions =>
+      controllerMutationQuota.record(numCreatedPartitions.doubleValue)
+    }
+
+    controller.createTopics(
+      context,
+      effectiveRequest,
+      describableTopicNames,
+      recordQuotaCallback
+    ).thenApply { response =>
       duplicateTopicNames.forEach { name =>
         response.topics().add(new CreatableTopicResult().
           setName(name).

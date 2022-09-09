@@ -17,7 +17,7 @@ import java.util.Properties
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import kafka.server.ClientQuotaManager.DefaultTags
-import kafka.utils.TestUtils
+import kafka.utils.{TestInfoUtils, TestUtils}
 import org.apache.kafka.common.config.internals.QuotaConfigs
 import org.apache.kafka.common.internals.KafkaFutureImpl
 import org.apache.kafka.common.message.CreatePartitionsRequestData
@@ -46,6 +46,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.{BeforeEach, Test, TestInfo}
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 import scala.jdk.CollectionConverters._
 
@@ -93,7 +95,7 @@ class ControllerMutationQuotaTest extends BaseRequestTest {
 
   override def brokerCount: Int = 1
 
-  override def brokerPropertyOverrides(properties: Properties): Unit = {
+  def addNodeProperties(properties: Properties): Unit = {
     properties.put(KafkaConfig.ControlledShutdownEnableProp, "false")
     properties.put(KafkaConfig.OffsetsTopicReplicationFactorProp, "1")
     properties.put(KafkaConfig.OffsetsTopicPartitionsProp, "1")
@@ -102,6 +104,16 @@ class ControllerMutationQuotaTest extends BaseRequestTest {
     // Specify number of samples and window size.
     properties.put(KafkaConfig.NumControllerQuotaSamplesProp, ControllerQuotaSamples.toString)
     properties.put(KafkaConfig.ControllerQuotaWindowSizeSecondsProp, ControllerQuotaWindowSizeSeconds.toString)
+  }
+
+  override def brokerPropertyOverrides(properties: Properties): Unit = {
+    addNodeProperties(properties)
+  }
+
+  override protected def kraftControllerConfigs(): collection.Seq[Properties] = {
+    val configs = super.kraftControllerConfigs()
+    configs.foreach(addNodeProperties)
+    configs
   }
 
   @BeforeEach
@@ -151,8 +163,9 @@ class ControllerMutationQuotaTest extends BaseRequestTest {
     }
   }
 
-  @Test
-  def testStrictCreateTopicsRequest(): Unit = {
+  @ParameterizedTest(name = TestInfoUtils.TestWithParameterizedQuorumName)
+  @ValueSource(strings = Array("zk", "kraft"))
+  def testStrictCreateTopicsRequest(quorum: String): Unit = {
     asPrincipal(ThrottledPrincipal) {
       // Create two topics worth of 30 partitions each. As we use a strict quota, we
       // expect one to be created and one to be rejected.
@@ -362,7 +375,7 @@ class ControllerMutationQuotaTest extends BaseRequestTest {
   }
 
   private def waitUserQuota(user: String, expectedQuota: Double): Unit = {
-    val quotaManager = servers.head.quotaManagers.controllerMutation
+    val quotaManager = brokers.head.quotaManagers.controllerMutation
     var actualQuota = Double.MinValue
 
     TestUtils.waitUntilTrue(() => {
@@ -414,6 +427,11 @@ class ControllerMutationQuotaTest extends BaseRequestTest {
 
   private def sendAlterClientQuotasRequest(entries: Iterable[ClientQuotaAlteration]): AlterClientQuotasResponse = {
     val request = new AlterClientQuotasRequest.Builder(entries.asJavaCollection, false).build()
-    connectAndReceive[AlterClientQuotasResponse](request, destination = controllerSocketServer)
+    val destinationServer = if (isKRaftTest()) {
+      anySocketServer
+    } else {
+      controllerSocketServer
+    }
+    connectAndReceive[AlterClientQuotasResponse](request, destinationServer)
   }
 }

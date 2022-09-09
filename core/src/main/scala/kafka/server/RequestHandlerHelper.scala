@@ -69,7 +69,10 @@ class RequestHandlerHelper(
       override def startThrottling(): Unit = requestChannel.startThrottling(request)
       override def endThrottling(): Unit = requestChannel.endThrottling(request)
     }
-    quotaManager.throttle(request, callback, throttleTimeMs)
+    // Only throttle non-forwarded requests
+    if (!request.isForwarded) {
+      quotaManager.throttle(request, callback, throttleTimeMs)
+    }
   }
 
   def handleError(request: RequestChannel.Request, e: Throwable): Unit = {
@@ -107,9 +110,7 @@ class RequestHandlerHelper(
   def sendResponseMaybeThrottle(request: RequestChannel.Request,
                                 createResponse: Int => AbstractResponse): Unit = {
     val throttleTimeMs = maybeRecordAndGetThrottleTimeMs(request)
-    // Only throttle non-forwarded requests
-    if (!request.isForwarded)
-      throttle(quotas.request, request, throttleTimeMs)
+    throttle(quotas.request, request, throttleTimeMs)
     requestChannel.sendResponse(request, createResponse(throttleTimeMs), None)
   }
 

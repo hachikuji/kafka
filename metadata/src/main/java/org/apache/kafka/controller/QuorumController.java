@@ -1823,13 +1823,15 @@ public final class QuorumController implements Controller {
     @Override
     public CompletableFuture<CreateTopicsResponseData> createTopics(
         ControllerRequestContext context,
-        CreateTopicsRequestData request, Set<String> describable
+        CreateTopicsRequestData request,
+        Set<String> describable,
+        Consumer<Integer> recordQuotaCallback
     ) {
         if (request.topics().isEmpty()) {
             return CompletableFuture.completedFuture(new CreateTopicsResponseData());
         }
         return appendWriteEvent("createTopics", context.deadlineNs(),
-            () -> replicationControl.createTopics(request, describable));
+            () -> replicationControl.createTopics(request, describable, recordQuotaCallback));
     }
 
     @Override
