@@ -464,13 +464,16 @@ class GroupMetadataManager(brokerId: Int,
   /**
    * Store offsets by appending it to the replicated log and then inserting to cache
    */
-  def storeOffsets(group: GroupMetadata,
-                   consumerId: String,
-                   offsetMetadata: immutable.Map[TopicIdPartition, OffsetAndMetadata],
-                   responseCallback: immutable.Map[TopicIdPartition, Errors] => Unit,
-                   producerId: Long = RecordBatch.NO_PRODUCER_ID,
-                   producerEpoch: Short = RecordBatch.NO_PRODUCER_EPOCH,
-                   requestLocal: RequestLocal = RequestLocal.NoCaching): Unit = {
+  def storeOffsets(
+    group: GroupMetadata,
+    consumerId: String,
+    offsetMetadata: immutable.Map[TopicIdPartition, OffsetAndMetadata],
+    responseCallback: immutable.Map[TopicIdPartition, Errors] => Unit,
+    producerId: Long = RecordBatch.NO_PRODUCER_ID,
+    producerEpoch: Short = RecordBatch.NO_PRODUCER_EPOCH,
+    requestLocal: RequestLocal = RequestLocal.NoCaching,
+    verificationGuard: Option[VerificationGuard]
+  ): Unit = {
     group.inLock {
       if (!group.hasReceivedConsistentOffsetCommits)
         warn(s"group: ${group.groupId} with leader: ${group.leaderOrNull} has received offset commits from consumers as well " +
@@ -488,6 +491,9 @@ class GroupMetadataManager(brokerId: Int,
       return
     }
 
+    // TODO: Can't we do this once and pass it through?
+    val offsetTopicPartition = new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, partitionFor(group.groupId))
+
     val magicOpt = getMagic(partitionFor(group.groupId))
     if (magicOpt.isEmpty) {
       val commitStatus = offsetMetadata.map { case (topicIdPartition, _) =>
@@ -501,11 +507,22 @@ class GroupMetadataManager(brokerId: Int,
     val records = generateOffsetRecords(magicOpt.get, isTxnOffsetCommit, group.groupId, filteredOffsetMetadata, producerId, producerEpoch)
     val putCacheCallback = createPutCacheCallback(isTxnOffsetCommit, group, consumerId, offsetMetadata, filteredOffsetMetadata, responseCallback, producerId, records)
 
-    group.inLock {
-        group.prepareOffsetCommit(offsetMetadata)
+    val verificationGuards = verificationGuard match {
+      case Some(guard) => Map(offsetTopicPartition -> guard)
+      case None => Map.empty
     }
 
-    appendForGroup(group, records, requestLocal, putCacheCallback)
+    group.inLock {
+      group.prepareOffsetCommit(offsetMetadata)
+    }
+
+    appendForGroup(
+      group,
+      records,
+      requestLocal,
+      putCacheCallback,
+      verificationGuards = verificationGuards
+    )
   }
 
   def storeOffsetsAfterVerification(group: GroupMetadata,

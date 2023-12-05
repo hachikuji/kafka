@@ -30,9 +30,11 @@ import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.metrics.stats.Meter
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+import org.apache.kafka.common.record.{DefaultRecordBatch, RecordBatch}
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.server.record.BrokerCompressionType
+import org.apache.kafka.storage.internals.log.VerificationGuard
 
 import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.math.max
@@ -911,66 +913,36 @@ private[group] class GroupCoordinator(
           groupManager.addGroup(new GroupMetadata(groupId, Empty, time))
         }
 
-        val filteredOffsetMetadata = offsetMetadata.filter { case (_, offsetAndMetadata) =>
-          groupManager.validateOffsetMetadataLength(offsetAndMetadata.metadata)
-        }
-        if (filteredOffsetMetadata.isEmpty) {
-          // compute the final error codes for the commit response
-          val commitStatus = offsetMetadata.map { case (k, _) => k -> Errors.OFFSET_METADATA_TOO_LARGE }
-          responseCallback(commitStatus)
-          return
-        }
-
-        val magicOpt = groupManager.getMagic(partitionFor(group.groupId))
-        if (magicOpt.isEmpty) {
-          val commitStatus = offsetMetadata.map { case (topicIdPartition, _) =>
-            (topicIdPartition, Errors.NOT_COORDINATOR)
-          }
-          responseCallback(commitStatus)
-          return
-        }
-
-        val records = groupManager.generateOffsetRecords(magicOpt.get, true, group.groupId, filteredOffsetMetadata, producerId, producerEpoch)
-        val transactionVerificationEntries = new TransactionVerificationEntries
-
-        def postVerificationCallback(newRequestLocal: RequestLocal)
-                                    (errorResults: Map[TopicPartition, LogAppendResult]): Unit = {
-          group.inLock {
-            val validationErrorOpt = validateOffsetCommit(
+        def postVerificationCallback(
+          error: Errors,
+          requestLocal: RequestLocal,
+          verificationGuard: VerificationGuard
+        ): Unit = {
+          if (error != Errors.NONE) {
+            responseCallback(offsetMetadata.map { case (k, _) => k -> error })
+          } else {
+            doCommitOffsets(
               group,
-              generationId,
               memberId,
               groupInstanceId,
-              isTransactional = true
+              generationId,
+              offsetMetadata,
+              responseCallback,
+              requestLocal,
+              verificationGuard = Some(verificationGuard)
             )
-
-            val verifiedOffsets = offsetMetadata.filter {
-              case (tp, _) =>
-                !errorResults.contains(tp.topicPartition)
-            }
-
-            val verifiedRecords = records.filter {
-              case (tp, _) =>
-                !errorResults.contains(tp)
-            }
-
-            if (validationErrorOpt.isDefined) {
-              responseCallback(offsetMetadata.map { case (k, _) => k -> validationErrorOpt.get })
-            } else if (verifiedOffsets.isEmpty) {
-              responseCallback(offsetMetadata.map { case (k, _) => k -> errorResults(k.topicPartition).error })
-            } else {
-              val putCacheCallback = groupManager.createPutCacheCallback(true, group, memberId, offsetMetadata, verifiedOffsets, responseCallback, producerId, verifiedRecords, errorResults)
-              groupManager.storeOffsetsAfterVerification(group, verifiedOffsets, records, putCacheCallback, producerId, transactionVerificationEntries, errorResults, newRequestLocal)
-            }
           }
         }
 
-        groupManager.replicaManager.appendRecordsWithTransactionVerification(
-          entriesPerPartition = records,
-          transactionVerificationEntries = transactionVerificationEntries,
-          transactionalId = transactionalId,
-          requestLocal = requestLocal,
-          postVerificationCallback = postVerificationCallback
+
+        groupManager.replicaManager.maybeStartTransactionVerification(
+          topicPartition = ,
+          transactionalId,
+          producerId,
+          producerEpoch,
+          RecordBatch.NO_SEQUENCE,
+          requestLocal,
+          postVerificationCallback
         )
     }
   }
@@ -1050,13 +1022,16 @@ private[group] class GroupCoordinator(
     }
   }
 
-  private def doCommitOffsets(group: GroupMetadata,
-                              memberId: String,
-                              groupInstanceId: Option[String],
-                              generationId: Int,
-                              offsetMetadata: immutable.Map[TopicIdPartition, OffsetAndMetadata],
-                              responseCallback: immutable.Map[TopicIdPartition, Errors] => Unit,
-                              requestLocal: RequestLocal): Unit = {
+  private def doCommitOffsets(
+    group: GroupMetadata,
+    memberId: String,
+    groupInstanceId: Option[String],
+    generationId: Int,
+    offsetMetadata: immutable.Map[TopicIdPartition, OffsetAndMetadata],
+    responseCallback: immutable.Map[TopicIdPartition, Errors] => Unit,
+    requestLocal: RequestLocal,
+    verificationGuard: Option[VerificationGuard] = None // TODO: no optional args
+  ): Unit = {
     group.inLock {
       val validationErrorOpt = validateOffsetCommit(
         group,
@@ -1078,7 +1053,14 @@ private[group] class GroupCoordinator(
             // on heartbeat response to eventually notify the rebalance in progress signal to the consumer
             val member = group.get(memberId)
             completeAndScheduleNextHeartbeatExpiration(group, member)
-            groupManager.storeOffsets(group, memberId, offsetMetadata, responseCallback, requestLocal = requestLocal)
+            groupManager.storeOffsets(
+              group,
+              memberId,
+              offsetMetadata,
+              responseCallback,
+              requestLocal = requestLocal,
+              verificationGuard = verificationGuard
+            )
 
           case CompletingRebalance =>
             // We should not receive a commit request if the group has not completed rebalance;

@@ -918,6 +918,62 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
+  def maybeStartTransactionVerification(
+    topicPartition: TopicPartition,
+    transactionalId: String,
+    producerId: Long,
+    producerEpoch: Short,
+    baseSequence: Int,
+    requestLocal: RequestLocal,
+    callback: (Errors, RequestLocal, VerificationGuard) => Unit
+  ): Unit = {
+    if (transactionalId == null ||
+      !config.transactionPartitionVerificationEnable
+      || addPartitionsToTxnManager.isEmpty
+    ) {
+      callback(Errors.NONE, requestLocal, VerificationGuard.SENTINEL)
+      return
+    }
+
+    val errorOrGuard = maybeStartTransactionVerification(
+      topicPartition,
+      producerId,
+      producerEpoch,
+      baseSequence
+    )
+
+    errorOrGuard match {
+      case Left(error) =>
+        callback(error, requestLocal, VerificationGuard.SENTINEL)
+
+      case Right(verificationGuard) =>
+        if (verificationGuard == VerificationGuard.SENTINEL) {
+          callback(Errors.NONE, requestLocal, VerificationGuard.SENTINEL)
+        } else {
+          def invokeCallback(
+            requestLocal: RequestLocal,
+            errors: Map[TopicPartition, Errors]
+          ): Unit = {
+            val error = errors.getOrElse(topicPartition, Errors.UNKNOWN_SERVER_ERROR)
+            callback(error, requestLocal, verificationGuard)
+          }
+
+          val verificationCallback  = KafkaRequestHandler.wrapAsyncCallback(
+            invokeCallback,
+            requestLocal
+          )
+
+          addPartitionsToTxnManager.get.verifyTransaction(
+            transactionalId = transactionalId,
+            producerId = producerId,
+            producerEpoch = producerEpoch,
+            topicPartitions = Seq(topicPartition),
+            callback = verificationCallback
+          )
+        }
+    }
+  }
+
   /**
    * A helper method to compile the results from the transaction verification and call the postVerificationCallback.
    *
@@ -953,7 +1009,27 @@ class ReplicaManager(val config: KafkaConfig,
     postVerificationCallback(requestLocal)(errorResults)
   }
 
-  private def partitionEntriesForVerification(transactionVerificationEntries: TransactionVerificationEntries, entriesPerPartition: Map[TopicPartition, MemoryRecords]): TransactionVerificationEntries = {
+  private def maybeStartTransactionVerification(
+    topicPartition: TopicPartition,
+    producerId: Long,
+    producerEpoch: Short,
+    baseSequence: Int
+  ): Either[Errors, VerificationGuard] = {
+    try {
+      // Produce requests (only requests that require verification) should only have one batch per partition in "batches" but check all just to be safe.
+      val verificationGuard = getPartitionOrException(topicPartition)
+        .maybeStartTransactionVerification(producerId, baseSequence, producerEpoch)
+      Right(verificationGuard)
+    } catch {
+      case e: Exception =>
+        Left(Errors.forException(e))
+    }
+  }
+
+  private def partitionEntriesForVerification(
+    transactionVerificationEntries: TransactionVerificationEntries,
+    entriesPerPartition: Map[TopicPartition, MemoryRecords]
+  ): TransactionVerificationEntries = {
     val transactionalProducerIds = mutable.HashSet[Long]()
     entriesPerPartition.foreach { case (topicPartition, records) =>
       try {
