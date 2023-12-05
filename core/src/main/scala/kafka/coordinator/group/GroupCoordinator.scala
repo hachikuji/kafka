@@ -934,9 +934,8 @@ private[group] class GroupCoordinator(
           }
         }
 
-
         groupManager.replicaManager.maybeStartTransactionVerification(
-          topicPartition = ,
+          topicPartition = topicPartitionFor(groupId),
           transactionalId,
           producerId,
           producerEpoch,
@@ -1704,6 +1703,11 @@ private[group] class GroupCoordinator(
   }
 
   def partitionFor(group: String): Int = groupManager.partitionFor(group)
+
+  def topicPartitionFor(group: String): TopicPartition = new TopicPartition(
+    Topic.GROUP_METADATA_TOPIC_NAME,
+    partitionFor(group)
+  )
 
   private def groupIsOverCapacity(group: GroupMetadata): Boolean = {
     group.size > groupConfig.groupMaxSize
