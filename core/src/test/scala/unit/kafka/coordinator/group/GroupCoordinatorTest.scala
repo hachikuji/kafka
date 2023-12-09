@@ -38,7 +38,7 @@ import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.message.LeaveGroupRequestData.MemberIdentity
 import org.apache.kafka.server.util.timer.MockTimer
 import org.apache.kafka.server.util.{KafkaScheduler, MockTime}
-import org.apache.kafka.storage.internals.log.{AppendOrigin, VerificationGuard}
+import org.apache.kafka.storage.internals.log.VerificationGuard
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
@@ -3893,18 +3893,14 @@ class GroupCoordinatorTest {
 
     val capturedArgument: ArgumentCaptor[scala.collection.Map[TopicPartition, PartitionResponse] => Unit] = ArgumentCaptor.forClass(classOf[scala.collection.Map[TopicPartition, PartitionResponse] => Unit])
 
-    when(replicaManager.appendForGroup(anyLong,
+    when(replicaManager.appendForGroup(
+      anyLong,
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       capturedArgument.capture(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any()
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]]
     )).thenAnswer(_ => {
       capturedArgument.getValue.apply(
         Map(new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, groupPartitionId) ->
@@ -3932,16 +3928,11 @@ class GroupCoordinatorTest {
 
     when(replicaManager.appendForGroup(anyLong,
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       capturedArgument.capture(),
       any[Option[ReentrantLock]],
-      any(),
-      any(), 
-      any(),
-      any(),
-      any())).thenAnswer(_ => {
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]])).thenAnswer(_ => {
         capturedArgument.getValue.apply(
           Map(new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, groupPartitionId) ->
             new PartitionResponse(Errors.NONE, 0L, RecordBatch.NO_TIMESTAMP, 0L)
@@ -4079,16 +4070,11 @@ class GroupCoordinatorTest {
 
     when(replicaManager.appendForGroup(anyLong,
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       capturedArgument.capture(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any()
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]]
     )).thenAnswer(_ => {
       capturedArgument.getValue.apply(
         Map(new TopicPartition(Topic.GROUP_METADATA_TOPIC_NAME, groupPartitionId) ->
@@ -4126,16 +4112,11 @@ class GroupCoordinatorTest {
     )
     when(replicaManager.appendForGroup(anyLong,
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       capturedArgument.capture(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any()
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]]
     )).thenAnswer(_ => {
       capturedArgument.getValue.apply(
         Map(offsetTopicPartition ->

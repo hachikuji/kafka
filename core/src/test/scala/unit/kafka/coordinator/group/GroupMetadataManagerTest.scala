@@ -1177,16 +1177,11 @@ class GroupMetadataManagerTest {
 
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any(),
       any(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any())
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]])
     verify(replicaManager).getMagic(any())
   }
 
@@ -1216,16 +1211,11 @@ class GroupMetadataManagerTest {
 
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any(),
       any(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any())
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]])
     verify(replicaManager).getMagic(any())
   }
 
@@ -1294,16 +1284,11 @@ class GroupMetadataManagerTest {
 
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any(),
       any(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any())
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]])
     // Will update sensor after commit
     assertEquals(1, TestUtils.totalMetricValue(metrics, "offset-commit-count"))
   }
@@ -1339,16 +1324,11 @@ class GroupMetadataManagerTest {
 
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       capturedResponseCallback.capture(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      ArgumentMatchers.eq(Map(offsetTopicPartition -> verificationGuard)),
-      any())
+      any(classOf[RequestLocal]),
+      ArgumentMatchers.eq(Map(offsetTopicPartition -> verificationGuard)))
     verify(replicaManager).getMagic(any())
     capturedResponseCallback.getValue.apply(Map(groupTopicPartition ->
       new PartitionResponse(Errors.NONE, 0L, RecordBatch.NO_TIMESTAMP, 0L)))
@@ -1402,16 +1382,11 @@ class GroupMetadataManagerTest {
 
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       any(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      ArgumentMatchers.eq(Map(offsetTopicPartition -> verificationGuard)),
-      any())
+      any(classOf[RequestLocal]),
+      ArgumentMatchers.eq(Map(offsetTopicPartition -> verificationGuard)))
     verify(replicaManager).getMagic(any())
   }
 
@@ -1455,16 +1430,11 @@ class GroupMetadataManagerTest {
 
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       any(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      ArgumentMatchers.eq(Map(offsetTopicPartition -> verificationGuard)),
-      any())
+      any(classOf[RequestLocal]),
+      ArgumentMatchers.eq(Map(offsetTopicPartition -> verificationGuard)))
     verify(replicaManager).getMagic(any())
   }
 
@@ -1611,16 +1581,11 @@ class GroupMetadataManagerTest {
 
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       any(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any())
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]])
     verify(replicaManager).getMagic(any())
     assertEquals(1, TestUtils.totalMetricValue(metrics, "offset-commit-count"))
   }
@@ -1721,16 +1686,11 @@ class GroupMetadataManagerTest {
 
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any(),
       any(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any())
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]])
     verify(replicaManager, times(2)).getMagic(any())
   }
 
@@ -2833,16 +2793,11 @@ class GroupMetadataManagerTest {
     val capturedArgument: ArgumentCaptor[Map[TopicPartition, PartitionResponse] => Unit] = ArgumentCaptor.forClass(classOf[Map[TopicPartition, PartitionResponse] => Unit])
     verify(replicaManager).appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       any[Map[TopicPartition, MemoryRecords]],
       capturedArgument.capture(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any())
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]])
     capturedArgument
   }
 
@@ -2851,16 +2806,11 @@ class GroupMetadataManagerTest {
     val capturedRecords: ArgumentCaptor[Map[TopicPartition, MemoryRecords]] = ArgumentCaptor.forClass(classOf[Map[TopicPartition, MemoryRecords]])
     when(replicaManager.appendForGroup(anyLong(),
       anyShort(),
-      internalTopicsAllowed = ArgumentMatchers.eq(true),
-      origin = ArgumentMatchers.eq(AppendOrigin.COORDINATOR),
       capturedRecords.capture(),
       capturedCallback.capture(),
       any[Option[ReentrantLock]],
-      any(),
-      any(),
-      any(),
-      any(),
-      any()
+      any(classOf[RequestLocal]),
+      any[Map[TopicPartition, VerificationGuard]]
     )).thenAnswer(_ => {
       capturedCallback.getValue.apply(
         Map(groupTopicPartition ->
