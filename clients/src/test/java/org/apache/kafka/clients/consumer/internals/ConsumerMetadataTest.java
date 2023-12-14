@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
+import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -32,6 +33,7 @@ import org.apache.kafka.common.utils.Utils;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -85,6 +87,73 @@ public class ConsumerMetadataTest {
             assertEquals(Utils.mkSet("__matching_topic", "__consumer_offsets"), metadata.fetch().topics());
         else
             assertEquals(Collections.singleton("__matching_topic"), metadata.fetch().topics());
+    }
+
+    @Test
+    public void testUpdateLeadershipInfo() {
+        String topic = "input-topic";
+        Uuid topicId = Uuid.randomUuid();
+
+        subscription.subscribe(Collections.singleton(topic), Optional.empty());
+        ConsumerMetadata metadata = newConsumerMetadata(false);
+
+        Node node1 = new Node(1, "localhost", 9091);
+        Node node2 = new Node(2, "localhost", 9092);
+
+        MetadataResponse.PartitionMetadata partition0 = new MetadataResponse.PartitionMetadata(
+            Errors.NONE,
+            new TopicPartition(topic, 0),
+            Optional.of(1),
+            Optional.of(1),
+            Arrays.asList(1, 2),
+            Arrays.asList(1, 2),
+            Collections.emptyList()
+        );
+
+        MetadataResponse.PartitionMetadata partition1 = new MetadataResponse.PartitionMetadata(
+            Errors.NONE,
+            new TopicPartition(topic, 1),
+            Optional.of(1),
+            Optional.of(1),
+            Arrays.asList(1, 2),
+            Arrays.asList(1, 2),
+            Collections.emptyList()
+        );
+
+        MetadataResponse.TopicMetadata topicMetadata = new MetadataResponse.TopicMetadata(
+            Errors.NONE,
+            "input-topic",
+            topicId,
+            false,
+            Arrays.asList(partition0, partition1),
+            MetadataResponse.AUTHORIZED_OPERATIONS_OMITTED
+        );
+
+        MetadataResponse response = RequestTestUtils.metadataResponse(
+            Arrays.asList(node1, node2),
+            "clusterId",
+            node.id(),
+            Collections.singletonList(topicMetadata)
+        );
+
+        metadata.updateWithCurrentRequestVersion(
+            response,
+            false,
+            time.milliseconds()
+        );
+
+        assertEquals(2, metadata.fetch().partitionsForTopic(topic).size());
+
+
+        metadata.updatePartitionLeadership(
+            Collections.singletonMap(new TopicPartition("input-topic", 1), new Metadata.LeaderIdAndEpoch(
+                Optional.of(2),
+                Optional.of(3)
+            )),
+            Arrays.asList(node2)
+        );
+
+        assertEquals(2, metadata.fetch().partitionsForTopic(topic).size());
     }
 
     @Test
