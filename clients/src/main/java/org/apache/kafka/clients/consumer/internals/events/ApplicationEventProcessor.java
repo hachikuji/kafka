@@ -156,9 +156,20 @@ public class ApplicationEventProcessor implements EventProcessor<ApplicationEven
                 process((SeekUnvalidatedEvent) event);
                 return;
 
+            case SHUTDOWN:
+                process((ShutdownEvent) event);
+                return;
+
             default:
                 log.warn("Application event type {} was not expected", event.type());
         }
+    }
+
+    private void process(final ShutdownEvent event) {
+        // Send async offset commit if auto-commit is enabled
+        // Await all pending async offset commits if there are any
+        // Best effort attempt to send LeaveGroup to gracefully leave the group
+        event.future().complete(null);
     }
 
     private void process(final PollEvent event) {
